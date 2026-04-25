@@ -67,10 +67,15 @@ describe('model catalog recommendation', () => {
     expect(references.map((model) => model.id)).toEqual(
       expect.arrayContaining([
         'cohere-transcribe-03-2026',
+        'zoom-scribe-v1',
         'ibm-granite-4.0-1b-speech',
         'nvidia-canary-qwen-2.5b',
         'qwen3-asr-1.7b',
+        'elevenlabs-scribe-v2',
         'nvidia-parakeet-tdt-0.6b-v3',
+        'qwen3-asr-0.6b',
+        'google-chirp-2',
+        'zai-glm-asr-nano-2512',
         'openai-whisper-large-v3'
       ])
     );
@@ -79,5 +84,6 @@ describe('model catalog recommendation', () => {
     expect(references.some((model) => model.manualSetup)).toBe(true);
     expect(references[0].evaluationSources?.openAsrLeaderboard?.exactModelMatch).toBe(true);
     expect(references[0].evaluationSources?.openAsrLeaderboard?.rank).toBe(1);
+    expect(references.find((model) => model.id === 'zoom-scribe-v1')?.license).toBe('Proprietary');
   });
 });

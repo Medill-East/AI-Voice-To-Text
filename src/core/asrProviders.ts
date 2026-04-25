@@ -21,6 +21,8 @@ interface LocalSherpaProviderOptions {
 
 type SherpaRecognizerFactory = (config: SherpaOfflineRecognizerConfig) => SherpaRecognizer;
 
+const FUNASR_NANO_MAX_CHUNK_SECONDS = 20;
+
 export interface SherpaOfflineRecognizerConfig {
   featConfig?: Record<string, unknown>;
   modelConfig: Record<string, unknown>;
@@ -110,12 +112,21 @@ export class LocalSherpaAsrProvider implements AsrProvider {
     const audioPath = join(workDir, 'recording.wav');
 
     try {
-      const recognizer = this.recognizerFactory
-        ? this.recognizerFactory(recognizerConfig)
-        : createDefaultSherpaRecognizer(recognizerConfig);
       await writeFile(audioPath, audio);
-      const text = await recognizer.transcribe(audioPath);
-      const normalizedText = stripSherpaTags(text);
+      const audioPaths =
+        this.sherpaModelType === 'funasrNano'
+          ? await splitWavForFunAsrNano(audioPath, workDir, FUNASR_NANO_MAX_CHUNK_SECONDS)
+          : [audioPath];
+      const texts: string[] = [];
+
+      for (const chunkPath of audioPaths) {
+        const recognizer = this.recognizerFactory
+          ? this.recognizerFactory(recognizerConfig)
+          : createDefaultSherpaRecognizer(recognizerConfig);
+        texts.push(stripSherpaTags(await recognizer.transcribe(chunkPath)));
+      }
+
+      const normalizedText = texts.filter(Boolean).join('\n').trim();
       if (!normalizedText || /^\d{6,}$/.test(normalizedText)) {
         throw new Error(`本地模型输出异常：${normalizedText || '空结果'}`);
       }
@@ -418,6 +429,47 @@ export function readWavAsFloat32(audioPath: string): { sampleRate: number; sampl
   }
 
   return { sampleRate, samples };
+}
+
+async function splitWavForFunAsrNano(audioPath: string, workDir: string, maxChunkSeconds: number): Promise<string[]> {
+  const wave = readWavAsFloat32(audioPath);
+  const maxSamples = Math.max(1, Math.floor(wave.sampleRate * maxChunkSeconds));
+  if (wave.samples.length <= maxSamples) {
+    return [audioPath];
+  }
+
+  const paths: string[] = [];
+  for (let offset = 0; offset < wave.samples.length; offset += maxSamples) {
+    const chunk = wave.samples.slice(offset, Math.min(wave.samples.length, offset + maxSamples));
+    const chunkPath = join(workDir, `recording-${paths.length + 1}.wav`);
+    await writeFile(chunkPath, encodePcm16Wav(chunk, wave.sampleRate));
+    paths.push(chunkPath);
+  }
+  return paths;
+}
+
+function encodePcm16Wav(samples: Float32Array, sampleRate: number): Buffer {
+  const dataSize = samples.length * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write('RIFF', 0, 'ascii');
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8, 'ascii');
+  buffer.write('fmt ', 12, 'ascii');
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36, 'ascii');
+  buffer.writeUInt32LE(dataSize, 40);
+
+  for (let index = 0; index < samples.length; index += 1) {
+    const sample = Math.max(-1, Math.min(1, samples[index] ?? 0));
+    buffer.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(sample * 32767))), 44 + index * 2);
+  }
+  return buffer;
 }
 
 function stripSherpaTags(input: string): string {

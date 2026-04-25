@@ -188,6 +188,38 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     }
   },
   {
+    id: 'zoom-scribe-v1',
+    name: 'Zoom Scribe v1',
+    family: 'zoom-scribe',
+    releasedAt: '2026-01-01',
+    installable: false,
+    availability: 'reference',
+    unavailableReason: 'Open ASR Leaderboard 排名很高，但这是专有/外部服务模型，不是可下载的本地开源模型，V2T 无法直接一键安装到本机。',
+    manualSetup: '如果后续能通过 Zoom 或第三方服务拿到转写 API，可封装成 HTTP ASR endpoint 后在高级设置接入。',
+    runtime: 'external',
+    sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
+    license: 'Proprietary',
+    sizeMb: 0,
+    languages: ['英文榜单', '中文能力需服务商确认'],
+    qualityTags: ['公开榜单高分', '专有服务', '待接入'],
+    hardwareRequirements: { minMemoryGb: 0, recommendedTier: 'low' },
+    archiveType: 'file',
+    extractedDir: '',
+    primaryModelFile: '',
+    requiredFiles: [],
+    evaluationSources: {
+      openAsrLeaderboard: {
+        sourceLabel: 'Open ASR Leaderboard scripts/data/en_shortform.csv',
+        sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
+        track: 'English short-form',
+        rank: 2,
+        avgWer: 5.47,
+        exactModelMatch: true,
+        note: '榜单数据来自英文短音频 track；专有服务不代表本地中文/中英混输体验。'
+      }
+    }
+  },
+  {
     id: 'ibm-granite-4.0-1b-speech',
     name: 'IBM Granite 4.0 1B Speech',
     family: 'ibm-granite-speech',
@@ -290,6 +322,38 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     }
   },
   {
+    id: 'elevenlabs-scribe-v2',
+    name: 'ElevenLabs Scribe v2',
+    family: 'elevenlabs-scribe',
+    releasedAt: '2026-01-01',
+    installable: false,
+    availability: 'reference',
+    unavailableReason: '榜单排名靠前，但这是专有云服务，不是本地开源模型；V2T 第一版不保存/管理第三方 token。',
+    manualSetup: '如果你有 ElevenLabs API 或兼容代理，可后续通过 OpenAI/FunASR 类 HTTP adapter 接入；当前不做一键本地安装。',
+    runtime: 'external',
+    sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
+    license: 'Proprietary',
+    sizeMb: 0,
+    languages: ['英文榜单', '多语言能力需服务商确认'],
+    qualityTags: ['公开榜单高分', '专有服务', '待接入'],
+    hardwareRequirements: { minMemoryGb: 0, recommendedTier: 'low' },
+    archiveType: 'file',
+    extractedDir: '',
+    primaryModelFile: '',
+    requiredFiles: [],
+    evaluationSources: {
+      openAsrLeaderboard: {
+        sourceLabel: 'Open ASR Leaderboard scripts/data/en_shortform.csv',
+        sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
+        track: 'English short-form',
+        rank: 7,
+        avgWer: 5.83,
+        exactModelMatch: true,
+        note: '榜单数据来自英文短音频 track；中文/中英混输需要单独验证。'
+      }
+    }
+  },
+  {
     id: 'nvidia-parakeet-tdt-0.6b-v3',
     name: 'NVIDIA Parakeet TDT 0.6B v3',
     family: 'nvidia-parakeet',
@@ -324,6 +388,108 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
         sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/nemo/index.html',
         note: 'sherpa-onnx 文档已列出 Parakeet TDT 0.6B v3 int8 模型；V2T 还未实现 NeMo transducer adapter。',
         metrics: []
+      }
+    }
+  },
+  {
+    id: 'qwen3-asr-0.6b',
+    name: 'Qwen3-ASR 0.6B',
+    family: 'qwen3-asr',
+    releasedAt: '2026-03-01',
+    installable: false,
+    availability: 'manual',
+    unavailableReason: 'sherpa-onnx 已有 Qwen3-ASR 0.6B ONNX 文档，但 V2T 还没有实现对应 recognizer config 和安装后 smoke test。',
+    manualSetup: '可参考 sherpa-onnx Qwen3-ASR 文档手动运行；完成 V2T adapter 后可进入一键安装区。',
+    runtime: 'sherpa-onnx',
+    sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/qwen3-asr/index.html',
+    license: 'Open',
+    sizeMb: 600,
+    languages: ['中文', '英文', '粤语', '多语言', '中文方言'],
+    qualityTags: ['公开榜单高分', '中文方言', '中英混输', '待接入'],
+    hardwareRequirements: { minMemoryGb: 16, recommendedTier: 'high' },
+    archiveType: 'file',
+    extractedDir: '',
+    primaryModelFile: '',
+    requiredFiles: [],
+    evaluationSources: {
+      openAsrLeaderboard: {
+        sourceLabel: 'Open ASR Leaderboard scripts/data/en_shortform.csv',
+        sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
+        track: 'English short-form',
+        rank: 17,
+        avgWer: 6.42,
+        rtfx: 166.23,
+        exactModelMatch: true
+      },
+      officialBenchmark: {
+        sourceLabel: 'sherpa-onnx Qwen3-ASR documentation',
+        sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/qwen3-asr/index.html',
+        note: 'sherpa-onnx 文档说明 Qwen3-ASR 支持中文、英文、粤语和多种中文方言。',
+        metrics: []
+      }
+    }
+  },
+  {
+    id: 'google-chirp-2',
+    name: 'Google Chirp 2',
+    family: 'google-chirp',
+    releasedAt: '2026-01-01',
+    installable: false,
+    availability: 'reference',
+    unavailableReason: '榜单排名靠前，但这是专有云服务，不是可下载本地模型，也不属于当前本地 sherpa-onnx runtime。',
+    manualSetup: '如果要使用，需要单独接 Google Cloud Speech API 或自建 HTTP adapter；当前 V2T 不在应用内保存云服务密钥。',
+    runtime: 'external',
+    sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
+    license: 'Proprietary',
+    sizeMb: 0,
+    languages: ['多语言云服务', '中文能力需服务商确认'],
+    qualityTags: ['公开榜单高分', '专有服务', '待接入'],
+    hardwareRequirements: { minMemoryGb: 0, recommendedTier: 'low' },
+    archiveType: 'file',
+    extractedDir: '',
+    primaryModelFile: '',
+    requiredFiles: [],
+    evaluationSources: {
+      openAsrLeaderboard: {
+        sourceLabel: 'Open ASR Leaderboard scripts/data/en_shortform.csv',
+        sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
+        track: 'English short-form',
+        rank: 16,
+        avgWer: 6.42,
+        exactModelMatch: true,
+        note: '榜单数据来自英文短音频 track；云服务中文/中英混输需要单独验证。'
+      }
+    }
+  },
+  {
+    id: 'zai-glm-asr-nano-2512',
+    name: 'GLM-ASR-Nano 2512',
+    family: 'glm-asr-nano',
+    releasedAt: '2025-12-01',
+    installable: false,
+    availability: 'reference',
+    unavailableReason: 'Open ASR Leaderboard 有记录，但 V2T 当前没有可验证的一键下载包、本地 Node runtime adapter 和安装后 smoke test。',
+    manualSetup: '如果上游提供 ONNX/sherpa 或 HTTP 服务，可先通过高级 ASR endpoint 接入；完成 adapter 后再进入一键安装区。',
+    runtime: 'external',
+    sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
+    license: 'Open',
+    sizeMb: 2000,
+    languages: ['中文候选', '英文榜单'],
+    qualityTags: ['公开榜单高分', '中文候选', '待接入'],
+    hardwareRequirements: { minMemoryGb: 16, recommendedTier: 'high' },
+    archiveType: 'file',
+    extractedDir: '',
+    primaryModelFile: '',
+    requiredFiles: [],
+    evaluationSources: {
+      openAsrLeaderboard: {
+        sourceLabel: 'Open ASR Leaderboard scripts/data/en_shortform.csv',
+        sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
+        track: 'English short-form',
+        rank: 26,
+        avgWer: 7.03,
+        rtfx: 145.28,
+        exactModelMatch: true
       }
     }
   },

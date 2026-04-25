@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { referenceModels } from '../core/modelCatalog';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
 import type {
   AutoSyncState,
@@ -661,6 +662,7 @@ export function App() {
   const topRecommendation = setup?.recommendations[0];
   const hasLocalModel = Boolean(settings?.providers.asr.modelId && settings.providers.asr.modelPath);
   const currentPage = APP_PAGES.find((page) => page.id === activePage) ?? APP_PAGES[0];
+  const referenceCatalog = setup ? referenceModels(setup.catalog) : [];
   const pageContent = (() => {
     if (activePage === 'voice') {
       return (
@@ -750,7 +752,7 @@ export function App() {
                 {setup.hardware.cpuName} · {setup.hardware.memoryGb}GB · {tierLabel(setup.hardware.recommendedTier)}
               </p>
               <p className="hint">公开榜单看 Open ASR Leaderboard，官方评测看模型卡；V2T 本机适配分只表示这台设备上的推荐优先级。WER/CER 越低越好，RTFx 越高越快。</p>
-              <ModelComparisonTable recommendations={setup.recommendations} referenceModels={setup.catalog.filter((model) => model.availability && model.availability !== 'installable')} />
+              <ModelComparisonTable recommendations={setup.recommendations} referenceModels={referenceCatalog} />
               <div className="model-list">
                 {setup.recommendations.map((recommendation) => (
                   <ModelRow
@@ -786,11 +788,9 @@ export function App() {
               <h2 className="subsection-title">公开高分参考 / 待接入</h2>
               <p className="hint">这些模型有公开榜单或上游文档参考，但还没有完成 V2T 一键下载、运行配置和打包 smoke test，因此不会显示“安装”。</p>
               <div className="model-list reference-models">
-                {setup.catalog
-                  .filter((model) => model.availability && model.availability !== 'installable')
-                  .map((model) => (
-                    <ReferenceModelRow key={model.id} model={model} />
-                  ))}
+                {referenceCatalog.map((model) => (
+                  <ReferenceModelRow key={model.id} model={model} />
+                ))}
               </div>
             </>
           ) : (

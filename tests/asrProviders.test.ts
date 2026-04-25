@@ -103,6 +103,31 @@ describe('ASR providers', () => {
     });
   });
 
+  it('splits long Fun-ASR-Nano audio into shorter chunks before transcription', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-funasr-long-'));
+    await writeFunAsrModelFiles(baseDir);
+    const audio = createPcm16Wav(new Array(16000 * 50).fill(1000), 16000);
+    const durations: number[] = [];
+    const provider = new LocalSherpaAsrProvider({
+      modelId: 'funasr-nano-int8-2025-12-30',
+      modelPath: join(baseDir, 'encoder_adaptor.int8.onnx'),
+      sherpaModelType: 'funasrNano',
+      recognizerFactory: () => ({
+        transcribe: (audioPath) => {
+          const wave = readWavAsFloat32(audioPath);
+          durations.push(wave.samples.length / wave.sampleRate);
+          return `片段${durations.length}`;
+        }
+      })
+    });
+
+    const result = await provider.transcribe(audio);
+
+    expect(result.text).toBe('片段1\n片段2\n片段3');
+    expect(durations).toHaveLength(3);
+    expect(durations.every((duration) => duration <= 20.1)).toBe(true);
+  });
+
   it('decodes PCM16 mono WAV into regular Float32 samples', async () => {
     const audioPath = join(await mkdtemp(join(tmpdir(), 'v2t-wav-')), 'sample.wav');
     await writeFile(audioPath, createPcm16Wav([0, 16384, -16384, 32767], 16000));
@@ -145,4 +170,14 @@ function createPcm16Wav(samples: number[], sampleRate: number, options: { format
   buffer.writeUInt32LE(dataSize, 40);
   samples.forEach((sample, index) => buffer.writeInt16LE(sample, 44 + index * bytesPerSample));
   return buffer;
+}
+
+async function writeFunAsrModelFiles(baseDir: string): Promise<void> {
+  await mkdir(join(baseDir, 'Qwen3-0.6B'), { recursive: true });
+  await writeFile(join(baseDir, 'encoder_adaptor.int8.onnx'), 'encoder');
+  await writeFile(join(baseDir, 'llm.int8.onnx'), 'llm');
+  await writeFile(join(baseDir, 'embedding.int8.onnx'), 'embedding');
+  await writeFile(join(baseDir, 'Qwen3-0.6B', 'tokenizer.json'), '{}');
+  await writeFile(join(baseDir, 'Qwen3-0.6B', 'vocab.json'), '{}');
+  await writeFile(join(baseDir, 'Qwen3-0.6B', 'merges.txt'), '');
 }
