@@ -7,6 +7,9 @@ export interface RecordingOverlayUpdate {
   mode: InputMode;
   startedAt?: number;
   now?: number;
+  level?: number;
+  inputActive?: boolean;
+  silenceMs?: number;
 }
 
 export interface NormalizedRecordingOverlayState {
@@ -14,6 +17,9 @@ export interface NormalizedRecordingOverlayState {
   state: RecordingOverlayUiState;
   mode: InputMode;
   elapsedMs: number;
+  level: number;
+  inputActive: boolean;
+  silenceMs: number;
 }
 
 export interface DisplayBounds {
@@ -25,15 +31,19 @@ export interface DisplayBounds {
 
 export function normalizeRecordingOverlayState(update: RecordingOverlayUpdate): NormalizedRecordingOverlayState {
   const visible = update.state === 'recording' || update.state === 'processing';
+  const level = clamp(update.level ?? 0, 0, 1);
   return {
     visible,
     state: update.state,
     mode: update.mode,
-    elapsedMs: visible && update.startedAt ? Math.max(0, (update.now ?? Date.now()) - update.startedAt) : 0
+    elapsedMs: visible && update.startedAt ? Math.max(0, (update.now ?? Date.now()) - update.startedAt) : 0,
+    level,
+    inputActive: update.inputActive ?? level > 0.03,
+    silenceMs: Math.max(0, update.silenceMs ?? 0)
   };
 }
 
-export function recordingOverlayBounds(bounds: DisplayBounds, size = { width: 300, height: 72 }): DisplayBounds {
+export function recordingOverlayBounds(bounds: DisplayBounds, size = { width: 280, height: 60 }): DisplayBounds {
   return {
     width: size.width,
     height: size.height,
@@ -44,4 +54,8 @@ export function recordingOverlayBounds(bounds: DisplayBounds, size = { width: 30
 
 export function trayTitleForRecordingState(state: NormalizedRecordingOverlayState): string {
   return state.visible && state.state === 'recording' ? 'V2T ●' : 'V2T';
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }

@@ -435,6 +435,11 @@ select {
   color: #1f2724;
 }
 
+.full-width {
+  width: 100%;
+  margin-top: 14px;
+}
+
 .secondary.listening {
   background: #d84d3f;
   border-color: #d84d3f;

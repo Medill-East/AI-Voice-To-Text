@@ -41,6 +41,10 @@ export function App() {
   const modeRef = useRef<InputMode>('natural');
   const recordingStateRef = useRef<RecordingState>('idle');
   const recordingStartedAtRef = useRef<number | undefined>(undefined);
+  const inputLevelRef = useRef(0);
+  const inputActiveRef = useRef(false);
+  const silenceStartedAtRef = useRef<number | undefined>(undefined);
+  const silenceMsRef = useRef(0);
   const capturedHotkeyKeysRef = useRef<Set<string>>(new Set());
 
   const applySetup = useCallback((nextSetup: SetupPayload) => {
@@ -59,6 +63,40 @@ export function App() {
   useEffect(() => {
     recordingStateRef.current = state;
   }, [state]);
+
+  const resetInputMeter = useCallback(() => {
+    inputLevelRef.current = 0;
+    inputActiveRef.current = false;
+    silenceStartedAtRef.current = undefined;
+    silenceMsRef.current = 0;
+  }, []);
+
+  const updateInputMeter = useCallback((samples: Float32Array) => {
+    if (samples.length === 0) {
+      return;
+    }
+
+    let sum = 0;
+    for (let index = 0; index < samples.length; index += 1) {
+      const sample = samples[index] ?? 0;
+      sum += sample * sample;
+    }
+
+    const rms = Math.sqrt(sum / samples.length);
+    const nextLevel = Math.min(1, rms * 12);
+    inputLevelRef.current = inputLevelRef.current * 0.72 + nextLevel * 0.28;
+    inputActiveRef.current = inputLevelRef.current > 0.045;
+
+    const now = Date.now();
+    if (inputActiveRef.current) {
+      silenceStartedAtRef.current = undefined;
+      silenceMsRef.current = 0;
+      return;
+    }
+
+    silenceStartedAtRef.current ??= now;
+    silenceMsRef.current = now - silenceStartedAtRef.current;
+  }, []);
 
   useEffect(() => {
     void window.v2t.getSetup().then(applySetup);
@@ -93,10 +131,11 @@ export function App() {
     recorder.stream.getTracks().forEach((track) => track.stop());
     void recorder.context.close();
     recorderRef.current = null;
+    resetInputMeter();
 
     const wav = encodeWav(recorder.chunks, recorder.inputSampleRate, 16000);
     void processRecording(wav, modeRef.current);
-  }, []);
+  }, [resetInputMeter]);
 
   const startRecording = useCallback(async () => {
     if (recordingStateRef.current === 'recording' || recordingStateRef.current === 'processing') {
@@ -104,6 +143,7 @@ export function App() {
     }
 
     setError(null);
+    resetInputMeter();
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -113,7 +153,9 @@ export function App() {
       const chunks: Float32Array[] = [];
 
       processor.onaudioprocess = (event) => {
-        chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+        const samples = event.inputBuffer.getChannelData(0);
+        chunks.push(new Float32Array(samples));
+        updateInputMeter(samples);
       };
       source.connect(processor);
       processor.connect(context.destination);
@@ -130,10 +172,11 @@ export function App() {
       setState('recording');
     } catch (caught) {
       recordingStartedAtRef.current = undefined;
+      resetInputMeter();
       setState('error');
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, []);
+  }, [resetInputMeter, updateInputMeter]);
 
   const processRecording = useCallback(async (bytes: Uint8Array, activeMode: InputMode) => {
     setState('processing');
@@ -141,13 +184,15 @@ export function App() {
       const result = await window.v2t.processAudio({ bytes, mode: activeMode });
       setHistory((items) => [{ ...result, createdAt: new Date().toISOString(), mode: activeMode }, ...items].slice(0, 30));
       recordingStartedAtRef.current = undefined;
+      resetInputMeter();
       setState('idle');
     } catch (caught) {
       recordingStartedAtRef.current = undefined;
+      resetInputMeter();
       setState('error');
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, []);
+  }, [resetInputMeter]);
 
   useEffect(() => {
     const syncOverlay = () => {
@@ -156,7 +201,10 @@ export function App() {
           state,
           mode,
           startedAt: recordingStartedAtRef.current,
-          now: Date.now()
+          now: Date.now(),
+          level: inputLevelRef.current,
+          inputActive: inputActiveRef.current,
+          silenceMs: silenceMsRef.current
         })
         .catch(() => undefined);
     };
@@ -164,7 +212,7 @@ export function App() {
     if (state !== 'recording' && state !== 'processing') {
       return;
     }
-    const timer = window.setInterval(syncOverlay, 500);
+    const timer = window.setInterval(syncOverlay, state === 'recording' ? 120 : 500);
     return () => window.clearInterval(timer);
   }, [mode, state]);
 
@@ -473,6 +521,18 @@ export function App() {
                   <dd>{hotkeyStatus.message}</dd>
                 </div>
               ) : null}
+              {hotkeyStatus?.lastError ? (
+                <div>
+                  <dt>最近错误</dt>
+                  <dd>{hotkeyStatus.lastError}</dd>
+                </div>
+              ) : null}
+              {hotkeyStatus?.lastNativeEventAt ? (
+                <div>
+                  <dt>最近按键事件</dt>
+                  <dd>{new Date(hotkeyStatus.lastNativeEventAt).toLocaleTimeString()}</dd>
+                </div>
+              ) : null}
               {hotkeyStatus?.needsAccessibilityPermission ? (
                 <div>
                   <dt>权限</dt>
@@ -654,6 +714,14 @@ export function App() {
               ) : null}
             </section>
           ) : null}
+
+          <section>
+            <h2>应用</h2>
+            <p className="hint">关闭窗口会隐藏到菜单栏；需要结束后台进程时使用完全退出。</p>
+            <button className="secondary full-width" onClick={() => void window.v2t.quitApp()}>
+              完全退出 V2T
+            </button>
+          </section>
         </aside>
       </section>
     </main>
@@ -828,8 +896,11 @@ function hotkeyStatusLabel(status?: HotkeyStatus): string {
   if (!status) {
     return '初始化';
   }
-  if (status.fallbackRegistered) {
+  if (status.fallbackRegistered && status.nativeActive === false) {
     return `备用快捷键已启用：${hotkeyLabel(status.activeAccelerator ?? '')}`;
+  }
+  if (status.fallbackRegistered && status.nativeActive) {
+    return '系统监听已注册；备用快捷键待命';
   }
   if (!status.registered) {
     return `${hotkeyBackendLabel(status.backend)} 未注册`;

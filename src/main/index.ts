@@ -19,6 +19,7 @@ import { HotkeyService, type HotkeyStatus } from './hotkeyService';
 import { OsPasteKeySender } from './osPasteKeySender';
 import { SecretStore } from './secretStore';
 import { createTrayImage } from './trayIcon';
+import { closeShouldHideToTray, quitTrayMenuLabel } from './windowLifecycle';
 import {
   normalizeRecordingOverlayState,
   recordingOverlayBounds,
@@ -75,10 +76,13 @@ function createWindow(): void {
   });
 
   mainWindow.on('close', (event) => {
-    if (!isQuitting) {
+    if (closeShouldHideToTray(isQuitting)) {
       event.preventDefault();
       mainWindow?.hide();
     }
+  });
+  mainWindow.on('closed', () => {
+    mainWindow = undefined;
   });
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
@@ -108,11 +112,8 @@ function createTray(): void {
       },
       { type: 'separator' },
       {
-        label: '退出',
-        click: () => {
-          isQuitting = true;
-          app.quit();
-        }
+        label: quitTrayMenuLabel(),
+        click: () => quitApp()
       }
     ])
   );
@@ -140,6 +141,13 @@ function registerIpc(): void {
   ipcMain.handle('v2t:refresh-hotkey-permissions', async () => {
     await registerHotkey();
     return getSetupPayload();
+  });
+  ipcMain.handle('v2t:quit-app', async () => {
+    quitApp();
+    return { ok: true };
+  });
+  ipcMain.on('v2t:overlay-stop-recording', () => {
+    sendRecordingCommand({ type: 'stop', trigger: 'toggle' });
   });
   ipcMain.handle('v2t:set-recording-overlay-state', async (_event, update: RecordingOverlayUpdate) => {
     await applyRecordingOverlayState(normalizeRecordingOverlayState(update));
@@ -270,8 +278,8 @@ async function ensureRecordingOverlayWindow(): Promise<BrowserWindow> {
   }
 
   recordingOverlayWindow = new BrowserWindow({
-    width: 300,
-    height: 72,
+    width: 280,
+    height: 60,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -282,16 +290,21 @@ async function ensureRecordingOverlayWindow(): Promise<BrowserWindow> {
     maximizable: false,
     closable: false,
     focusable: false,
+    acceptFirstMouse: true,
     show: false,
     hasShadow: false,
     webPreferences: {
+      preload: join(__dirname, '../preload/overlay.js'),
       contextIsolation: true,
       nodeIntegration: false
     }
   });
-  recordingOverlayWindow.setIgnoreMouseEvents(true);
   recordingOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   recordingOverlayWindow.setAlwaysOnTop(true, 'floating');
+  recordingOverlayWindow.on('closed', () => {
+    recordingOverlayWindow = undefined;
+    recordingOverlayReady = undefined;
+  });
 
   recordingOverlayReady = new Promise((resolve) => {
     recordingOverlayWindow?.webContents.once('did-finish-load', () => resolve());
@@ -307,13 +320,7 @@ async function registerHotkey(): Promise<void> {
     fallbackAccelerator: settings.hotkey.fallbackAccelerator,
     longPressMs: settings.hotkey.longPressMs,
     accessibilityTrusted: getAccessibilityTrusted(),
-    onAction: (action) => {
-      if (action.type === 'start-recording') {
-        mainWindow?.webContents.send('v2t:recording-command', { type: 'start', trigger: action.mode });
-      } else {
-        mainWindow?.webContents.send('v2t:recording-command', { type: 'stop', trigger: action.mode });
-      }
-    },
+    onAction: sendHotkeyAction,
     onStatus: (status) => {
       hotkeyStatus = status;
       mainWindow?.webContents.send('v2t:hotkey-status', status);
@@ -443,13 +450,7 @@ async function updateHotkey(accelerator: string) {
     fallbackAccelerator: settings.hotkey.fallbackAccelerator,
     longPressMs: settings.hotkey.longPressMs,
     accessibilityTrusted: getAccessibilityTrusted(),
-    onAction: (action) => {
-      if (action.type === 'start-recording') {
-        mainWindow?.webContents.send('v2t:recording-command', { type: 'start', trigger: action.mode });
-      } else {
-        mainWindow?.webContents.send('v2t:recording-command', { type: 'stop', trigger: action.mode });
-      }
-    },
+    onAction: sendHotkeyAction,
     onStatus: (nextStatus) => {
       hotkeyStatus = nextStatus;
       mainWindow?.webContents.send('v2t:hotkey-status', nextStatus);
@@ -508,6 +509,34 @@ function showWindow(): void {
   mainWindow.focus();
 }
 
+function sendHotkeyAction(action: { type: 'start-recording' | 'stop-recording'; mode: 'toggle' | 'hold' }): void {
+  if (action.type === 'start-recording') {
+    sendRecordingCommand({ type: 'start', trigger: action.mode });
+  } else {
+    sendRecordingCommand({ type: 'stop', trigger: action.mode });
+  }
+}
+
+function sendRecordingCommand(command: { type: 'start' | 'stop'; trigger: 'toggle' | 'hold' }): void {
+  mainWindow?.webContents.send('v2t:recording-command', command);
+}
+
+function quitApp(): void {
+  isQuitting = true;
+  app.quit();
+}
+
+function cleanupAppResources(): void {
+  hotkeyService?.unregister();
+  if (recordingOverlayWindow && !recordingOverlayWindow.isDestroyed()) {
+    recordingOverlayWindow.destroy();
+  }
+  recordingOverlayWindow = undefined;
+  recordingOverlayReady = undefined;
+  tray?.destroy();
+  tray = undefined;
+}
+
 function recordingOverlayHtmlUrl(): string {
   const html = `<!doctype html>
 <html>
@@ -516,18 +545,29 @@ function recordingOverlayHtmlUrl(): string {
   <style>
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; margin: 0; background: transparent; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .overlay { width: 300px; height: 72px; display: flex; align-items: center; gap: 13px; padding: 12px 16px; border: 1px solid rgba(31, 39, 36, 0.12); border-radius: 18px; background: rgba(31, 39, 36, 0.92); color: #fffaf0; box-shadow: 0 16px 38px rgba(0, 0, 0, 0.24); }
-    .pulse { width: 38px; height: 38px; border-radius: 999px; background: #d84d3f; box-shadow: 0 0 0 0 rgba(216, 77, 63, 0.35); animation: pulse 1.2s ease-in-out infinite; }
-    .processing .pulse { background: #2e6f95; animation: none; }
-    .text { min-width: 0; display: grid; gap: 3px; }
-    .title { font-weight: 720; font-size: 15px; letter-spacing: 0; }
-    .meta { color: rgba(255, 250, 240, 0.72); font-size: 12px; }
-    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(216, 77, 63, 0.32); transform: scale(0.96); } 70% { box-shadow: 0 0 0 12px rgba(216, 77, 63, 0); transform: scale(1); } 100% { box-shadow: 0 0 0 0 rgba(216, 77, 63, 0); transform: scale(0.96); } }
+    .overlay { width: 280px; height: 60px; display: flex; align-items: center; gap: 11px; padding: 10px 14px; border: 1px solid rgba(255, 250, 240, 0.1); border-radius: 15px; background: rgba(31, 39, 36, 0.92); color: #fffaf0; box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22); cursor: pointer; user-select: none; }
+    .overlay:active { transform: translateY(1px); }
+    .status-dot { width: 8px; height: 8px; border-radius: 999px; background: #d84d3f; box-shadow: 0 0 0 5px rgba(216, 77, 63, 0.16); flex: 0 0 auto; }
+    .processing .status-dot { background: #2e6f95; box-shadow: 0 0 0 5px rgba(46, 111, 149, 0.14); }
+    .waves { width: 42px; height: 26px; display: flex; align-items: center; justify-content: center; gap: 3px; flex: 0 0 auto; }
+    .bar { width: 3px; min-height: 4px; border-radius: 999px; background: rgba(255, 250, 240, 0.78); transition: height 90ms ease, opacity 120ms ease; }
+    .no-input .bar { opacity: 0.32; }
+    .processing .bar { height: 11px !important; opacity: 0.45; }
+    .text { min-width: 0; display: grid; gap: 2px; flex: 1; }
+    .title { font-weight: 720; font-size: 13px; letter-spacing: 0; line-height: 1.2; }
+    .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255, 250, 240, 0.68); font-size: 11px; line-height: 1.3; }
   </style>
 </head>
 <body>
-  <div id="overlay" class="overlay">
-    <div class="pulse"></div>
+  <div id="overlay" class="overlay" role="button" aria-label="停止录音" title="停止录音">
+    <div class="status-dot"></div>
+    <div class="waves" aria-hidden="true">
+      <span class="bar"></span>
+      <span class="bar"></span>
+      <span class="bar"></span>
+      <span class="bar"></span>
+      <span class="bar"></span>
+    </div>
     <div class="text">
       <div id="title" class="title">录音中</div>
       <div id="meta" class="meta">自然输入 · 00:00</div>
@@ -540,13 +580,29 @@ function recordingOverlayHtmlUrl(): string {
       const seconds = String(total % 60).padStart(2, '0');
       return minutes + ':' + seconds;
     }
+    const overlay = document.getElementById('overlay');
+    overlay.addEventListener('click', function() {
+      window.v2tOverlay && window.v2tOverlay.stopRecording && window.v2tOverlay.stopRecording();
+    });
     window.setV2TOverlayState = function(state) {
-      const overlay = document.getElementById('overlay');
       const title = document.getElementById('title');
       const meta = document.getElementById('meta');
-      overlay.className = 'overlay ' + state.state;
+      const bars = Array.from(document.querySelectorAll('.bar'));
+      const level = Math.max(0, Math.min(1, state.level || 0));
+      const inputActive = Boolean(state.inputActive);
+      overlay.className = 'overlay ' + state.state + (inputActive ? ' input-active' : ' no-input');
       title.textContent = state.state === 'processing' ? '正在整理' : '正在录音';
-      meta.textContent = (state.mode === 'structured' ? '结构输入' : '自然输入') + ' · ' + formatElapsed(state.elapsedMs || 0);
+      const mode = state.mode === 'structured' ? '结构输入' : '自然输入';
+      if (state.state === 'recording' && !inputActive && (state.silenceMs || 0) > 1800) {
+        meta.textContent = '未检测到明显声音 · ' + formatElapsed(state.elapsedMs || 0);
+      } else {
+        meta.textContent = mode + ' · ' + formatElapsed(state.elapsedMs || 0);
+      }
+      const weights = [0.45, 0.86, 0.58, 1, 0.68];
+      bars.forEach(function(bar, index) {
+        const height = 5 + Math.round(level * 18 * weights[index]);
+        bar.style.height = height + 'px';
+      });
     };
   </script>
 </body>
@@ -558,9 +614,19 @@ function deviceId(): string {
   return hostname().replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 48) || 'device';
 }
 
-app.whenReady().then(() => {
-  void bootstrap().then(showWindow);
-});
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.whenReady().then(() => {
+    void bootstrap().then(showWindow);
+  });
+
+  app.on('second-instance', () => {
+    showWindow();
+  });
+}
 
 app.on('activate', () => {
   if (!mainWindow) {
@@ -569,10 +635,10 @@ app.on('activate', () => {
   showWindow();
 });
 
-app.on('will-quit', () => {
-  hotkeyService?.unregister();
+app.on('before-quit', () => {
+  isQuitting = true;
 });
 
-if (!app.requestSingleInstanceLock()) {
-  app.quit();
-}
+app.on('will-quit', () => {
+  cleanupAppResources();
+});
