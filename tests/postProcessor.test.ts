@@ -58,8 +58,22 @@ describe('PostProcessor', () => {
     expect(result.text).toContain('3. 最后开始录音');
   });
 
+  it('separates clear topic changes into paragraphs in structured fallback', async () => {
+    const processor = new PostProcessor();
+
+    const result = await processor.process('今天先记录语音输入的体验。换个话题，现在是独立游戏的黄金时代。接下来我想整理模型推荐。', {
+      mode: 'structured',
+      lexicon
+    });
+
+    expect(result.text).toContain('今天先记录语音输入的体验。');
+    expect(result.text).toContain('\n\n换个话题，现在是独立游戏的黄金时代。');
+    expect(result.text).toContain('\n\n接下来我想整理模型推荐。');
+  });
+
   it('instructs LLM structured mode not to force every sentence into a list', () => {
     expect(structuredPrompt()).toContain('不要默认把每一句都变成列表');
+    expect(structuredPrompt()).toContain('话题边界');
   });
 
   it('uses an OpenAI-compatible LLM client for structured mode when configured', async () => {

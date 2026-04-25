@@ -4,7 +4,7 @@ const DEFAULT_NATURAL_PROMPT =
   '你是保守的中文语音输入纠错器。只修正明显识别错误、专有名词、标点和少量口头禅，不改变语序、观点或文风。';
 
 const DEFAULT_STRUCTURED_PROMPT =
-  '把用户口述内容整理为易读 Markdown。保留原意，按内容自动使用段落、空行、编号或列表。不要默认把每一句都变成列表；只有在步骤、清单、并列观点明显时才使用列表或编号。不强行添加背景、目标、约束等固定模板。';
+  '把用户口述内容整理为易读 Markdown。保留原意，按话题边界自动使用段落、空行、编号或列表；不同话题之间用空行分隔。不要默认把每一句都变成列表；只有在步骤、清单、并列观点明显时才使用列表或编号。不强行添加背景、目标、约束等固定模板。';
 
 export class PostProcessor {
   private readonly llm?: LlmClient;
@@ -74,7 +74,8 @@ function stripBlockedAndFillers(input: string, lexicon: Lexicon): string {
 }
 
 function toReadableMarkdown(input: string): string {
-  const parts = input
+  const normalized = markTopicBoundaries(input);
+  const parts = normalized
     .split(/(?:。|！|!|？|\?|；|;|\n)+/)
     .map((part) => part.trim())
     .filter(Boolean);
@@ -105,11 +106,15 @@ function looksLikeLooseList(parts: string[]): boolean {
   if (parts.length < 3) {
     return false;
   }
-  return parts.filter((part) => /^(另外|还有|包括|比如|以及|同时|一方面|另一方面)/.test(part)).length >= 2;
+  return parts.filter((part) => /^(包括|比如|以及|同时|一方面|另一方面)/.test(part)).length >= 2;
 }
 
 function ensureSentencePunctuation(input: string): string {
   return /[，,。.!！?？；;]$/.test(input) ? input : `${input}。`;
+}
+
+function markTopicBoundaries(input: string): string {
+  return input.replace(/(换个话题|另外|接下来|说回到|第二点|第三点|第四点|第五点|还有一件事)/g, '\n$1');
 }
 
 function replaceAll(input: string, from: string, to: string, caseSensitive = false): string {

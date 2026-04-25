@@ -2,24 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { HotkeyGestureDetector } from '../src/core/hotkeyGesture';
 
 describe('HotkeyGestureDetector', () => {
-  it('starts and stops toggle recording on repeated short presses', () => {
-    const detector = new HotkeyGestureDetector({ longPressMs: 250 });
+  it('starts natural recording after a single click window and stops on the next click', () => {
+    const detector = new HotkeyGestureDetector({ longPressMs: 350 });
 
     expect(detector.keyDown(0)).toEqual([]);
-    expect(detector.keyUp(120)).toEqual([{ type: 'start-recording', mode: 'toggle' }]);
+    expect(detector.keyUp(80)).toEqual([]);
+    expect(detector.thresholdElapsed(429)).toEqual([]);
+    expect(detector.thresholdElapsed(430)).toEqual([{ type: 'start-recording', mode: 'toggle', inputMode: 'natural' }]);
 
-    expect(detector.keyDown(500)).toEqual([]);
-    expect(detector.keyUp(620)).toEqual([{ type: 'stop-recording', mode: 'toggle' }]);
+    expect(detector.keyDown(500)).toEqual([{ type: 'stop-recording', mode: 'toggle' }]);
+    expect(detector.keyUp(580)).toEqual([]);
   });
 
-  it('starts hold recording after the long-press threshold and stops on release', () => {
-    const detector = new HotkeyGestureDetector({ longPressMs: 250 });
+  it('starts structured recording on double click without starting natural input first', () => {
+    const detector = new HotkeyGestureDetector({ longPressMs: 350 });
 
-    detector.keyDown(1000);
-
-    expect(detector.thresholdElapsed(1249)).toEqual([]);
-    expect(detector.thresholdElapsed(1250)).toEqual([{ type: 'start-recording', mode: 'hold' }]);
-    expect(detector.thresholdElapsed(1300)).toEqual([]);
-    expect(detector.keyUp(1500)).toEqual([{ type: 'stop-recording', mode: 'hold' }]);
+    expect(detector.keyDown(1000)).toEqual([]);
+    expect(detector.keyUp(1060)).toEqual([]);
+    expect(detector.keyDown(1200)).toEqual([{ type: 'start-recording', mode: 'toggle', inputMode: 'structured' }]);
+    expect(detector.keyUp(1260)).toEqual([]);
   });
 });

@@ -190,6 +190,7 @@ function registerIpc(): void {
     return { settings, hotkeyStatus };
   });
   ipcMain.handle('v2t:get-lexicon', async () => store.loadLexicon());
+  ipcMain.handle('v2t:get-history', async (_event, limit?: number) => store.readRecentHistory(limit ?? 30));
   ipcMain.handle('v2t:save-lexicon', async (_event, lexicon) => {
     try {
       await store.saveLexicon(lexicon);
@@ -758,15 +759,15 @@ function showWindow(): void {
   mainWindow.focus();
 }
 
-function sendHotkeyAction(action: { type: 'start-recording' | 'stop-recording'; mode: 'toggle' | 'hold' }): void {
+function sendHotkeyAction(action: { type: 'start-recording' | 'stop-recording'; mode: 'toggle' | 'hold'; inputMode?: InputMode }): void {
   if (action.type === 'start-recording') {
-    sendRecordingCommand({ type: 'start', trigger: action.mode });
+    sendRecordingCommand({ type: 'start', trigger: action.mode, inputMode: action.inputMode });
   } else {
     sendRecordingCommand({ type: 'stop', trigger: action.mode });
   }
 }
 
-function sendRecordingCommand(command: { type: 'start' | 'stop'; trigger: 'toggle' | 'hold' }): void {
+function sendRecordingCommand(command: { type: 'start' | 'stop'; trigger: 'toggle' | 'hold'; inputMode?: InputMode }): void {
   mainWindow?.webContents.send('v2t:recording-command', command);
 }
 

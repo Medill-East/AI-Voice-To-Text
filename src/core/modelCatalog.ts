@@ -26,7 +26,12 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
       'Qwen3-0.6B/tokenizer.json',
       'Qwen3-0.6B/vocab.json',
       'Qwen3-0.6B/merges.txt'
-    ]
+    ],
+    benchmarks: {
+      sourceLabel: 'sherpa-onnx / Fun-ASR-Nano',
+      sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/funasr-nano/pretrained.html',
+      note: '暂无统一公开评测；V2T 先按中文适配、本机速度和硬件匹配推荐。'
+    }
   },
   {
     id: 'firered-asr2-zh-en-int8-2026-02-26',
@@ -46,7 +51,12 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     archiveType: 'tar.bz2',
     extractedDir: 'sherpa-onnx-fire-red-asr2-zh_en-int8-2026-02-26',
     primaryModelFile: 'encoder.int8.onnx',
-    requiredFiles: ['encoder.int8.onnx', 'decoder.int8.onnx', 'tokens.txt']
+    requiredFiles: ['encoder.int8.onnx', 'decoder.int8.onnx', 'tokens.txt'],
+    benchmarks: {
+      sourceLabel: 'sherpa-onnx / FireRed ASR2',
+      sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/FireRedAsr/pretrained.html',
+      note: '暂无统一公开评测；V2T 先按中文适配、本机速度和硬件匹配推荐。'
+    }
   },
   {
     id: 'sensevoice-onnx-int8-2025-09-09',
@@ -66,7 +76,12 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     archiveType: 'tar.bz2',
     extractedDir: 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09',
     primaryModelFile: 'model.int8.onnx',
-    requiredFiles: ['model.int8.onnx', 'tokens.txt']
+    requiredFiles: ['model.int8.onnx', 'tokens.txt'],
+    benchmarks: {
+      sourceLabel: 'sherpa-onnx / SenseVoice',
+      sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/sense-voice/pretrained.html',
+      note: '暂无统一公开评测；V2T 先按中文适配、本机速度和硬件匹配推荐。'
+    }
   }
 ];
 
@@ -96,68 +111,85 @@ function latestInstallableByFamily(catalog: ModelCatalogItem[]): ModelCatalogIte
 }
 
 function scoreModel(model: ModelCatalogItem, hardware: HardwareProfile, status: ModelInstallStatus): ModelRecommendation {
-  let score = 0;
+  let rawScore = 0;
   const reasons: string[] = [];
+  const scoreBreakdown = [
+    scoreChineseFit(model),
+    scoreRuntimeFit(model, hardware),
+    scoreHardwareFit(model, hardware),
+    scoreSize(model, hardware),
+    scoreLanguageCoverage(model)
+  ];
+
+  rawScore += scoreBreakdown.reduce((sum, item) => sum + item.value, 0);
 
   if (model.qualityTags.includes('中文优先')) {
-    score += 45;
     reasons.push('中文识别优先');
   }
 
   if (model.qualityTags.includes('方言增强')) {
-    score += 12;
     reasons.push('方言支持更强');
   }
 
   if (model.id === 'funasr-nano-int8-2025-12-30') {
-    score += 20;
+    rawScore += 12;
     reasons.push('当前默认精选模型');
   }
 
-  if (hardware.memoryGb >= model.hardwareRequirements.minMemoryGb) {
-    score += 15;
-  } else {
-    score -= 30;
-  }
-
   if (hardware.recommendedTier === 'low' && model.sizeMb < 500) {
-    score += 24;
     reasons.push('适合低内存设备');
   }
 
-  if (hardware.recommendedTier === 'low' && model.sizeMb > 700) {
-    score -= 18;
-  }
-
   if (hardware.recommendedTier === 'high' && model.hardwareRequirements.recommendedTier === 'high') {
-    score += 10;
     reasons.push('适合高性能设备');
   }
 
   if (hardware.platform === 'darwin' && hardware.arch === 'arm64' && model.runtime === 'sherpa-onnx') {
-    score += 12;
     reasons.push('适合 Apple Silicon 本地运行');
   }
 
-  if (model.sizeMb > 800) {
-    score -= 8;
-  }
-
-  if (model.sizeMb > 1000) {
-    score -= 18;
-  }
-
-  if (model.qualityTags.includes('轻量')) {
-    score += 8;
-  }
-
   if (status === 'current') {
-    score += 8;
+    rawScore += 6;
   }
 
   if (reasons.length === 0) {
     reasons.push('作为跨语言兜底模型');
   }
 
-  return { model, score, reasons, status };
+  return { model, score: clampScore(rawScore), scoreBreakdown, reasons, status };
+}
+
+function scoreChineseFit(model: ModelCatalogItem) {
+  const value = 10 + (model.qualityTags.includes('中文优先') ? 24 : 0) + (model.qualityTags.includes('方言增强') ? 6 : 0);
+  return { label: '中文适配', value, reason: model.qualityTags.includes('中文优先') ? '中文优先模型' : '通用识别' };
+}
+
+function scoreRuntimeFit(model: ModelCatalogItem, hardware: HardwareProfile) {
+  const value = hardware.platform === 'darwin' && hardware.arch === 'arm64' && model.runtime === 'sherpa-onnx' ? 18 : 12;
+  return { label: '本机速度', value, reason: model.runtime === 'sherpa-onnx' ? '本地 sherpa-onnx 可运行' : '本地 runtime 待验证' };
+}
+
+function scoreHardwareFit(model: ModelCatalogItem, hardware: HardwareProfile) {
+  let value = hardware.memoryGb >= model.hardwareRequirements.minMemoryGb ? 18 : 0;
+  if (hardware.recommendedTier === model.hardwareRequirements.recommendedTier) {
+    value += 7;
+  }
+  return { label: '硬件匹配', value, reason: hardware.memoryGb >= model.hardwareRequirements.minMemoryGb ? '内存满足要求' : '内存低于建议' };
+}
+
+function scoreSize(model: ModelCatalogItem, hardware: HardwareProfile) {
+  let value = model.sizeMb < 500 ? 16 : model.sizeMb < 1000 ? 9 : 3;
+  if (hardware.recommendedTier === 'low' && model.sizeMb < 500) {
+    value += 8;
+  }
+  return { label: '体积', value, reason: `${model.sizeMb}MB` };
+}
+
+function scoreLanguageCoverage(model: ModelCatalogItem) {
+  const value = Math.min(16, model.languages.length * 3 + (model.qualityTags.includes('粤语增强') ? 4 : 0));
+  return { label: '语言覆盖', value, reason: model.languages.join('/') };
+}
+
+function clampScore(score: number): number {
+  return Math.max(0, Math.min(100, Math.round(score)));
 }

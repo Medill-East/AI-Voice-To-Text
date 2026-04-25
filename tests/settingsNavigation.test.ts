@@ -13,6 +13,9 @@ describe('settings navigation structure', () => {
     expect(app).toContain('className="page-nav"');
     expect(app).toContain('className="page-content"');
     expect(app).toContain('复制诊断信息');
+    expect(app).toContain('单击快捷键自然输入，双击快捷键结构输入');
+    expect(app).toContain('推荐分');
+    expect(app).toContain('暂无统一公开评测');
     expect(app).toContain('单独的私有仓库');
     expect(app).toContain('settings.json、lexicon.json、prompts/natural.md、prompts/structured.md');
     expect(app).toContain('autoCapitalize="off"');

@@ -73,6 +73,31 @@ describe('UserDataStore', () => {
     expect(history).not.toContain('audio');
   });
 
+  it('loads recent history for the current device in reverse chronological order', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-store-'));
+    const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
+
+    await store.appendHistory({
+      id: 'old',
+      createdAt: '2026-03-25T10:20:30.000Z',
+      mode: 'natural',
+      rawText: '旧文本',
+      outputText: '旧文本',
+      injectionMethod: 'cursor'
+    });
+    await store.appendHistory({
+      id: 'new',
+      createdAt: '2026-04-25T10:20:30.000Z',
+      mode: 'structured',
+      rawText: '新文本',
+      outputText: '新文本',
+      injectionMethod: 'clipboard'
+    });
+
+    await expect(store.readRecentHistory(30)).resolves.toMatchObject([{ id: 'new' }, { id: 'old' }]);
+    await expect(store.readRecentHistory(1)).resolves.toMatchObject([{ id: 'new' }]);
+  });
+
   it('backs up externally changed settings before overwriting them', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'v2t-store-'));
     const store = await UserDataStore.create(dir, { deviceId: 'device-a' });

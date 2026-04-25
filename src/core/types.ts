@@ -104,11 +104,26 @@ export interface ModelCatalogItem {
   extractedDir: string;
   primaryModelFile: string;
   requiredFiles: string[];
+  benchmarks?: {
+    wer?: number;
+    cer?: number;
+    rtfx?: number;
+    sourceLabel: string;
+    sourceUrl?: string;
+    note?: string;
+  };
+}
+
+export interface ModelScoreItem {
+  label: string;
+  value: number;
+  reason: string;
 }
 
 export interface ModelRecommendation {
   model: ModelCatalogItem;
   score: number;
+  scoreBreakdown: ModelScoreItem[];
   reasons: string[];
   status: ModelInstallStatus;
 }

@@ -15,7 +15,7 @@ const DEFAULT_SETTINGS: Settings = {
   defaultMode: 'natural',
   hotkey: {
     accelerator: 'CommandOrControl+Shift+Space',
-    longPressMs: 250,
+    longPressMs: 350,
     fallbackAccelerator: 'CommandOrControl+Alt+Space'
   },
   providers: {
@@ -98,6 +98,35 @@ export class UserDataStore {
       .map((line) => line.trim())
       .filter(Boolean)
       .map((line) => JSON.parse(line) as HistoryEntry);
+  }
+
+  async readRecentHistory(limit = 30): Promise<HistoryEntry[]> {
+    const historyDir = join(this.baseDir, 'history', this.deviceId);
+    if (!existsSync(historyDir)) {
+      return [];
+    }
+
+    const files = (await readdir(historyDir))
+      .filter((file) => /^\d{4}-\d{2}\.jsonl$/.test(file))
+      .sort()
+      .reverse();
+    const entries: HistoryEntry[] = [];
+
+    for (const file of files) {
+      const content = await readFile(join(historyDir, file), 'utf8');
+      entries.push(
+        ...content
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as HistoryEntry)
+      );
+      if (entries.length >= limit) {
+        break;
+      }
+    }
+
+    return entries.sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, limit);
   }
 
   async listConflicts(): Promise<string[]> {
@@ -188,7 +217,8 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
     ...raw,
     hotkey: {
       ...DEFAULT_SETTINGS.hotkey,
-      ...(raw.hotkey ?? {})
+      ...(raw.hotkey ?? {}),
+      longPressMs: Math.max(raw.hotkey?.longPressMs ?? DEFAULT_SETTINGS.hotkey.longPressMs, DEFAULT_SETTINGS.hotkey.longPressMs)
     },
     providers: {
       asr: {

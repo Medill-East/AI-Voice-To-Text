@@ -44,4 +44,21 @@ describe('voice input pipeline', () => {
     });
     expect(JSON.stringify(entries[0])).not.toContain('audio');
   });
+
+  it('skips injection and history when no effective text is detected', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-pipeline-'));
+    const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
+    const injector = { injectText: vi.fn().mockResolvedValue({ method: 'cursor' }) };
+    const pipeline = createVoiceInputPipeline({
+      store,
+      asr: { transcribe: vi.fn().mockResolvedValue({ text: '，。  ' }) },
+      injector,
+      now: () => new Date('2026-04-25T11:00:00.000Z'),
+      idFactory: () => 'empty-1'
+    });
+
+    await expect(pipeline.handleAudio(Buffer.from('fake audio'), { mode: 'natural' })).rejects.toThrow('未检测到有效语音输入');
+    expect(injector.injectText).not.toHaveBeenCalled();
+    await expect(store.readHistoryMonth('device-a', '2026-04')).resolves.toEqual([]);
+  });
 });

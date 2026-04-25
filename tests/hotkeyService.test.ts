@@ -24,6 +24,7 @@ describe('HotkeyService', () => {
   });
 
   it('attempts native listener even when app accessibility trust is false', async () => {
+    vi.useFakeTimers();
     const { HotkeyService } = await import('../src/main/hotkeyService');
     const onAction = vi.fn();
     const nativeFactory: NativeKeyListenerFactory = {
@@ -66,7 +67,8 @@ describe('HotkeyService', () => {
     });
 
     register.mock.calls[0][1]();
-    expect(onAction).toHaveBeenCalledWith({ type: 'start-recording', mode: 'toggle' });
+    vi.advanceTimersByTime(250);
+    expect(onAction).toHaveBeenCalledWith({ type: 'start-recording', mode: 'toggle', inputMode: 'natural' });
   });
 
   it('keeps a fallback shortcut active when native listener later reports an error', async () => {

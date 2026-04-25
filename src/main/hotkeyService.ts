@@ -154,7 +154,7 @@ export class HotkeyService {
         return status;
       }
       const shortcutRegistered = globalShortcut.register(options.accelerator, () => {
-        options.onAction({ type: 'start-recording', mode: 'toggle' });
+        this.handleShortcutActivation(options);
       });
       const status = {
         backend: 'electron-shortcut' as const,
@@ -237,23 +237,18 @@ export class HotkeyService {
 
       if (event.state === 'DOWN' && !this.isShortcutDown) {
         this.isShortcutDown = true;
+        if (this.timer) {
+          clearTimeout(this.timer);
+          this.timer = undefined;
+        }
         this.emitActions(this.detector.keyDown(this.now()), options.onAction);
-        this.timer = setTimeout(() => {
-          if (!this.detector) {
-            return;
-          }
-          this.emitActions(this.detector.thresholdElapsed(this.now()), options.onAction);
-        }, options.longPressMs);
         return true;
       }
 
       if (event.state === 'UP' && this.isShortcutDown) {
         this.isShortcutDown = false;
-        if (this.timer) {
-          clearTimeout(this.timer);
-          this.timer = undefined;
-        }
         this.emitActions(this.detector.keyUp(this.now()), options.onAction);
+        this.scheduleSingleClickTimer(options);
         return true;
       }
 
@@ -307,8 +302,39 @@ export class HotkeyService {
 
     this.fallbackAccelerator = fallback;
     this.fallbackRegistered = globalShortcut.register(fallback, () => {
-      options.onAction({ type: 'start-recording', mode: 'toggle' });
+      this.handleShortcutActivation(options);
     });
+  }
+
+  private handleShortcutActivation(options: HotkeyServiceOptions): void {
+    if (!this.detector) {
+      return;
+    }
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = undefined;
+    }
+    const actions = this.detector.shortcutActivated(this.now());
+    this.emitActions(actions, options.onAction);
+    if (actions.length === 0) {
+      this.scheduleSingleClickTimer(options);
+    }
+  }
+
+  private scheduleSingleClickTimer(options: HotkeyServiceOptions): void {
+    if (!this.detector) {
+      return;
+    }
+    if (this.timer) {
+      clearTimeout(this.timer);
+    }
+    this.timer = setTimeout(() => {
+      if (!this.detector) {
+        return;
+      }
+      this.emitActions(this.detector.thresholdElapsed(this.now()), options.onAction);
+      this.timer = undefined;
+    }, options.longPressMs);
   }
 
   private handleNativeListenerUnavailable(error: unknown): void {

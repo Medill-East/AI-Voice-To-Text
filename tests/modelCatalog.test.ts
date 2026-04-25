@@ -26,6 +26,11 @@ describe('model catalog recommendation', () => {
     expect(recommendations.some((item) => item.model.id.includes('2024'))).toBe(false);
     expect(recommendations.some((item) => item.model.runtime === 'whisper-cpp')).toBe(false);
     expect(recommendations[0].reasons.join(' ')).toContain('中文');
+    expect(recommendations[0].score).toBeLessThanOrEqual(100);
+    expect(recommendations[0].scoreBreakdown.map((item) => item.label)).toEqual(
+      expect.arrayContaining(['中文适配', '本机速度', '硬件匹配', '体积', '语言覆盖'])
+    );
+    expect(recommendations[0].model.benchmarks?.note).toContain('暂无统一公开评测');
   });
 
   it('prefers smaller models on low-memory devices', () => {

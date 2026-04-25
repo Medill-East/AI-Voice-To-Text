@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
-import type { InputMode, InstalledModelView, Lexicon, ModelRecommendation, ModelStatusRecord, Settings, VoiceInputPipelineResult } from '../core/types';
+import type { HistoryEntry, InputMode, InstalledModelView, Lexicon, ModelRecommendation, ModelStatusRecord, Settings, VoiceInputPipelineResult } from '../core/types';
 import type { HotkeyStatus } from '../main/hotkeyService';
 import type { RecordingCommand, SetupPayload } from '../preload';
 
@@ -39,6 +39,7 @@ export function App() {
   const [state, setState] = useState<RecordingState>('idle');
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<LocalHistoryItem[]>([]);
+  const [activeRecordingMode, setActiveRecordingMode] = useState<InputMode | null>(null);
   const [hotkeyStatus, setHotkeyStatus] = useState<HotkeyStatus | undefined>();
   const [capturingHotkey, setCapturingHotkey] = useState(false);
   const [installingModelId, setInstallingModelId] = useState<string | null>(null);
@@ -121,6 +122,13 @@ export function App() {
 
   useEffect(() => {
     void window.v2t
+      .getHistory(30)
+      .then((entries) => setHistory(entries.map(historyEntryToLocalItem)))
+      .catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
+  }, []);
+
+  useEffect(() => {
+    void window.v2t
       .getLexicon()
       .then(setLexicon)
       .catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
@@ -160,13 +168,15 @@ export function App() {
     void processRecording(wav, modeRef.current);
   }, [resetInputMeter]);
 
-  const startRecording = useCallback(async () => {
+  const startRecording = useCallback(async (activeMode: InputMode = modeRef.current) => {
     if (recordingStateRef.current === 'recording' || recordingStateRef.current === 'processing') {
       return;
     }
 
     setError(null);
     resetInputMeter();
+    modeRef.current = activeMode;
+    setActiveRecordingMode(activeMode);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -195,6 +205,7 @@ export function App() {
       setState('recording');
     } catch (caught) {
       recordingStartedAtRef.current = undefined;
+      setActiveRecordingMode(null);
       resetInputMeter();
       setState('error');
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -207,10 +218,12 @@ export function App() {
       const result = await window.v2t.processAudio({ bytes, mode: activeMode });
       setHistory((items) => [{ ...result, createdAt: new Date().toISOString(), mode: activeMode }, ...items].slice(0, 30));
       recordingStartedAtRef.current = undefined;
+      setActiveRecordingMode(null);
       resetInputMeter();
       setState('idle');
     } catch (caught) {
       recordingStartedAtRef.current = undefined;
+      setActiveRecordingMode(null);
       resetInputMeter();
       setState('error');
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -222,7 +235,7 @@ export function App() {
       void window.v2t
         .setRecordingOverlayState({
           state,
-          mode,
+          mode: activeRecordingMode ?? mode,
           startedAt: recordingStartedAtRef.current,
           now: Date.now(),
           level: inputLevelRef.current,
@@ -237,12 +250,12 @@ export function App() {
     }
     const timer = window.setInterval(syncOverlay, state === 'recording' ? 120 : 500);
     return () => window.clearInterval(timer);
-  }, [mode, state]);
+  }, [activeRecordingMode, mode, state]);
 
   useEffect(() => {
     return window.v2t.onRecordingCommand((command: RecordingCommand) => {
       if (command.type === 'start') {
-        void startRecording();
+        void startRecording(command.inputMode ?? modeRef.current);
       } else {
         stopRecording();
       }
@@ -258,6 +271,17 @@ export function App() {
     setHotkeyStatus(result.hotkeyStatus);
     const nextSetup = await window.v2t.getSetup();
     applySetup(nextSetup);
+  };
+
+  const updateDefaultMode = async (nextMode: InputMode) => {
+    setMode(nextMode);
+    modeRef.current = nextMode;
+    if (!settings) {
+      return;
+    }
+    const result = await window.v2t.saveSettings({ ...settings, defaultMode: nextMode });
+    setSettings(result.settings);
+    setHotkeyStatus(result.hotkeyStatus);
   };
 
   const updateLexicon = (updater: (current: Lexicon) => Lexicon) => {
@@ -463,13 +487,14 @@ export function App() {
           ) : null}
 
           <div className="mode-switch" role="tablist" aria-label="输入模式">
-            <button className={mode === 'natural' ? 'active' : ''} onClick={() => setMode('natural')}>
+            <button className={mode === 'natural' ? 'active' : ''} onClick={() => void updateDefaultMode('natural')}>
               自然输入
             </button>
-            <button className={mode === 'structured' ? 'active' : ''} onClick={() => setMode('structured')}>
+            <button className={mode === 'structured' ? 'active' : ''} onClick={() => void updateDefaultMode('structured')}>
               结构输入
             </button>
           </div>
+          <p className="hint mode-hint">页面按钮设置默认模式；单击快捷键自然输入，双击快捷键结构输入。</p>
 
           <button
             className={`record-button ${state === 'recording' ? 'recording' : ''}`}
@@ -477,7 +502,7 @@ export function App() {
               if (state === 'recording') {
                 stopRecording();
               } else {
-                void startRecording();
+                void startRecording(mode);
               }
             }}
             disabled={state === 'processing'}
@@ -518,6 +543,7 @@ export function App() {
               <p className="hint">
                 {setup.hardware.cpuName} · {setup.hardware.memoryGb}GB · {tierLabel(setup.hardware.recommendedTier)}
               </p>
+              <p className="hint">推荐分是 V2T 本机推荐分，不等同于公开榜单排名。WER/CER 越低越好，RTFx 越高越快。</p>
               <div className="model-list">
                 {setup.recommendations.map((recommendation) => (
                   <ModelRow
@@ -561,6 +587,7 @@ export function App() {
       return (
         <section className="page-section">
           <h2>快捷键</h2>
+          <p className="hint">单击快捷键自然输入，双击快捷键结构输入；录音中再次触发会停止当前录音。</p>
           <dl>
             <div>
               <dt>当前</dt>
@@ -1177,6 +1204,17 @@ function ModelRow({
     <article className={`model-row ${isCurrent ? 'current' : ''}`}>
       <div>
         <h3>{recommendation.model.name}</h3>
+        <div className="score-row">
+          <strong>推荐分 {recommendation.score}/100</strong>
+          <span>{recommendation.model.benchmarks?.note ?? '暂无统一公开评测'}</span>
+        </div>
+        <div className="score-breakdown">
+          {recommendation.scoreBreakdown.map((item) => (
+            <span key={item.label} title={item.reason}>
+              {item.label} {item.value}
+            </span>
+          ))}
+        </div>
         <p>{recommendation.reasons.join(' · ')}</p>
         <small>
           {recommendation.model.sizeMb}MB · {recommendation.model.languages.join('/')}
@@ -1218,6 +1256,21 @@ function InstallProgress({ status }: { status: ModelStatusRecord }) {
       {status.error ? <p className="progress-error">{status.error}</p> : null}
     </div>
   );
+}
+
+function historyEntryToLocalItem(entry: HistoryEntry): LocalHistoryItem {
+  return {
+    id: entry.id,
+    rawText: entry.rawText,
+    outputText: entry.outputText,
+    createdAt: entry.createdAt,
+    mode: entry.mode,
+    injection: {
+      method: entry.injectionMethod,
+      error: entry.error
+    },
+    usedLlm: false
+  };
 }
 
 function stateLabel(state: RecordingState): string {
