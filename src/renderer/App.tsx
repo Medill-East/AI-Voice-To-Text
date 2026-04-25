@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
-import type { InputMode, InstalledModelView, ModelRecommendation, ModelStatusRecord, Settings, VoiceInputPipelineResult } from '../core/types';
+import type { InputMode, InstalledModelView, Lexicon, ModelRecommendation, ModelStatusRecord, Settings, VoiceInputPipelineResult } from '../core/types';
 import type { HotkeyStatus } from '../main/hotkeyService';
 import type { RecordingCommand, SetupPayload } from '../preload';
 
 type RecordingState = 'idle' | 'recording' | 'processing' | 'error';
-type AppPage = 'voice' | 'models' | 'hotkey' | 'sync' | 'advanced' | 'app';
+type AppPage = 'voice' | 'models' | 'hotkey' | 'lexicon' | 'sync' | 'advanced' | 'app';
 
 const APP_PAGES: Array<{ id: AppPage; label: string }> = [
   { id: 'voice', label: '语音输入' },
   { id: 'models', label: '模型' },
-  { id: 'hotkey', label: '触发按键' },
+  { id: 'hotkey', label: '快捷键' },
+  { id: 'lexicon', label: '词库' },
   { id: 'sync', label: 'GitHub 同步' },
   { id: 'advanced', label: '高级设置' },
   { id: 'app', label: '应用' }
@@ -49,6 +50,9 @@ export function App() {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [testingHotkey, setTestingHotkey] = useState(false);
   const [hotkeyTestMessage, setHotkeyTestMessage] = useState<string | null>(null);
+  const [lexicon, setLexicon] = useState<Lexicon | null>(null);
+  const [lexiconDirty, setLexiconDirty] = useState(false);
+  const [lexiconMessage, setLexiconMessage] = useState<string | null>(null);
   const recorderRef = useRef<PcmRecorder | null>(null);
   const modeRef = useRef<InputMode>('natural');
   const recordingStateRef = useRef<RecordingState>('idle');
@@ -114,6 +118,13 @@ export function App() {
     void window.v2t.getSetup().then(applySetup);
     return window.v2t.onHotkeyStatus(setHotkeyStatus);
   }, [applySetup]);
+
+  useEffect(() => {
+    void window.v2t
+      .getLexicon()
+      .then(setLexicon)
+      .catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
+  }, []);
 
   useEffect(() => {
     return window.v2t.onModelInstallProgress((status) => {
@@ -247,6 +258,29 @@ export function App() {
     setHotkeyStatus(result.hotkeyStatus);
     const nextSetup = await window.v2t.getSetup();
     applySetup(nextSetup);
+  };
+
+  const updateLexicon = (updater: (current: Lexicon) => Lexicon) => {
+    setLexicon((current) => (current ? updater(current) : current));
+    setLexiconDirty(true);
+    setLexiconMessage(null);
+  };
+
+  const saveLexicon = async () => {
+    if (!lexicon) {
+      return;
+    }
+
+    setError(null);
+    const result = await window.v2t.saveLexicon(lexicon);
+    if (result.ok && result.lexicon) {
+      setLexicon(result.lexicon);
+      setLexiconDirty(false);
+      setLexiconMessage('词库已保存');
+      return;
+    }
+
+    setError(result.error ?? '词库保存失败');
   };
 
   const installModel = async (modelId: string) => {
@@ -521,7 +555,7 @@ export function App() {
     if (activePage === 'hotkey') {
       return (
         <section className="page-section">
-          <h2>触发按键</h2>
+          <h2>快捷键</h2>
           <dl>
             <div>
               <dt>当前</dt>
@@ -564,7 +598,7 @@ export function App() {
             {hotkeyStatus?.helperAttempted !== undefined ? (
               <div>
                 <dt>监听组件检测</dt>
-                <dd>{hotkeyStatus.nativeActive ? '已收到系统按键事件' : hotkeyStatus.helperAttempted ? '已启动，等待按键事件验证' : '尚未开始'}</dd>
+                <dd>{hotkeyHelperStateLabel(hotkeyStatus)}</dd>
               </div>
             ) : null}
             {hotkeyStatus?.appAccessibilityTrusted !== undefined ? (
@@ -577,6 +611,12 @@ export function App() {
               <div>
                 <dt>权限</dt>
                 <dd>{hotkeyPermissionHint(hotkeyStatus)}</dd>
+              </div>
+            ) : null}
+            {hotkeyStatus?.helperLastStderr ? (
+              <div>
+                <dt>监听组件日志</dt>
+                <dd>{hotkeyStatus.helperLastStderr}</dd>
               </div>
             ) : null}
             {settings?.hotkey.fallbackAccelerator ? (
@@ -617,10 +657,210 @@ export function App() {
             </button>
           </div>
           <button className="secondary full-width" onClick={() => void testHotkey()} disabled={testingHotkey}>
-            {testingHotkey ? '等待按键中' : '测试触发键'}
+            {testingHotkey ? '等待按键中' : '测试快捷键'}
           </button>
           {hotkeyTestMessage ? <p className="hint hotkey-test-message">{hotkeyTestMessage}</p> : null}
           {capturingHotkey ? <p className="hint">单个修饰键可以保存，但更容易误触；普通字母和数字单键仍会被拒绝。</p> : null}
+        </section>
+      );
+    }
+
+    if (activePage === 'lexicon') {
+      return (
+        <section className="page-section lexicon-page">
+          <h2>词库</h2>
+          <p className="hint">这些内容保存在 lexicon.json，会随 GitHub 同步推送和拉取。</p>
+          {lexicon ? (
+            <>
+              <section className="lexicon-group">
+                <div className="section-heading">
+                  <h3>专有名词</h3>
+                  <button
+                    className="secondary compact"
+                    onClick={() =>
+                      updateLexicon((current) => ({
+                        ...current,
+                        terms: [...current.terms, { phrase: '', aliases: [] }]
+                      }))
+                    }
+                  >
+                    新增
+                  </button>
+                </div>
+                {lexicon.terms.length === 0 ? <p className="empty">暂无专有名词</p> : null}
+                {lexicon.terms.map((term, index) => (
+                  <article className="lexicon-row" key={`term-${index}`}>
+                    <label>
+                      词条
+                      <input
+                        value={term.phrase}
+                        onChange={(event) =>
+                          updateLexicon((current) => {
+                            const terms = [...current.terms];
+                            terms[index] = { ...(terms[index] ?? { phrase: '', aliases: [] }), phrase: event.target.value };
+                            return { ...current, terms };
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      别名
+                      <input
+                        value={(term.aliases ?? []).join(', ')}
+                        placeholder="多个别名用逗号分隔"
+                        onChange={(event) =>
+                          updateLexicon((current) => {
+                            const terms = [...current.terms];
+                            terms[index] = { ...(terms[index] ?? { phrase: '', aliases: [] }), aliases: parseDelimitedList(event.target.value) };
+                            return { ...current, terms };
+                          })
+                        }
+                      />
+                    </label>
+                    <button
+                      className="danger compact"
+                      onClick={() =>
+                        updateLexicon((current) => ({
+                          ...current,
+                          terms: current.terms.filter((_, itemIndex) => itemIndex !== index)
+                        }))
+                      }
+                    >
+                      删除
+                    </button>
+                  </article>
+                ))}
+              </section>
+
+              <section className="lexicon-group">
+                <div className="section-heading">
+                  <h3>固定替换</h3>
+                  <button
+                    className="secondary compact"
+                    onClick={() =>
+                      updateLexicon((current) => ({
+                        ...current,
+                        replacements: [...current.replacements, { from: '', to: '', enabled: true }]
+                      }))
+                    }
+                  >
+                    新增
+                  </button>
+                </div>
+                {lexicon.replacements.length === 0 ? <p className="empty">暂无固定替换</p> : null}
+                {lexicon.replacements.map((rule, index) => (
+                  <article className="lexicon-row replacement" key={`replacement-${index}`}>
+                    <label>
+                      原文
+                      <input
+                        value={rule.from}
+                        onChange={(event) =>
+                          updateLexicon((current) => {
+                            const replacements = [...current.replacements];
+                            replacements[index] = { ...(replacements[index] ?? { from: '', to: '', enabled: true }), from: event.target.value };
+                            return { ...current, replacements };
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      替换为
+                      <input
+                        value={rule.to}
+                        onChange={(event) =>
+                          updateLexicon((current) => {
+                            const replacements = [...current.replacements];
+                            replacements[index] = { ...(replacements[index] ?? { from: '', to: '', enabled: true }), to: event.target.value };
+                            return { ...current, replacements };
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="inline-check">
+                      <input
+                        type="checkbox"
+                        checked={rule.enabled ?? true}
+                        onChange={(event) =>
+                          updateLexicon((current) => {
+                            const replacements = [...current.replacements];
+                            replacements[index] = { ...(replacements[index] ?? { from: '', to: '', enabled: true }), enabled: event.target.checked };
+                            return { ...current, replacements };
+                          })
+                        }
+                      />
+                      启用
+                    </label>
+                    <button
+                      className="danger compact"
+                      onClick={() =>
+                        updateLexicon((current) => ({
+                          ...current,
+                          replacements: current.replacements.filter((_, itemIndex) => itemIndex !== index)
+                        }))
+                      }
+                    >
+                      删除
+                    </button>
+                  </article>
+                ))}
+              </section>
+
+              <section className="lexicon-group">
+                <div className="section-heading">
+                  <h3>禁用词</h3>
+                  <button
+                    className="secondary compact"
+                    onClick={() =>
+                      updateLexicon((current) => ({
+                        ...current,
+                        blocked: [...current.blocked, '']
+                      }))
+                    }
+                  >
+                    新增
+                  </button>
+                </div>
+                {lexicon.blocked.length === 0 ? <p className="empty">暂无禁用词</p> : null}
+                {lexicon.blocked.map((word, index) => (
+                  <article className="lexicon-row blocked" key={`blocked-${index}`}>
+                    <label>
+                      词语
+                      <input
+                        value={word}
+                        onChange={(event) =>
+                          updateLexicon((current) => {
+                            const blocked = [...current.blocked];
+                            blocked[index] = event.target.value;
+                            return { ...current, blocked };
+                          })
+                        }
+                      />
+                    </label>
+                    <button
+                      className="danger compact"
+                      onClick={() =>
+                        updateLexicon((current) => ({
+                          ...current,
+                          blocked: current.blocked.filter((_, itemIndex) => itemIndex !== index)
+                        }))
+                      }
+                    >
+                      删除
+                    </button>
+                  </article>
+                ))}
+              </section>
+
+              <div className="lexicon-actions">
+                <button className="save" onClick={() => void saveLexicon()} disabled={!lexiconDirty}>
+                  保存词库
+                </button>
+                {lexiconMessage ? <p className="sync-message">{lexiconMessage}</p> : null}
+              </div>
+            </>
+          ) : (
+            <p className="empty">加载中</p>
+          )}
         </section>
       );
     }
@@ -631,7 +871,7 @@ export function App() {
           <h2>GitHub 同步</h2>
           {settings ? (
             <>
-              <p className="hint">只同步设置、词库和提示词，不同步历史和模型。</p>
+              <p className="hint">同步包含设置、词库和提示词；词库内容请在“词库”页编辑。历史、模型和密钥不会同步。</p>
               <label>
                 仓库 URL
                 <input
@@ -1007,6 +1247,12 @@ function hotkeyStatusLabel(status?: HotkeyStatus): string {
   if (status.checking) {
     return '检测中';
   }
+  if (status.backend === 'native-listener' && status.helperVerified) {
+    return '系统监听已验证；备用快捷键待命';
+  }
+  if (status.backend === 'native-listener' && status.helperStarted && !status.helperVerified) {
+    return `系统监听中：${hotkeyLabel(status.requestedAccelerator ?? status.activeAccelerator ?? '')}；备用快捷键待命`;
+  }
   if (status.fallbackRegistered && status.nativeActive === false) {
     const prefix = status.helperAttempted ? '系统监听未确认；备用快捷键已启用' : '备用快捷键已启用';
     return `${prefix}：${hotkeyLabel(status.activeAccelerator ?? '')}`;
@@ -1020,15 +1266,35 @@ function hotkeyStatusLabel(status?: HotkeyStatus): string {
   return `${hotkeyBackendLabel(status.backend)} 已注册`;
 }
 
+function hotkeyHelperStateLabel(status: HotkeyStatus): string {
+  if (status.helperVerified || status.nativeActive) {
+    return '已收到系统按键事件';
+  }
+  if (status.helperStarted) {
+    return '已启动，按一次快捷键完成验证';
+  }
+  if (status.helperAttempted) {
+    return '正在启动或等待诊断';
+  }
+  return '尚未开始';
+}
+
 function hotkeyPermissionHint(status?: HotkeyStatus): string {
   if (status?.nativeHelperPath) {
-    return `纯修饰键需要 macOS 辅助功能权限；请给监听组件 ${status.nativeHelperPath} 开启权限，未确认前会使用备用快捷键。`;
+    return `纯修饰键需要 macOS 辅助功能权限；请给监听组件 ${status.nativeHelperPath} 开启权限。如果已添加权限但仍无效，请完全退出 V2T 后重新打开；如果仍失败，移除 MacKeyServer 和 V2T 后重新添加。`;
   }
-  return '单键或纯修饰键需要 macOS 辅助功能权限；未确认前会使用备用快捷键。';
+  return '单键或纯修饰键需要 macOS 辅助功能权限。如果已添加权限但仍无效，请完全退出 V2T 后重新打开；如果仍失败，移除 MacKeyServer 和 V2T 后重新添加。';
 }
 
 function hotkeyBackendLabel(backend: HotkeyStatus['backend']): string {
   return backend === 'native-listener' ? '系统监听' : 'Electron 快捷键';
+}
+
+function parseDelimitedList(value: string): string[] {
+  return value
+    .split(/[,，\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function capturedKeysFromEvent(event: React.KeyboardEvent<HTMLButtonElement>): string[] {

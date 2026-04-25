@@ -53,14 +53,16 @@ describe('HotkeyService', () => {
     expect(status).toMatchObject({
       backend: 'native-listener',
       registered: true,
-      activeAccelerator: 'CommandOrControl+Alt+Space',
+      activeAccelerator: 'RightAlt',
       requestedAccelerator: 'RightAlt',
       fallbackRegistered: true,
+      helperStarted: true,
+      helperVerified: false,
       nativeActive: false,
       helperAttempted: true,
       appAccessibilityTrusted: false,
       nativeHelperPath: '/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer',
-      diagnosticMessage: expect.stringContaining('/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer')
+      diagnosticMessage: expect.stringContaining('按一次快捷键完成验证')
     });
 
     register.mock.calls[0][1]();
@@ -95,9 +97,11 @@ describe('HotkeyService', () => {
     expect(status).toMatchObject({
       backend: 'native-listener',
       registered: true,
-      activeAccelerator: 'CommandOrControl+Alt+Space',
+      activeAccelerator: 'RightAlt',
       fallbackRegistered: true,
       helperAttempted: true,
+      helperStarted: true,
+      helperVerified: false,
       nativeActive: false
     });
 
@@ -116,7 +120,7 @@ describe('HotkeyService', () => {
     );
   });
 
-  it('reports a helper permission diagnostic when native listener starts but never receives events', async () => {
+  it('keeps primary hotkey pending when helper starts but no events arrive yet', async () => {
     vi.useFakeTimers();
     const { HotkeyService } = await import('../src/main/hotkeyService');
     const onStatus = vi.fn();
@@ -142,14 +146,61 @@ describe('HotkeyService', () => {
 
     expect(onStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        backend: 'electron-shortcut',
+        backend: 'native-listener',
         registered: true,
-        activeAccelerator: 'CommandOrControl+Alt+Space',
+        activeAccelerator: 'RightAlt',
         nativeActive: false,
+        helperStarted: true,
+        helperVerified: false,
         helperAttempted: true,
         nativeHelperPath: '/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer',
+        fallbackRegistered: true,
+        recommendedAction: 'none',
+        diagnosticMessage: expect.stringContaining('按一次快捷键完成验证')
+      })
+    );
+  });
+
+  it('reports helper stderr when event tap creation fails', async () => {
+    const { HotkeyService } = await import('../src/main/hotkeyService');
+    const onStatus = vi.fn();
+    let reportNativeError: ((error: unknown) => void) | undefined;
+    let reportNativeInfo: ((info: string) => void) | undefined;
+    const nativeFactory: NativeKeyListenerFactory = {
+      addListener: vi.fn(async (_callback, onError, onInfo) => {
+        reportNativeError = onError;
+        reportNativeInfo = onInfo;
+        return {
+          remove: vi.fn(),
+          kill: vi.fn()
+        };
+      })
+    };
+    const service = new HotkeyService({ nativeFactory });
+
+    await service.register({
+      accelerator: 'RightAlt',
+      fallbackAccelerator: 'CommandOrControl+Alt+Space',
+      longPressMs: 250,
+      accessibilityTrusted: true,
+      nativeHelperPath: '/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer',
+      onAction: vi.fn(),
+      onStatus
+    });
+
+    reportNativeInfo?.('Unable to create CGEvent tap. Grant Accessibility permission to V2T Keyboard Listener.');
+    reportNativeError?.(2);
+
+    expect(onStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        backend: 'electron-shortcut',
+        activeAccelerator: 'CommandOrControl+Alt+Space',
+        helperStarted: true,
+        helperVerified: false,
+        helperLastStderr: expect.stringContaining('Unable to create CGEvent tap'),
+        nativeExitCode: 2,
         recommendedAction: 'grant-native-helper-accessibility',
-        diagnosticMessage: expect.stringContaining('/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer')
+        diagnosticMessage: expect.stringContaining('Unable to create CGEvent tap')
       })
     );
   });

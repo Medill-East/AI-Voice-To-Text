@@ -49,6 +49,7 @@ select,
 label,
 .page-nav,
 .page-content,
+.lexicon-page,
 .model-row,
 .status-row,
 .mode-switch,
@@ -483,6 +484,13 @@ select {
   color: #1f2724;
 }
 
+.secondary.compact,
+.danger.compact {
+  align-self: end;
+  min-width: 72px;
+  padding: 0 12px;
+}
+
 .full-width {
   width: 100%;
   margin-top: 14px;
@@ -515,6 +523,63 @@ select {
   line-height: 1.4;
 }
 
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+.section-heading h3 {
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+.lexicon-group {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #d9d5cc;
+}
+
+.lexicon-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.lexicon-row.replacement {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+}
+
+.lexicon-row.blocked {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  margin-bottom: 12px;
+  color: #1f2724;
+}
+
+.inline-check input {
+  width: 16px;
+  height: 16px;
+}
+
+.lexicon-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+}
+
 .advanced {
   display: grid;
   gap: 2px;
@@ -540,6 +605,12 @@ select {
   background: #1f2724;
   color: #fffaf0;
   cursor: pointer;
+}
+
+.save:disabled,
+.secondary:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 @keyframes pulse {

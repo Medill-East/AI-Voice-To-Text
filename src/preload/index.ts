@@ -4,6 +4,7 @@ import type {
   HardwareProfile,
   InputMode,
   InstalledModelView,
+  Lexicon,
   ModelCatalogItem,
   ModelRecommendation,
   ModelStatusRecord,
@@ -22,6 +23,8 @@ export interface V2TApi {
   getSettings(): Promise<{ settings: Settings; hotkeyStatus?: HotkeyStatus }>;
   getSetup(): Promise<SetupPayload>;
   saveSettings(settings: Settings): Promise<{ settings: Settings; hotkeyStatus?: HotkeyStatus }>;
+  getLexicon(): Promise<Lexicon>;
+  saveLexicon(lexicon: Lexicon): Promise<LexiconSaveResult>;
   updateHotkey(accelerator: string): Promise<HotkeyUpdateResult>;
   installModel(modelId: string): Promise<InstallModelResult>;
   activateModel(modelId: string): Promise<InstallModelResult>;
@@ -85,10 +88,18 @@ interface HotkeyUpdateResult {
   error?: string;
 }
 
+interface LexiconSaveResult {
+  ok: boolean;
+  lexicon?: Lexicon;
+  error?: string;
+}
+
 const api: V2TApi = {
   getSettings: () => ipcRenderer.invoke('v2t:get-settings'),
   getSetup: () => ipcRenderer.invoke('v2t:get-setup'),
   saveSettings: (settings) => ipcRenderer.invoke('v2t:save-settings', settings),
+  getLexicon: () => ipcRenderer.invoke('v2t:get-lexicon'),
+  saveLexicon: (lexicon) => ipcRenderer.invoke('v2t:save-lexicon', lexicon),
   updateHotkey: (accelerator) => ipcRenderer.invoke('v2t:update-hotkey', accelerator),
   installModel: (modelId) => ipcRenderer.invoke('v2t:install-model', modelId),
   activateModel: (modelId) => ipcRenderer.invoke('v2t:activate-model', modelId),

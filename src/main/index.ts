@@ -164,6 +164,15 @@ function registerIpc(): void {
     await registerHotkey();
     return { settings, hotkeyStatus };
   });
+  ipcMain.handle('v2t:get-lexicon', async () => store.loadLexicon());
+  ipcMain.handle('v2t:save-lexicon', async (_event, lexicon) => {
+    try {
+      await store.saveLexicon(lexicon);
+      return { ok: true, lexicon: await store.loadLexicon() };
+    } catch (error) {
+      return { ok: false, error: readableError(error) };
+    }
+  });
   ipcMain.handle('v2t:set-openai-key', async (_event, value: string) => {
     await new SecretStore().setOpenAICompatibleKey(value);
     return { ok: true };
@@ -389,6 +398,8 @@ function refreshHotkeyPermissions(): void {
       fallbackAccelerator: settings.hotkey.fallbackAccelerator,
       fallbackRegistered: false,
       helperAttempted: false,
+      helperStarted: false,
+      helperVerified: false,
       nativeActive: false,
       nativeHelperPath,
       appAccessibilityTrusted: getAccessibilityTrusted(),
@@ -433,6 +444,9 @@ function hotkeyStatusFromTestResult(result: HotkeyTestResult): HotkeyStatus {
       fallbackAccelerator: settings.hotkey.fallbackAccelerator,
       fallbackRegistered: true,
       helperAttempted: true,
+      helperStarted: true,
+      helperVerified: true,
+      helperLastStderr: result.helperLastStderr,
       nativeActive: true,
       nativeHelperPath,
       nativeLastInfo: result.nativeLastInfo,
@@ -453,6 +467,9 @@ function hotkeyStatusFromTestResult(result: HotkeyTestResult): HotkeyStatus {
     fallbackAccelerator: settings.hotkey.fallbackAccelerator,
     fallbackRegistered: Boolean(settings.hotkey.fallbackAccelerator),
     helperAttempted: true,
+    helperStarted: result.helperStarted,
+    helperVerified: false,
+    helperLastStderr: result.helperLastStderr,
     nativeActive: false,
     nativeHelperPath,
     nativeLastInfo: result.nativeLastInfo,

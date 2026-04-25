@@ -16,6 +16,8 @@ export function createCheckingHotkeyStatus(options: {
     fallbackAccelerator: options.fallbackAccelerator,
     fallbackRegistered: false,
     helperAttempted: false,
+    helperStarted: false,
+    helperVerified: false,
     nativeActive: false,
     nativeHelperPath: options.nativeHelperPath,
     appAccessibilityTrusted: options.accessibilityTrusted,
