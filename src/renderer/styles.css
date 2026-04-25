@@ -58,6 +58,12 @@ label,
   letter-spacing: 0;
 }
 
+.build-info {
+  margin-top: 7px;
+  color: #69746f;
+  font-size: 12px;
+}
+
 h1,
 h2,
 p {

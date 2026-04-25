@@ -1,6 +1,6 @@
 import type { AsrProvider, AsrTranscription, SherpaModelType } from './types';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -309,7 +309,6 @@ export function createDefaultSherpaRecognizer(config: SherpaOfflineRecognizerCon
   type SherpaModule = {
     OfflineRecognizer?: new (config: unknown) => SherpaRecognizerLike;
     createOfflineRecognizer?: (config: unknown) => SherpaRecognizerLike;
-    readWave: (audioPath: string) => SherpaWave;
   };
 
   let sherpaOnnx: SherpaModule;
@@ -342,7 +341,7 @@ export function createDefaultSherpaRecognizer(config: SherpaOfflineRecognizerCon
     transcribe(audioPath: string): string {
       const stream = recognizer.createStream();
       try {
-        const wave = sherpaOnnx.readWave(audioPath);
+        const wave = readWavAsFloat32(audioPath);
         if (usesNativeAddon) {
           (stream.acceptWaveform as (wave: SherpaWave) => void)(wave);
         } else {
@@ -356,6 +355,69 @@ export function createDefaultSherpaRecognizer(config: SherpaOfflineRecognizerCon
       }
     }
   };
+}
+
+export function readWavAsFloat32(audioPath: string): { sampleRate: number; samples: Float32Array } {
+  const data = readFileSync(audioPath);
+  if (data.length < 44 || data.toString('ascii', 0, 4) !== 'RIFF' || data.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error('音频文件不是有效的 WAV 格式');
+  }
+
+  let offset = 12;
+  let audioFormat: number | undefined;
+  let channelCount: number | undefined;
+  let sampleRate: number | undefined;
+  let bitsPerSample: number | undefined;
+  let dataOffset: number | undefined;
+  let dataSize: number | undefined;
+
+  while (offset + 8 <= data.length) {
+    const chunkId = data.toString('ascii', offset, offset + 4);
+    const chunkSize = data.readUInt32LE(offset + 4);
+    const chunkDataOffset = offset + 8;
+
+    if (chunkDataOffset + chunkSize > data.length) {
+      throw new Error(`WAV chunk 损坏：${chunkId}`);
+    }
+
+    if (chunkId === 'fmt ') {
+      if (chunkSize < 16) {
+        throw new Error('WAV fmt chunk 不完整');
+      }
+      audioFormat = data.readUInt16LE(chunkDataOffset);
+      channelCount = data.readUInt16LE(chunkDataOffset + 2);
+      sampleRate = data.readUInt32LE(chunkDataOffset + 4);
+      bitsPerSample = data.readUInt16LE(chunkDataOffset + 14);
+    }
+
+    if (chunkId === 'data') {
+      dataOffset = chunkDataOffset;
+      dataSize = chunkSize;
+    }
+
+    offset = chunkDataOffset + chunkSize + (chunkSize % 2);
+  }
+
+  if (audioFormat !== 1 || bitsPerSample !== 16) {
+    throw new Error('仅支持 PCM16 WAV 音频');
+  }
+  if (channelCount !== 1) {
+    throw new Error('仅支持单声道 WAV 音频');
+  }
+  if (!sampleRate) {
+    throw new Error('WAV 缺少采样率');
+  }
+  if (dataOffset === undefined || !dataSize) {
+    throw new Error('WAV 缺少 data 音频数据');
+  }
+
+  const sampleCount = Math.floor(dataSize / 2);
+  const samples = new Float32Array(sampleCount);
+  for (let index = 0; index < sampleCount; index += 1) {
+    samples[index] = Math.max(-1, Math.min(1, data.readInt16LE(dataOffset + index * 2) / 32768));
+  }
+
+  return { sampleRate, samples };
 }
 
 function stripSherpaTags(input: string): string {

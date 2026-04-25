@@ -6,7 +6,9 @@ import { createShortcutMatcher, isModifierOnlyAccelerator } from '../core/hotkey
 
 interface HotkeyServiceOptions {
   accelerator: string;
+  fallbackAccelerator?: string;
   longPressMs: number;
+  accessibilityTrusted?: boolean;
   onAction(action: HotkeyAction): void;
   onStatus?(status: HotkeyStatus): void;
 }
@@ -14,6 +16,12 @@ interface HotkeyServiceOptions {
 export interface HotkeyStatus {
   backend: 'native-listener' | 'electron-shortcut';
   registered: boolean;
+  requestedAccelerator?: string;
+  activeAccelerator?: string;
+  fallbackAccelerator?: string;
+  fallbackRegistered?: boolean;
+  needsAccessibilityPermission?: boolean;
+  accessibilityTrusted?: boolean;
   message?: string;
 }
 
@@ -29,19 +37,35 @@ export class HotkeyService {
   async register(options: HotkeyServiceOptions): Promise<HotkeyStatus> {
     this.unregister();
     this.detector = new HotkeyGestureDetector({ longPressMs: options.longPressMs });
+    const nativeRequired = requiresNativeListener(options.accelerator);
+
+    if (nativeRequired && options.accessibilityTrusted === false) {
+      const status = this.registerFallbackShortcut(options, {
+        needsAccessibilityPermission: true,
+        message: '纯修饰键需要 macOS 辅助功能权限。已临时启用备用快捷键。'
+      });
+      options.onStatus?.(status);
+      return status;
+    }
 
     try {
       await this.registerNativeListener(options);
-      const status = { backend: 'native-listener' as const, registered: true };
+      const status = {
+        backend: 'native-listener' as const,
+        registered: true,
+        requestedAccelerator: options.accelerator,
+        activeAccelerator: options.accelerator,
+        fallbackAccelerator: options.fallbackAccelerator,
+        accessibilityTrusted: options.accessibilityTrusted
+      };
       options.onStatus?.(status);
       return status;
     } catch (error) {
-      if (isSingleKeyAccelerator(options.accelerator) || isModifierOnlyAccelerator(options.accelerator)) {
-        const status = {
-          backend: 'electron-shortcut' as const,
-          registered: false,
+      if (nativeRequired) {
+        const status = this.registerFallbackShortcut(options, {
+          needsAccessibilityPermission: true,
           message: `单键触发需要系统级键盘监听权限：${error instanceof Error ? error.message : String(error)}`
-        };
+        });
         options.onStatus?.(status);
         return status;
       }
@@ -51,6 +75,11 @@ export class HotkeyService {
       const status = {
         backend: 'electron-shortcut' as const,
         registered: shortcutRegistered,
+        requestedAccelerator: options.accelerator,
+        activeAccelerator: options.accelerator,
+        fallbackAccelerator: options.fallbackAccelerator,
+        fallbackRegistered: false,
+        accessibilityTrusted: options.accessibilityTrusted,
         message: error instanceof Error ? error.message : String(error)
       };
       options.onStatus?.(status);
@@ -132,6 +161,10 @@ export class HotkeyService {
         options.onStatus?.({
           backend: 'native-listener',
           registered: true,
+          requestedAccelerator: options.accelerator,
+          activeAccelerator: options.accelerator,
+          fallbackAccelerator: options.fallbackAccelerator,
+          accessibilityTrusted: options.accessibilityTrusted,
           message: '如果按键没有反应，请在系统设置里给 V2T 开启“辅助功能”和“输入监控”权限。'
         });
       }
@@ -142,6 +175,41 @@ export class HotkeyService {
     for (const action of actions) {
       onAction(action);
     }
+  }
+
+  private registerFallbackShortcut(
+    options: HotkeyServiceOptions,
+    details: { needsAccessibilityPermission?: boolean; message?: string } = {}
+  ): HotkeyStatus {
+    const fallback = options.fallbackAccelerator;
+    if (!fallback) {
+      return {
+        backend: 'electron-shortcut',
+        registered: false,
+        requestedAccelerator: options.accelerator,
+        activeAccelerator: options.accelerator,
+        fallbackRegistered: false,
+        needsAccessibilityPermission: details.needsAccessibilityPermission,
+        accessibilityTrusted: options.accessibilityTrusted,
+        message: details.message ?? '当前触发键不可用，也没有配置备用快捷键。'
+      };
+    }
+
+    const fallbackRegistered = globalShortcut.register(fallback, () => {
+      options.onAction({ type: 'start-recording', mode: 'toggle' });
+    });
+
+    return {
+      backend: 'electron-shortcut',
+      registered: fallbackRegistered,
+      requestedAccelerator: options.accelerator,
+      activeAccelerator: fallback,
+      fallbackAccelerator: fallback,
+      fallbackRegistered,
+      needsAccessibilityPermission: details.needsAccessibilityPermission,
+      accessibilityTrusted: options.accessibilityTrusted,
+      message: fallbackRegistered ? details.message : `${details.message ?? '当前触发键不可用'} 备用快捷键也注册失败。`
+    };
   }
 }
 
@@ -157,4 +225,8 @@ function patchLegacyUtil(): void {
 
 function isSingleKeyAccelerator(accelerator: string): boolean {
   return !accelerator.includes('+');
+}
+
+function requiresNativeListener(accelerator: string): boolean {
+  return isSingleKeyAccelerator(accelerator) || isModifierOnlyAccelerator(accelerator);
 }

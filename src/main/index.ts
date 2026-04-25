@@ -1,7 +1,7 @@
-import { app, BrowserWindow, Menu, Tray, clipboard, ipcMain, nativeImage, screen, shell } from 'electron';
+import { app, BrowserWindow, Menu, Tray, clipboard, ipcMain, nativeImage, screen, shell, systemPreferences } from 'electron';
 import { join } from 'node:path';
 import { hostname } from 'node:os';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { FunAsrHttpProvider, LocalSherpaAsrProvider, UserFacingAsrError, WhisperCppAsrProvider } from '../core/asrProviders';
 import { DEFAULT_MODEL_CATALOG, recommendModels } from '../core/modelCatalog';
@@ -133,6 +133,14 @@ function registerIpc(): void {
     return { ok: true };
   });
   ipcMain.handle('v2t:update-hotkey', async (_event, accelerator: string) => updateHotkey(accelerator));
+  ipcMain.handle('v2t:open-accessibility-settings', async () => {
+    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
+    return { ok: true };
+  });
+  ipcMain.handle('v2t:refresh-hotkey-permissions', async () => {
+    await registerHotkey();
+    return getSetupPayload();
+  });
   ipcMain.handle('v2t:set-recording-overlay-state', async (_event, update: RecordingOverlayUpdate) => {
     await applyRecordingOverlayState(normalizeRecordingOverlayState(update));
     return { ok: true };
@@ -296,7 +304,9 @@ async function ensureRecordingOverlayWindow(): Promise<BrowserWindow> {
 async function registerHotkey(): Promise<void> {
   hotkeyStatus = await hotkeyService.register({
     accelerator: settings.hotkey.accelerator,
+    fallbackAccelerator: settings.hotkey.fallbackAccelerator,
     longPressMs: settings.hotkey.longPressMs,
+    accessibilityTrusted: getAccessibilityTrusted(),
     onAction: (action) => {
       if (action.type === 'start-recording') {
         mainWindow?.webContents.send('v2t:recording-command', { type: 'start', trigger: action.mode });
@@ -328,6 +338,7 @@ async function getSetupPayload() {
   return {
     settings,
     hotkeyStatus,
+    appInfo: getAppInfo(),
     hardware,
     modelRoot,
     catalog: DEFAULT_MODEL_CATALOG,
@@ -429,7 +440,9 @@ async function updateHotkey(accelerator: string) {
   await store.saveSettings(settings);
   const status = await hotkeyService.register({
     accelerator: settings.hotkey.accelerator,
+    fallbackAccelerator: settings.hotkey.fallbackAccelerator,
     longPressMs: settings.hotkey.longPressMs,
+    accessibilityTrusted: getAccessibilityTrusted(),
     onAction: (action) => {
       if (action.type === 'start-recording') {
         mainWindow?.webContents.send('v2t:recording-command', { type: 'start', trigger: action.mode });
@@ -452,6 +465,28 @@ async function updateHotkey(accelerator: string) {
   }
 
   return { ok: true, settings, hotkeyStatus };
+}
+
+function getAccessibilityTrusted(): boolean {
+  return process.platform !== 'darwin' || systemPreferences.isTrustedAccessibilityClient(false);
+}
+
+function getAppInfo(): { version: string; buildCommit: string } {
+  const fallback = { version: app.getVersion(), buildCommit: process.env.V2T_BUILD_COMMIT ?? 'dev' };
+  const buildInfoPath = join(app.getAppPath(), 'dist', 'build-info.json');
+  if (!existsSync(buildInfoPath)) {
+    return fallback;
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(buildInfoPath, 'utf8')) as Partial<typeof fallback>;
+    return {
+      version: parsed.version ?? fallback.version,
+      buildCommit: parsed.buildCommit ?? fallback.buildCommit
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 function readableError(error: unknown): string {

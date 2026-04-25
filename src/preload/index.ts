@@ -31,6 +31,8 @@ export interface V2TApi {
   pullSync(): Promise<SyncActionResult>;
   pushSync(): Promise<SyncActionResult>;
   setRecordingOverlayState(update: RecordingOverlayUpdate): Promise<{ ok: true }>;
+  openAccessibilitySettings(): Promise<{ ok: true }>;
+  refreshHotkeyPermissions(): Promise<SetupPayload>;
   setOpenAIKey(value: string): Promise<{ ok: true }>;
   processAudio(payload: { bytes: Uint8Array; mode: InputMode }): Promise<VoiceInputPipelineResult>;
   onRecordingCommand(callback: (command: RecordingCommand) => void): () => void;
@@ -47,6 +49,10 @@ export interface SetupPayload {
   modelStatuses: Record<string, ModelStatusRecord>;
   recommendations: ModelRecommendation[];
   installedModels: InstalledModelView[];
+  appInfo: {
+    version: string;
+    buildCommit: string;
+  };
 }
 
 interface ProcessAudioResponse {
@@ -89,6 +95,8 @@ const api: V2TApi = {
   pullSync: () => ipcRenderer.invoke('v2t:pull-sync'),
   pushSync: () => ipcRenderer.invoke('v2t:push-sync'),
   setRecordingOverlayState: (update) => ipcRenderer.invoke('v2t:set-recording-overlay-state', update),
+  openAccessibilitySettings: () => ipcRenderer.invoke('v2t:open-accessibility-settings'),
+  refreshHotkeyPermissions: () => ipcRenderer.invoke('v2t:refresh-hotkey-permissions'),
   setOpenAIKey: (value) => ipcRenderer.invoke('v2t:set-openai-key', value),
   processAudio: async (payload) => {
     const response = (await ipcRenderer.invoke('v2t:process-audio', payload)) as ProcessAudioResponse;

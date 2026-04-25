@@ -222,6 +222,14 @@ export function App() {
     }
   };
 
+  const openAccessibilitySettings = async () => {
+    await window.v2t.openAccessibilitySettings();
+  };
+
+  const refreshHotkeyPermissions = async () => {
+    applySetup(await window.v2t.refreshHotkeyPermissions());
+  };
+
   const connectSyncRepo = async () => {
     setError(null);
     setSyncMessage(null);
@@ -324,6 +332,11 @@ export function App() {
         <div>
           <p className="eyebrow">V2T</p>
           <h1>语音输入</h1>
+          {setup ? (
+            <p className="build-info">
+              v{setup.appInfo.version} · {setup.appInfo.buildCommit}
+            </p>
+          ) : null}
         </div>
         <div className="status-row">
           <span className={`status-dot ${state}`} />
@@ -446,9 +459,43 @@ export function App() {
               </div>
               <div>
                 <dt>监听</dt>
-                <dd>{hotkeyStatus ? `${hotkeyStatus.backend}${hotkeyStatus.registered ? '' : ' 未注册'}` : '初始化'}</dd>
+                <dd>{hotkeyStatusLabel(hotkeyStatus)}</dd>
               </div>
+              {hotkeyStatus?.activeAccelerator && hotkeyStatus.activeAccelerator !== settings?.hotkey.accelerator ? (
+                <div>
+                  <dt>当前生效</dt>
+                  <dd>{hotkeyLabel(hotkeyStatus.activeAccelerator)}</dd>
+                </div>
+              ) : null}
+              {hotkeyStatus?.message ? (
+                <div>
+                  <dt>提示</dt>
+                  <dd>{hotkeyStatus.message}</dd>
+                </div>
+              ) : null}
+              {hotkeyStatus?.needsAccessibilityPermission ? (
+                <div>
+                  <dt>权限</dt>
+                  <dd>单键或纯修饰键需要 macOS 辅助功能权限；未开启时会使用备用快捷键。</dd>
+                </div>
+              ) : null}
+              {settings?.hotkey.fallbackAccelerator ? (
+                <div>
+                  <dt>备用</dt>
+                  <dd>{hotkeyLabel(settings.hotkey.fallbackAccelerator)}</dd>
+                </div>
+              ) : null}
             </dl>
+            {hotkeyStatus?.needsAccessibilityPermission ? (
+              <div className="button-row">
+                <button className="secondary" onClick={() => void openAccessibilitySettings()}>
+                  打开权限设置
+                </button>
+                <button className="secondary" onClick={() => void refreshHotkeyPermissions()}>
+                  重新检测
+                </button>
+              </div>
+            ) : null}
             <div className="button-row">
               <button
                 className={`secondary ${capturingHotkey ? 'listening' : ''}`}
@@ -775,6 +822,23 @@ function formatBytes(bytes: number): string {
     return `${(bytes / 1024).toFixed(1)}KB`;
   }
   return `${bytes}B`;
+}
+
+function hotkeyStatusLabel(status?: HotkeyStatus): string {
+  if (!status) {
+    return '初始化';
+  }
+  if (status.fallbackRegistered) {
+    return `备用快捷键已启用：${hotkeyLabel(status.activeAccelerator ?? '')}`;
+  }
+  if (!status.registered) {
+    return `${hotkeyBackendLabel(status.backend)} 未注册`;
+  }
+  return `${hotkeyBackendLabel(status.backend)} 已注册`;
+}
+
+function hotkeyBackendLabel(backend: HotkeyStatus['backend']): string {
+  return backend === 'native-listener' ? '系统监听' : 'Electron 快捷键';
 }
 
 function capturedKeysFromEvent(event: React.KeyboardEvent<HTMLButtonElement>): string[] {
