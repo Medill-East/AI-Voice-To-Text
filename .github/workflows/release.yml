@@ -7,25 +7,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Build ${{ matrix.os }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: mac
-            runner: macos-latest
-            command: npm run dist -- --mac
-            artifacts: |
-              release/*.dmg
-              release/*.zip
-          - os: windows
-            runner: windows-latest
-            command: npm run dist -- --win
-            artifacts: |
-              release/*.exe
-              release/*.zip
+  windows:
+    name: Build Windows
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -34,9 +18,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: ${{ matrix.command }}
+      - run: npm run dist -- --win
       - uses: actions/upload-artifact@v4
         with:
-          name: v2t-${{ matrix.os }}
-          path: ${{ matrix.artifacts }}
+          name: v2t-windows
+          path: |
+            release/*.exe
+            release/*.zip
           if-no-files-found: error
