@@ -345,6 +345,11 @@ export function App() {
     await window.v2t.showNativeHelper();
   };
 
+  const copyHotkeyDiagnostics = async () => {
+    await window.v2t.copyHotkeyDiagnostics();
+    setHotkeyTestMessage('快捷键诊断信息已复制到剪贴板');
+  };
+
   const connectSyncRepo = async () => {
     setError(null);
     setSyncMessage(null);
@@ -601,6 +606,18 @@ export function App() {
                 <dd>{hotkeyHelperStateLabel(hotkeyStatus)}</dd>
               </div>
             ) : null}
+            {hotkeyStatus?.helperListenAccess !== undefined ? (
+              <div>
+                <dt>监听权限</dt>
+                <dd>{hotkeyStatus.helperListenAccess ? 'Input Monitoring / Listen Event 已通过' : 'Input Monitoring / Listen Event 未通过'}</dd>
+              </div>
+            ) : null}
+            {hotkeyStatus?.helperEventTapCreated !== undefined ? (
+              <div>
+                <dt>Event Tap</dt>
+                <dd>{hotkeyStatus.helperEventTapCreated ? '已创建' : '创建失败'}</dd>
+              </div>
+            ) : null}
             {hotkeyStatus?.appAccessibilityTrusted !== undefined ? (
               <div>
                 <dt>V2T 权限</dt>
@@ -631,6 +648,18 @@ export function App() {
                 <dd>{hotkeyStatus.nativeHelperPath}</dd>
               </div>
             ) : null}
+            {hotkeyStatus?.nativeHelperSignature ? (
+              <div>
+                <dt>组件签名</dt>
+                <dd>{hotkeyStatus.nativeHelperSignature}</dd>
+              </div>
+            ) : null}
+            {hotkeyStatus?.hotkeyLogPath ? (
+              <div>
+                <dt>诊断日志</dt>
+                <dd>{hotkeyStatus.hotkeyLogPath}</dd>
+              </div>
+            ) : null}
           </dl>
           <div className="button-row three">
             <button className="secondary" onClick={() => void openAccessibilitySettings()}>
@@ -658,6 +687,9 @@ export function App() {
           </div>
           <button className="secondary full-width" onClick={() => void testHotkey()} disabled={testingHotkey}>
             {testingHotkey ? '等待按键中' : '测试快捷键'}
+          </button>
+          <button className="secondary full-width" onClick={() => void copyHotkeyDiagnostics()}>
+            复制诊断信息
           </button>
           {hotkeyTestMessage ? <p className="hint hotkey-test-message">{hotkeyTestMessage}</p> : null}
           {capturingHotkey ? <p className="hint">单个修饰键可以保存，但更容易误触；普通字母和数字单键仍会被拒绝。</p> : null}
@@ -871,7 +903,11 @@ export function App() {
           <h2>GitHub 同步</h2>
           {settings ? (
             <>
-              <p className="hint">同步包含设置、词库和提示词；词库内容请在“词库”页编辑。历史、模型和密钥不会同步。</p>
+              <p className="hint">
+                建议使用一个单独的私有仓库，例如 v2t-sync。连接后 V2T 会在本机创建 sync-repo，并同步
+                settings.json、lexicon.json、prompts/natural.md、prompts/structured.md。词库页保存只改本地 lexicon.json，需要点击“推送”才会写入 GitHub。
+                历史、模型和密钥不会同步。
+              </p>
               <label>
                 仓库 URL
                 <input

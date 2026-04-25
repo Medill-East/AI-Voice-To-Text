@@ -37,6 +37,7 @@ export interface V2TApi {
   openAccessibilitySettings(): Promise<{ ok: true }>;
   refreshHotkeyPermissions(): Promise<SetupPayload>;
   testHotkey(accelerator?: string): Promise<HotkeyTestResult>;
+  copyHotkeyDiagnostics(): Promise<{ ok: true }>;
   showNativeHelper(): Promise<{ ok: boolean }>;
   quitApp(): Promise<{ ok: true }>;
   setOpenAIKey(value: string): Promise<{ ok: true }>;
@@ -112,6 +113,7 @@ const api: V2TApi = {
   openAccessibilitySettings: () => ipcRenderer.invoke('v2t:open-accessibility-settings'),
   refreshHotkeyPermissions: () => ipcRenderer.invoke('v2t:refresh-hotkey-permissions'),
   testHotkey: (accelerator) => ipcRenderer.invoke('v2t:test-hotkey', accelerator),
+  copyHotkeyDiagnostics: () => ipcRenderer.invoke('v2t:copy-hotkey-diagnostics'),
   showNativeHelper: () => ipcRenderer.invoke('v2t:show-native-helper'),
   quitApp: () => ipcRenderer.invoke('v2t:quit-app'),
   setOpenAIKey: (value) => ipcRenderer.invoke('v2t:set-openai-key', value),

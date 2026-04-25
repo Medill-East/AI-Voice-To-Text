@@ -5,6 +5,8 @@ export function createCheckingHotkeyStatus(options: {
   fallbackAccelerator?: string;
   accessibilityTrusted?: boolean;
   nativeHelperPath?: string;
+  nativeHelperSignature?: string;
+  hotkeyLogPath?: string;
   diagnosticMessage?: string;
 }): HotkeyStatus {
   return {
@@ -20,6 +22,8 @@ export function createCheckingHotkeyStatus(options: {
     helperVerified: false,
     nativeActive: false,
     nativeHelperPath: options.nativeHelperPath,
+    nativeHelperSignature: options.nativeHelperSignature,
+    hotkeyLogPath: options.hotkeyLogPath,
     appAccessibilityTrusted: options.accessibilityTrusted,
     accessibilityTrusted: options.accessibilityTrusted,
     diagnosticMessage: options.diagnosticMessage ?? '正在重新检测系统键盘监听。',

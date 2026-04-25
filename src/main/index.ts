@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { hostname } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { FunAsrHttpProvider, LocalSherpaAsrProvider, UserFacingAsrError, WhisperCppAsrProvider } from '../core/asrProviders';
 import { DEFAULT_MODEL_CATALOG, recommendModels } from '../core/modelCatalog';
 import { detectHardwareProfile } from '../core/hardware';
@@ -16,6 +17,7 @@ import { UserDataStore } from '../core/userDataStore';
 import type { InputMode, ModelInstallStatus, ModelStatusRecord, Settings } from '../core/types';
 import { getFocusedAppName } from './focusedApp';
 import { createCheckingHotkeyStatus } from './hotkeyDiagnostics';
+import { HotkeyDiagnosticLog } from './hotkeyDiagnosticLog';
 import { HotkeyService, type HotkeyStatus, type HotkeyTestResult } from './hotkeyService';
 import { ensureStableMacKeyServer, resolveBundledMacKeyServerPath } from './nativeKeyHelper';
 import { OsPasteKeySender } from './osPasteKeySender';
@@ -41,6 +43,8 @@ let hotkeyStatus: HotkeyStatus | undefined;
 let isQuitting = false;
 let modelRoot: string;
 let nativeHelperPath: string | undefined;
+let nativeHelperSignature: string | undefined;
+let hotkeyLog: HotkeyDiagnosticLog;
 
 app.setName('V2T');
 
@@ -49,13 +53,19 @@ async function bootstrap(): Promise<void> {
   modelRoot = join(app.getPath('userData'), 'models');
   await mkdir(defaultDataDir, { recursive: true });
   await mkdir(modelRoot, { recursive: true });
+  hotkeyLog = new HotkeyDiagnosticLog(join(app.getPath('userData'), 'logs', 'hotkey-helper.log'));
   store = await UserDataStore.create(defaultDataDir, { deviceId: deviceId() });
   settings = await store.loadSettings();
   settings.dataDir = settings.dataDir ?? defaultDataDir;
   await store.saveSettings(settings);
 
   nativeHelperPath = await setupNativeKeyHelper();
-  hotkeyService = new HotkeyService();
+  nativeHelperSignature = nativeHelperPath ? readCodeSignature(nativeHelperPath) : undefined;
+  hotkeyService = new HotkeyService({
+    onDiagnostic: (event) => {
+      void hotkeyLog.write(event).catch((error) => console.warn(`Unable to write hotkey diagnostic log: ${readableError(error)}`));
+    }
+  });
   createApplicationMenu();
   createWindow();
   createTray();
@@ -187,6 +197,10 @@ function registerIpc(): void {
     return getSetupPayload();
   });
   ipcMain.handle('v2t:test-hotkey', async (_event, accelerator?: string) => testHotkey(accelerator ?? settings.hotkey.accelerator));
+  ipcMain.handle('v2t:copy-hotkey-diagnostics', async () => {
+    clipboard.writeText(createHotkeyDiagnosticText());
+    return { ok: true };
+  });
   ipcMain.handle('v2t:show-native-helper', async () => {
     if (nativeHelperPath) {
       shell.showItemInFolder(nativeHelperPath);
@@ -373,6 +387,8 @@ async function registerHotkey(): Promise<void> {
     longPressMs: settings.hotkey.longPressMs,
     accessibilityTrusted: getAccessibilityTrusted(),
     nativeHelperPath,
+    nativeHelperSignature,
+    hotkeyLogPath: hotkeyLog.getPath(),
     onAction: sendHotkeyAction,
     onStatus: (status) => {
       setHotkeyStatus(status);
@@ -386,7 +402,9 @@ function refreshHotkeyPermissions(): void {
       accelerator: settings.hotkey.accelerator,
       fallbackAccelerator: settings.hotkey.fallbackAccelerator,
       accessibilityTrusted: getAccessibilityTrusted(),
-      nativeHelperPath
+      nativeHelperPath,
+      nativeHelperSignature,
+      hotkeyLogPath: hotkeyLog.getPath()
     })
   );
   void registerHotkey().catch((error) => {
@@ -402,6 +420,8 @@ function refreshHotkeyPermissions(): void {
       helperVerified: false,
       nativeActive: false,
       nativeHelperPath,
+      nativeHelperSignature,
+      hotkeyLogPath: hotkeyLog.getPath(),
       appAccessibilityTrusted: getAccessibilityTrusted(),
       accessibilityTrusted: getAccessibilityTrusted(),
       lastError: readableError(error),
@@ -419,6 +439,8 @@ async function testHotkey(accelerator: string): Promise<HotkeyTestResult> {
       fallbackAccelerator: settings.hotkey.fallbackAccelerator,
       accessibilityTrusted: getAccessibilityTrusted(),
       nativeHelperPath,
+      nativeHelperSignature,
+      hotkeyLogPath: hotkeyLog.getPath(),
       diagnosticMessage: `请在 5 秒内按下 ${accelerator}。`
     })
   );
@@ -449,6 +471,8 @@ function hotkeyStatusFromTestResult(result: HotkeyTestResult): HotkeyStatus {
       helperLastStderr: result.helperLastStderr,
       nativeActive: true,
       nativeHelperPath,
+      nativeHelperSignature,
+      hotkeyLogPath: hotkeyLog.getPath(),
       nativeLastInfo: result.nativeLastInfo,
       lastNativeEventAt: Date.now(),
       appAccessibilityTrusted,
@@ -472,6 +496,8 @@ function hotkeyStatusFromTestResult(result: HotkeyTestResult): HotkeyStatus {
     helperLastStderr: result.helperLastStderr,
     nativeActive: false,
     nativeHelperPath,
+    nativeHelperSignature,
+    hotkeyLogPath: hotkeyLog.getPath(),
     nativeLastInfo: result.nativeLastInfo,
     nativeExitCode: result.nativeExitCode,
     needsAccessibilityPermission: true,
@@ -612,6 +638,8 @@ async function updateHotkey(accelerator: string) {
     longPressMs: settings.hotkey.longPressMs,
     accessibilityTrusted: getAccessibilityTrusted(),
     nativeHelperPath,
+    nativeHelperSignature,
+    hotkeyLogPath: hotkeyLog.getPath(),
     onAction: sendHotkeyAction,
     onStatus: (nextStatus) => {
       setHotkeyStatus(nextStatus);
@@ -645,6 +673,37 @@ async function setupNativeKeyHelper(): Promise<string | undefined> {
     console.warn(`Unable to install stable MacKeyServer helper: ${readableError(error)}`);
     return bundledPath;
   }
+}
+
+function readCodeSignature(filePath: string): string | undefined {
+  const result = spawnSync('codesign', ['-dv', '--verbose=4', filePath], { encoding: 'utf8' });
+  const text = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim();
+  const cdHash = text.match(/^CDHash=.+$/m)?.[0];
+  const signature = text.match(/^Signature=.+$/m)?.[0];
+  return [cdHash, signature].filter(Boolean).join(' · ') || text || undefined;
+}
+
+function createHotkeyDiagnosticText(): string {
+  const status = hotkeyStatus;
+  return [
+    'V2T hotkey diagnostics',
+    `version: ${app.getVersion()}`,
+    `requested: ${status?.requestedAccelerator ?? settings.hotkey.accelerator}`,
+    `active: ${status?.activeAccelerator ?? 'unknown'}`,
+    `fallback: ${status?.fallbackAccelerator ?? settings.hotkey.fallbackAccelerator ?? 'none'}`,
+    `helperPath: ${nativeHelperPath ?? 'none'}`,
+    `helperSignature: ${nativeHelperSignature ?? 'unknown'}`,
+    `helperStarted: ${String(status?.helperStarted ?? false)}`,
+    `helperVerified: ${String(status?.helperVerified ?? false)}`,
+    `helperListenAccess: ${String(status?.helperListenAccess ?? 'unknown')}`,
+    `helperEventTapCreated: ${String(status?.helperEventTapCreated ?? 'unknown')}`,
+    `lastNativeEventAt: ${status?.lastNativeEventAt ? new Date(status.lastNativeEventAt).toISOString() : 'none'}`,
+    `exitCode: ${String(status?.nativeExitCode ?? 'none')}`,
+    `stderr: ${status?.helperLastStderr ?? status?.nativeLastInfo ?? 'none'}`,
+    `logPath: ${hotkeyLog.getPath()}`,
+    'tccCommand: log stream --debug --predicate \'subsystem == "com.apple.TCC" AND eventMessage CONTAINS "V2T"\'',
+    'nextAction: 完全退出 V2T；在 Accessibility 中移除 V2T 和 MacKeyServer 后重新添加；再打开新版 V2T。'
+  ].join('\n');
 }
 
 function getAppInfo(): { version: string; buildCommit: string } {

@@ -15,6 +15,14 @@ FileHandle.standardInput.readabilityHandler = { handle in
   _ = handle.availableData
 }
 
+func info(_ message: String) {
+  fputs("V2T_INFO \(message)\n", stderr)
+}
+
+func error(_ message: String) {
+  fputs("V2T_ERROR \(message)\n", stderr)
+}
+
 func nextEventId() -> UInt64 {
   lock.lock()
   defer { lock.unlock() }
@@ -38,6 +46,15 @@ func modifierStateFor(keyCode: Int64) -> String {
   return isDown ? "DOWN" : "UP"
 }
 
+let preflightListenAccess = CGPreflightListenEventAccess()
+if preflightListenAccess {
+  info("listen-access=granted")
+} else {
+  info("listen-access=missing")
+  let requestedListenAccess = CGRequestListenEventAccess()
+  info("listen-access-request=\(requestedListenAccess ? "granted" : "denied")")
+}
+
 let callback: CGEventTapCallBack = { _, type, event, _ in
   let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
   switch type {
@@ -56,15 +73,17 @@ let callback: CGEventTapCallBack = { _, type, event, _ in
 guard let eventTap = CGEvent.tapCreate(
   tap: .cgSessionEventTap,
   place: .headInsertEventTap,
-  options: .defaultTap,
+  options: .listenOnly,
   eventsOfInterest: CGEventMask(eventMask),
   callback: callback,
   userInfo: nil
 ) else {
+  error("event-tap-create-failed")
   fputs("Unable to create CGEvent tap. Grant Accessibility permission to V2T Keyboard Listener.\n", stderr)
   exit(2)
 }
 
+info("event-tap-created")
 let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
 CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
 CGEvent.tapEnable(tap: eventTap, enable: true)

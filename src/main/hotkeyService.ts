@@ -10,6 +10,8 @@ interface HotkeyServiceOptions {
   longPressMs: number;
   accessibilityTrusted?: boolean;
   nativeHelperPath?: string;
+  nativeHelperSignature?: string;
+  hotkeyLogPath?: string;
   onAction(action: HotkeyAction): void;
   onStatus?(status: HotkeyStatus): void;
 }
@@ -26,8 +28,12 @@ export interface HotkeyStatus {
   helperStarted?: boolean;
   helperVerified?: boolean;
   helperLastStderr?: string;
+  helperListenAccess?: boolean;
+  helperEventTapCreated?: boolean;
   nativeActive?: boolean;
   nativeHelperPath?: string;
+  nativeHelperSignature?: string;
+  hotkeyLogPath?: string;
   nativeLastInfo?: string;
   nativeExitCode?: number | null;
   lastNativeEventAt?: number;
@@ -73,6 +79,15 @@ interface HotkeyServiceDependencies {
   nativeFactory?: NativeKeyListenerFactory;
   noNativeEventTimeoutMs?: number;
   now?: () => number;
+  onDiagnostic?(event: {
+    type: string;
+    helperPath?: string;
+    signature?: string;
+    stderr?: string;
+    exitCode?: number | null;
+    accelerator?: string;
+    message?: string;
+  }): void;
 }
 
 export class HotkeyService {
@@ -89,6 +104,8 @@ export class HotkeyService {
   private helperAttempted = false;
   private helperStarted = false;
   private helperVerified = false;
+  private helperListenAccess?: boolean;
+  private helperEventTapCreated?: boolean;
   private nativeActive = false;
   private nativeHelperPath?: string;
   private nativeLastInfo?: string;
@@ -98,11 +115,13 @@ export class HotkeyService {
   private readonly nativeFactory: NativeKeyListenerFactory;
   private readonly noNativeEventTimeoutMs: number;
   private readonly now: () => number;
+  private readonly onDiagnostic?: HotkeyServiceDependencies['onDiagnostic'];
 
   constructor(dependencies: HotkeyServiceDependencies = {}) {
     this.nativeFactory = dependencies.nativeFactory ?? new DefaultNativeKeyListenerFactory();
     this.noNativeEventTimeoutMs = dependencies.noNativeEventTimeoutMs ?? 2500;
     this.now = dependencies.now ?? Date.now;
+    this.onDiagnostic = dependencies.onDiagnostic;
   }
 
   async register(options: HotkeyServiceOptions): Promise<HotkeyStatus> {
@@ -179,6 +198,8 @@ export class HotkeyService {
     this.helperAttempted = false;
     this.helperStarted = false;
     this.helperVerified = false;
+    this.helperListenAccess = undefined;
+    this.helperEventTapCreated = undefined;
     this.nativeActive = false;
     this.nativeHelperPath = undefined;
     this.nativeLastInfo = undefined;
@@ -195,7 +216,10 @@ export class HotkeyService {
     this.helperAttempted = true;
     this.helperStarted = false;
     this.helperVerified = false;
+    this.helperListenAccess = undefined;
+    this.helperEventTapCreated = undefined;
     this.nativeActive = false;
+    this.logDiagnostic('helper-start', options);
 
     this.listenerCallback = (event: IGlobalKeyEvent, down: IGlobalKeyDownMap) => {
       this.hasSeenNativeEvent = true;
@@ -204,6 +228,7 @@ export class HotkeyService {
         this.nativeActive = true;
         this.helperVerified = true;
         this.lastError = undefined;
+        this.logDiagnostic('native-event', options);
         options.onStatus?.(this.nativeStatus(options));
       }
       if (!this.detector || !event.name || !matcher({ name: event.name, state: event.state }, down)) {
@@ -242,6 +267,7 @@ export class HotkeyService {
       options.nativeHelperPath
     );
     this.helperStarted = true;
+    this.logDiagnostic('helper-spawned', options);
     this.diagnosticTimer = setTimeout(() => {
       if (!this.hasSeenNativeEvent) {
         this.nativeActive = false;
@@ -258,10 +284,18 @@ export class HotkeyService {
 
   private handleNativeInfo(info: string): void {
     this.nativeLastInfo = info.trim();
+    const parsed = parseNativeInfo(this.nativeLastInfo);
+    if (parsed.helperListenAccess !== undefined) {
+      this.helperListenAccess = parsed.helperListenAccess;
+    }
+    if (parsed.helperEventTapCreated !== undefined) {
+      this.helperEventTapCreated = parsed.helperEventTapCreated;
+    }
     const options = this.currentOptions;
     if (!options) {
       return;
     }
+    this.logDiagnostic('helper-info', options, { stderr: this.nativeLastInfo });
     options.onStatus?.(this.nativeStatus(options));
   }
 
@@ -287,8 +321,12 @@ export class HotkeyService {
     this.helperVerified = false;
     this.nativeExitCode = exitCodeFromError(error);
     this.lastError = stringifyError(error);
+    if (isEventTapFailure(this.nativeLastInfo)) {
+      this.helperEventTapCreated = false;
+    }
     const nativeRequired = requiresNativeListener(options.accelerator);
     const diagnosticMessage = helperFailureDiagnostic(options.nativeHelperPath, this.nativeLastInfo);
+    this.logDiagnostic('helper-error', options, { stderr: this.nativeLastInfo, exitCode: this.nativeExitCode, message: this.lastError });
     const status: HotkeyStatus =
       nativeRequired && this.fallbackRegistered
         ? this.fallbackStatus(options, {
@@ -331,8 +369,12 @@ export class HotkeyService {
       helperStarted: this.helperStarted,
       helperVerified: this.helperVerified,
       helperLastStderr: this.nativeLastInfo,
+      helperListenAccess: this.helperListenAccess,
+      helperEventTapCreated: this.helperEventTapCreated,
       nativeActive: this.nativeActive,
       nativeHelperPath: this.nativeHelperPath ?? options.nativeHelperPath,
+      nativeHelperSignature: options.nativeHelperSignature,
+      hotkeyLogPath: options.hotkeyLogPath,
       nativeLastInfo: this.nativeLastInfo,
       nativeExitCode: this.nativeExitCode,
       lastNativeEventAt: this.lastNativeEventAt,
@@ -369,8 +411,12 @@ export class HotkeyService {
       helperStarted: this.helperStarted,
       helperVerified: this.helperVerified,
       helperLastStderr: this.nativeLastInfo,
+      helperListenAccess: this.helperListenAccess,
+      helperEventTapCreated: this.helperEventTapCreated,
       nativeActive: this.nativeActive,
       nativeHelperPath: this.nativeHelperPath ?? options.nativeHelperPath,
+      nativeHelperSignature: options.nativeHelperSignature,
+      hotkeyLogPath: options.hotkeyLogPath,
       nativeLastInfo: this.nativeLastInfo,
       nativeExitCode: details.nativeExitCode ?? this.nativeExitCode,
       lastNativeEventAt: this.lastNativeEventAt,
@@ -482,6 +528,20 @@ export class HotkeyService {
         });
     });
   }
+
+  private logDiagnostic(
+    type: string,
+    options: HotkeyServiceOptions,
+    details: { stderr?: string; exitCode?: number | null; message?: string } = {}
+  ): void {
+    this.onDiagnostic?.({
+      type,
+      helperPath: options.nativeHelperPath,
+      signature: options.nativeHelperSignature,
+      accelerator: options.accelerator,
+      ...details
+    });
+  }
 }
 
 class DefaultNativeKeyListenerFactory implements NativeKeyListenerFactory {
@@ -535,8 +595,32 @@ function helperPendingDiagnostic(): string {
 }
 
 function helperFailureDiagnostic(nativeHelperPath?: string, stderr?: string): string {
-  const base = stderr?.trim() ? `系统监听组件不可用：${stderr.trim()}` : `系统监听组件不可用。${helperPermissionDiagnostic(nativeHelperPath)}`;
+  const base = isEventTapFailure(stderr)
+    ? `系统监听组件 event tap 权限失败：${stderr?.trim()}`
+    : stderr?.trim()
+      ? `系统监听组件不可用：${stderr.trim()}`
+      : `系统监听组件不可用。${helperPermissionDiagnostic(nativeHelperPath)}`;
   return `${base} 如果已添加权限但仍无效，请完全退出 V2T 后重新打开；如果仍失败，移除 MacKeyServer 和 V2T 后重新添加。`;
+}
+
+function parseNativeInfo(info: string): Pick<HotkeyStatus, 'helperListenAccess' | 'helperEventTapCreated'> {
+  if (info.includes('listen-access=granted') || info.includes('listen-access-request=granted')) {
+    return { helperListenAccess: true };
+  }
+  if (info.includes('listen-access=missing') || info.includes('listen-access-request=denied')) {
+    return { helperListenAccess: false };
+  }
+  if (info.includes('event-tap-created')) {
+    return { helperEventTapCreated: true };
+  }
+  if (isEventTapFailure(info)) {
+    return { helperEventTapCreated: false };
+  }
+  return {};
+}
+
+function isEventTapFailure(stderr?: string): boolean {
+  return Boolean(stderr?.includes('Unable to create CGEvent tap') || stderr?.includes('event-tap-create-failed'));
 }
 
 function patchLegacyUtil(): void {

@@ -198,9 +198,10 @@ describe('HotkeyService', () => {
         helperStarted: true,
         helperVerified: false,
         helperLastStderr: expect.stringContaining('Unable to create CGEvent tap'),
+        helperEventTapCreated: false,
         nativeExitCode: 2,
         recommendedAction: 'grant-native-helper-accessibility',
-        diagnosticMessage: expect.stringContaining('Unable to create CGEvent tap')
+        diagnosticMessage: expect.stringContaining('event tap 权限失败')
       })
     );
   });

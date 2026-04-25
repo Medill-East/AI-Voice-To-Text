@@ -10,8 +10,10 @@ describe('lexicon IPC surface', () => {
     expect(preload).toContain('saveLexicon(lexicon: Lexicon): Promise<LexiconSaveResult>');
     expect(preload).toContain("ipcRenderer.invoke('v2t:get-lexicon')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:save-lexicon', lexicon)");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:copy-hotkey-diagnostics')");
     expect(main).toContain("ipcMain.handle('v2t:get-lexicon'");
     expect(main).toContain("ipcMain.handle('v2t:save-lexicon'");
+    expect(main).toContain("ipcMain.handle('v2t:copy-hotkey-diagnostics'");
     expect(main).toContain('store.saveLexicon');
   });
 });
