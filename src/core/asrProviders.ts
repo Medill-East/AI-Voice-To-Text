@@ -1,8 +1,8 @@
-import type { AsrProvider, AsrTranscription } from './types';
+import type { AsrProvider, AsrTranscription, SherpaModelType } from './types';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 interface FunAsrProviderOptions {
   endpoint: string;
@@ -13,16 +13,17 @@ interface FunAsrProviderOptions {
 interface LocalSherpaProviderOptions {
   modelId?: string;
   modelPath?: string;
+  sherpaModelType?: SherpaModelType;
   language?: string;
   tokensPath?: string;
   recognizerFactory?: SherpaRecognizerFactory;
 }
 
-type SherpaRecognizerFactory = (config: {
-  modelPath: string;
-  tokensPath: string;
-  language: string;
-}) => SherpaRecognizer;
+type SherpaRecognizerFactory = (config: SherpaOfflineRecognizerConfig) => SherpaRecognizer;
+
+export interface SherpaOfflineRecognizerConfig {
+  modelConfig: Record<string, unknown>;
+}
 
 interface SherpaRecognizer {
   transcribe(audioPath: string): Promise<string> | string;
@@ -77,33 +78,36 @@ export class FunAsrHttpProvider implements AsrProvider {
 export class LocalSherpaAsrProvider implements AsrProvider {
   private readonly modelId?: string;
   private readonly modelPath?: string;
+  private readonly modelRoot?: string;
+  private readonly sherpaModelType: SherpaModelType;
   private readonly language: string;
-  private readonly tokensPath?: string;
   private readonly recognizerFactory?: SherpaRecognizerFactory;
 
   constructor(options: LocalSherpaProviderOptions) {
     this.modelId = options.modelId;
     this.modelPath = options.modelPath;
+    this.modelRoot = options.modelPath ? dirname(options.modelPath) : undefined;
+    this.sherpaModelType = options.sherpaModelType ?? 'senseVoice';
     this.language = options.language ?? 'zh';
-    this.tokensPath = options.tokensPath ?? (options.modelPath ? join(options.modelPath, '..', 'tokens.txt') : undefined);
     this.recognizerFactory = options.recognizerFactory;
   }
 
   async transcribe(audio: Buffer | Uint8Array): Promise<AsrTranscription> {
-    if (!this.modelPath || !this.tokensPath || !existsSync(this.modelPath) || !existsSync(this.tokensPath)) {
+    if (!this.modelRoot || !this.hasRequiredModelFiles()) {
       throw new UserFacingAsrError(
         '请先一键配置本地语音模型。当前没有可用的本地模型文件，所以无法转写。',
         'asr-local-model-missing'
       );
     }
 
+    const recognizerConfig = createSherpaOfflineRecognizerConfig({
+      modelRoot: this.modelRoot,
+      sherpaModelType: this.sherpaModelType,
+      language: this.language
+    });
     const recognizer = this.recognizerFactory
-      ? this.recognizerFactory({ modelPath: this.modelPath, tokensPath: this.tokensPath, language: this.language })
-      : createDefaultSherpaRecognizer({
-          modelPath: this.modelPath,
-          tokensPath: this.tokensPath,
-          language: this.language
-        });
+      ? this.recognizerFactory(recognizerConfig)
+      : createDefaultSherpaRecognizer(recognizerConfig);
 
     const workDir = await mkdtemp(join(tmpdir(), `v2t-${this.modelId ?? 'asr'}-`));
     const audioPath = join(workDir, 'recording.wav');
@@ -125,6 +129,13 @@ export class LocalSherpaAsrProvider implements AsrProvider {
       await rm(workDir, { recursive: true, force: true });
     }
   }
+
+  private hasRequiredModelFiles(): boolean {
+    if (!this.modelRoot) {
+      return false;
+    }
+    return requiredSherpaFiles(this.sherpaModelType).every((file) => existsSync(join(this.modelRoot!, file)));
+  }
 }
 
 export class WhisperCppAsrProvider implements AsrProvider {
@@ -145,7 +156,116 @@ export class UserFacingAsrError extends Error {
   }
 }
 
-function createDefaultSherpaRecognizer(config: { modelPath: string; tokensPath: string; language: string }): SherpaRecognizer {
+export function createSherpaOfflineRecognizerConfig(options: {
+  modelRoot: string;
+  sherpaModelType: SherpaModelType;
+  language: string;
+}): SherpaOfflineRecognizerConfig {
+  const baseModelConfig = {
+    tokens: join(options.modelRoot, 'tokens.txt'),
+    debug: false,
+    numThreads: 2
+  };
+
+  if (options.sherpaModelType === 'funasrNano') {
+    return {
+      modelConfig: {
+        ...baseModelConfig,
+        tokens: '',
+        funasrNano: {
+          encoderAdaptor: join(options.modelRoot, 'encoder_adaptor.int8.onnx'),
+          llm: join(options.modelRoot, 'llm.int8.onnx'),
+          embedding: join(options.modelRoot, 'embedding.int8.onnx'),
+          tokenizer: join(options.modelRoot, 'Qwen3-0.6B'),
+          systemPrompt: 'You are a helpful assistant.',
+          userPrompt: '语音转写：',
+          maxNewTokens: 512,
+          temperature: 1e-6,
+          topP: 0.8,
+          seed: 42,
+          language: '',
+          itn: 1,
+          hotwords: ''
+        }
+      }
+    };
+  }
+
+  if (options.sherpaModelType === 'fireRedAsr') {
+    return {
+      modelConfig: {
+        ...baseModelConfig,
+        fireRedAsr: {
+          encoder: join(options.modelRoot, 'encoder.int8.onnx'),
+          decoder: join(options.modelRoot, 'decoder.int8.onnx')
+        }
+      }
+    };
+  }
+
+  if (options.sherpaModelType === 'fireRedAsrCtc') {
+    return {
+      modelConfig: {
+        ...baseModelConfig,
+        fireRedAsrCtc: {
+          model: join(options.modelRoot, 'model.int8.onnx')
+        }
+      }
+    };
+  }
+
+  if (options.sherpaModelType === 'paraformer') {
+    return {
+      modelConfig: {
+        ...baseModelConfig,
+        paraformer: {
+          model: join(options.modelRoot, 'model.int8.onnx')
+        }
+      }
+    };
+  }
+
+  if (options.sherpaModelType === 'zipformerCtc') {
+    return {
+      modelConfig: {
+        ...baseModelConfig,
+        zipformerCtc: {
+          model: join(options.modelRoot, 'model.int8.onnx')
+        }
+      }
+    };
+  }
+
+  return {
+    modelConfig: {
+      ...baseModelConfig,
+      senseVoice: {
+        model: join(options.modelRoot, 'model.int8.onnx'),
+        language: options.language,
+        useInverseTextNormalization: 1
+      }
+    }
+  };
+}
+
+function requiredSherpaFiles(modelType: SherpaModelType): string[] {
+  if (modelType === 'funasrNano') {
+    return [
+      'encoder_adaptor.int8.onnx',
+      'llm.int8.onnx',
+      'embedding.int8.onnx',
+      'Qwen3-0.6B/tokenizer.json',
+      'Qwen3-0.6B/vocab.json',
+      'Qwen3-0.6B/merges.txt'
+    ];
+  }
+  if (modelType === 'fireRedAsr') {
+    return ['encoder.int8.onnx', 'decoder.int8.onnx', 'tokens.txt'];
+  }
+  return ['model.int8.onnx', 'tokens.txt'];
+}
+
+function createDefaultSherpaRecognizer(config: SherpaOfflineRecognizerConfig): SherpaRecognizer {
   let sherpaOnnx: {
     createOfflineRecognizer: (config: unknown) => {
       createStream: () => {
@@ -169,17 +289,7 @@ function createDefaultSherpaRecognizer(config: { modelPath: string; tokensPath: 
     );
   }
 
-  const recognizer = sherpaOnnx.createOfflineRecognizer({
-    modelConfig: {
-      senseVoice: {
-        model: config.modelPath,
-        language: config.language,
-        useInverseTextNormalization: 1
-      },
-      tokens: config.tokensPath,
-      debug: false
-    }
-  });
+  const recognizer = sherpaOnnx.createOfflineRecognizer(config);
 
   return {
     transcribe(audioPath: string): string {

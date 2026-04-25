@@ -3,7 +3,7 @@ import { DEFAULT_MODEL_CATALOG, recommendModels } from '../src/core/modelCatalog
 import type { HardwareProfile } from '../src/core/types';
 
 describe('model catalog recommendation', () => {
-  it('recommends SenseVoice 2025 first on Apple Silicon with 32 GB memory', () => {
+  it('recommends only installable latest-family models on Apple Silicon with 32 GB memory', () => {
     const hardware: HardwareProfile = {
       platform: 'darwin',
       arch: 'arm64',
@@ -17,10 +17,15 @@ describe('model catalog recommendation', () => {
 
     const recommendations = recommendModels(DEFAULT_MODEL_CATALOG, hardware);
 
-    expect(recommendations).toHaveLength(3);
-    expect(recommendations[0].model.id).toBe('sensevoice-onnx-int8-2025');
+    expect(recommendations.map((item) => item.model.id)).toEqual([
+      'funasr-nano-int8-2025-12-30',
+      'sensevoice-onnx-int8-2025-09-09',
+      'firered-asr2-zh-en-int8-2026-02-26'
+    ]);
+    expect(recommendations.every((item) => item.model.installable)).toBe(true);
+    expect(recommendations.some((item) => item.model.id.includes('2024'))).toBe(false);
+    expect(recommendations.some((item) => item.model.runtime === 'whisper-cpp')).toBe(false);
     expect(recommendations[0].reasons.join(' ')).toContain('中文');
-    expect(recommendations[0].score).toBeGreaterThan(recommendations[1].score);
   });
 
   it('prefers smaller models on low-memory devices', () => {
@@ -35,7 +40,7 @@ describe('model catalog recommendation', () => {
 
     const recommendations = recommendModels(DEFAULT_MODEL_CATALOG, hardware);
 
-    expect(recommendations[0].model.sizeMb).toBeLessThan(500);
+    expect(recommendations[0].model.id).toBe('sensevoice-onnx-int8-2025-09-09');
     expect(recommendations[0].reasons.join(' ')).toContain('低内存');
   });
 });

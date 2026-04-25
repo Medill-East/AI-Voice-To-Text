@@ -10,6 +10,7 @@ import type {
   VoiceInputPipelineResult
 } from '../core/types';
 import type { HotkeyStatus } from '../main/hotkeyService';
+import type { RecordingOverlayUpdate } from '../main/recordingOverlay';
 
 export interface RecordingCommand {
   type: 'start' | 'stop';
@@ -27,6 +28,7 @@ export interface V2TApi {
   connectSyncRepo(repoUrl: string): Promise<SyncActionResult>;
   pullSync(): Promise<SyncActionResult>;
   pushSync(): Promise<SyncActionResult>;
+  setRecordingOverlayState(update: RecordingOverlayUpdate): Promise<{ ok: true }>;
   setOpenAIKey(value: string): Promise<{ ok: true }>;
   processAudio(payload: { bytes: Uint8Array; mode: InputMode }): Promise<VoiceInputPipelineResult>;
   onRecordingCommand(callback: (command: RecordingCommand) => void): () => void;
@@ -81,6 +83,7 @@ const api: V2TApi = {
   connectSyncRepo: (repoUrl) => ipcRenderer.invoke('v2t:connect-sync-repo', repoUrl),
   pullSync: () => ipcRenderer.invoke('v2t:pull-sync'),
   pushSync: () => ipcRenderer.invoke('v2t:push-sync'),
+  setRecordingOverlayState: (update) => ipcRenderer.invoke('v2t:set-recording-overlay-state', update),
   setOpenAIKey: (value) => ipcRenderer.invoke('v2t:set-openai-key', value),
   processAudio: async (payload) => {
     const response = (await ipcRenderer.invoke('v2t:process-audio', payload)) as ProcessAudioResponse;

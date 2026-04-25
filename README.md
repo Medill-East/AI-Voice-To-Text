@@ -4,13 +4,13 @@ V2T is a cross-platform Electron + TypeScript voice-to-text MVP for Windows and 
 
 ## Current MVP
 
-- Global hotkey recording with short-press toggle and long-press hold behavior.
+- Global hotkey recording with short-press toggle and long-press hold behavior, including safe single-key triggers such as function keys.
 - Local-first ASR model setup with hardware-based recommendations.
-- SenseVoice ONNX model management through `sherpa-onnx`.
+- Installable local ASR models through `sherpa-onnx`, including Fun-ASR-Nano, FireRed ASR2, and SenseVoice.
 - Natural input mode for conservative correction.
 - Structured input mode for Markdown-oriented cleanup.
 - Text injection into the current focused app with clipboard fallback.
-- Syncable settings, lexicon, prompts, and text-only history.
+- Syncable settings, lexicon, and prompts. Text history stays local by default.
 
 ## Development Run
 

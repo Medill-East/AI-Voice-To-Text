@@ -38,6 +38,7 @@ export function App() {
   const recorderRef = useRef<PcmRecorder | null>(null);
   const modeRef = useRef<InputMode>('natural');
   const recordingStateRef = useRef<RecordingState>('idle');
+  const recordingStartedAtRef = useRef<number | undefined>(undefined);
 
   const applySetup = useCallback((nextSetup: SetupPayload) => {
     setSetup(nextSetup);
@@ -104,8 +105,10 @@ export function App() {
         chunks,
         inputSampleRate: context.sampleRate
       };
+      recordingStartedAtRef.current = Date.now();
       setState('recording');
     } catch (caught) {
+      recordingStartedAtRef.current = undefined;
       setState('error');
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -116,12 +119,33 @@ export function App() {
     try {
       const result = await window.v2t.processAudio({ bytes, mode: activeMode });
       setHistory((items) => [{ ...result, createdAt: new Date().toISOString(), mode: activeMode }, ...items].slice(0, 30));
+      recordingStartedAtRef.current = undefined;
       setState('idle');
     } catch (caught) {
+      recordingStartedAtRef.current = undefined;
       setState('error');
       setError(caught instanceof Error ? caught.message : String(caught));
     }
   }, []);
+
+  useEffect(() => {
+    const syncOverlay = () => {
+      void window.v2t
+        .setRecordingOverlayState({
+          state,
+          mode,
+          startedAt: recordingStartedAtRef.current,
+          now: Date.now()
+        })
+        .catch(() => undefined);
+    };
+    syncOverlay();
+    if (state !== 'recording' && state !== 'processing') {
+      return;
+    }
+    const timer = window.setInterval(syncOverlay, 500);
+    return () => window.clearInterval(timer);
+  }, [mode, state]);
 
   useEffect(() => {
     return window.v2t.onRecordingCommand((command: RecordingCommand) => {
@@ -375,7 +399,7 @@ export function App() {
                 onClick={() => setCapturingHotkey(true)}
                 onKeyDown={(event) => void handleHotkeyCapture(event)}
               >
-                {capturingHotkey ? '按下组合键' : '录制快捷键'}
+                {capturingHotkey ? '按下触发键或组合键' : '录制快捷键'}
               </button>
               <button className="secondary" onClick={() => void updateHotkey('CommandOrControl+Shift+Space')}>
                 恢复默认
@@ -551,7 +575,6 @@ function ModelRow({
   const isCurrent = currentModelId === recommendation.model.id;
   const installing = installingModelId === recommendation.model.id;
   const deleting = deletingModelId === recommendation.model.id;
-  const unsupported = recommendation.model.runtime === 'whisper-cpp';
   const canDelete = !isCurrent && (status === 'installed' || status === 'current');
 
   return (
@@ -563,8 +586,8 @@ function ModelRow({
           {recommendation.model.sizeMb}MB · {recommendation.model.languages.join('/')}
         </small>
       </div>
-      <button onClick={() => void onInstall(recommendation.model.id)} disabled={installing || isCurrent || unsupported}>
-        {isCurrent ? '当前' : unsupported ? '待接入' : installing ? '安装中' : '安装'}
+      <button onClick={() => void onInstall(recommendation.model.id)} disabled={installing || isCurrent}>
+        {isCurrent ? '当前' : installing ? '安装中' : '安装'}
       </button>
       {canDelete ? (
         <button className="danger" onClick={() => void onDelete(recommendation.model.id)} disabled={deleting}>

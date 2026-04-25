@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, clipboard, ipcMain, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, Menu, Tray, clipboard, ipcMain, nativeImage, screen, shell } from 'electron';
 import { join } from 'node:path';
 import { hostname } from 'node:os';
 import { existsSync } from 'node:fs';
@@ -18,8 +18,17 @@ import { getFocusedAppName } from './focusedApp';
 import { HotkeyService, type HotkeyStatus } from './hotkeyService';
 import { OsPasteKeySender } from './osPasteKeySender';
 import { SecretStore } from './secretStore';
+import {
+  normalizeRecordingOverlayState,
+  recordingOverlayBounds,
+  trayTitleForRecordingState,
+  type NormalizedRecordingOverlayState,
+  type RecordingOverlayUpdate
+} from './recordingOverlay';
 
 let mainWindow: BrowserWindow | undefined;
+let recordingOverlayWindow: BrowserWindow | undefined;
+let recordingOverlayReady: Promise<void> | undefined;
 let tray: Tray | undefined;
 let store: UserDataStore;
 let settings: Settings;
@@ -82,6 +91,9 @@ function createWindow(): void {
 function createTray(): void {
   tray = new Tray(createTrayImage());
   tray.setToolTip('V2T');
+  if (process.platform === 'darwin') {
+    tray.setTitle('V2T');
+  }
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: '打开 V2T', click: () => showWindow() },
@@ -120,6 +132,10 @@ function registerIpc(): void {
     return { ok: true };
   });
   ipcMain.handle('v2t:update-hotkey', async (_event, accelerator: string) => updateHotkey(accelerator));
+  ipcMain.handle('v2t:set-recording-overlay-state', async (_event, update: RecordingOverlayUpdate) => {
+    await applyRecordingOverlayState(normalizeRecordingOverlayState(update));
+    return { ok: true };
+  });
   ipcMain.handle('v2t:get-sync-status', async () => createSyncService().status());
   ipcMain.handle('v2t:connect-sync-repo', async (_event, repoUrl: string) => connectSyncRepo(repoUrl));
   ipcMain.handle('v2t:pull-sync', async () => pullSync());
@@ -198,8 +214,64 @@ function createAsrProvider() {
   return new LocalSherpaAsrProvider({
     modelId: settings.providers.asr.modelId,
     modelPath: settings.providers.asr.modelPath,
+    sherpaModelType: settings.providers.asr.sherpaModelType,
     language: settings.providers.asr.language
   });
+}
+
+async function applyRecordingOverlayState(state: NormalizedRecordingOverlayState): Promise<void> {
+  if (process.platform === 'darwin') {
+    tray?.setTitle(trayTitleForRecordingState(state));
+  }
+
+  if (!state.visible) {
+    recordingOverlayWindow?.hide();
+    return;
+  }
+
+  const overlay = await ensureRecordingOverlayWindow();
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  overlay.setBounds(recordingOverlayBounds(display.workArea));
+  overlay.showInactive();
+  await overlay.webContents.executeJavaScript(`window.setV2TOverlayState(${JSON.stringify(state)})`);
+}
+
+async function ensureRecordingOverlayWindow(): Promise<BrowserWindow> {
+  if (recordingOverlayWindow && !recordingOverlayWindow.isDestroyed()) {
+    await recordingOverlayReady;
+    return recordingOverlayWindow;
+  }
+
+  recordingOverlayWindow = new BrowserWindow({
+    width: 300,
+    height: 72,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    closable: false,
+    focusable: false,
+    show: false,
+    hasShadow: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  recordingOverlayWindow.setIgnoreMouseEvents(true);
+  recordingOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  recordingOverlayWindow.setAlwaysOnTop(true, 'floating');
+
+  recordingOverlayReady = new Promise((resolve) => {
+    recordingOverlayWindow?.webContents.once('did-finish-load', () => resolve());
+  });
+  await recordingOverlayWindow.loadURL(recordingOverlayHtmlUrl());
+  await recordingOverlayReady;
+  return recordingOverlayWindow;
 }
 
 async function registerHotkey(): Promise<void> {
@@ -388,6 +460,52 @@ function createTrayImage() {
   const image = nativeImage.createFromDataURL(`data:image/svg+xml;charset=utf-8,${svg}`);
   image.setTemplateImage(true);
   return image;
+}
+
+function recordingOverlayHtmlUrl(): string {
+  const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; background: transparent; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .overlay { width: 300px; height: 72px; display: flex; align-items: center; gap: 13px; padding: 12px 16px; border: 1px solid rgba(31, 39, 36, 0.12); border-radius: 18px; background: rgba(31, 39, 36, 0.92); color: #fffaf0; box-shadow: 0 16px 38px rgba(0, 0, 0, 0.24); }
+    .pulse { width: 38px; height: 38px; border-radius: 999px; background: #d84d3f; box-shadow: 0 0 0 0 rgba(216, 77, 63, 0.35); animation: pulse 1.2s ease-in-out infinite; }
+    .processing .pulse { background: #2e6f95; animation: none; }
+    .text { min-width: 0; display: grid; gap: 3px; }
+    .title { font-weight: 720; font-size: 15px; letter-spacing: 0; }
+    .meta { color: rgba(255, 250, 240, 0.72); font-size: 12px; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(216, 77, 63, 0.32); transform: scale(0.96); } 70% { box-shadow: 0 0 0 12px rgba(216, 77, 63, 0); transform: scale(1); } 100% { box-shadow: 0 0 0 0 rgba(216, 77, 63, 0); transform: scale(0.96); } }
+  </style>
+</head>
+<body>
+  <div id="overlay" class="overlay">
+    <div class="pulse"></div>
+    <div class="text">
+      <div id="title" class="title">录音中</div>
+      <div id="meta" class="meta">自然输入 · 00:00</div>
+    </div>
+  </div>
+  <script>
+    function formatElapsed(ms) {
+      const total = Math.max(0, Math.floor(ms / 1000));
+      const minutes = String(Math.floor(total / 60)).padStart(2, '0');
+      const seconds = String(total % 60).padStart(2, '0');
+      return minutes + ':' + seconds;
+    }
+    window.setV2TOverlayState = function(state) {
+      const overlay = document.getElementById('overlay');
+      const title = document.getElementById('title');
+      const meta = document.getElementById('meta');
+      overlay.className = 'overlay ' + state.state;
+      title.textContent = state.state === 'processing' ? '正在整理' : '正在录音';
+      meta.textContent = (state.mode === 'structured' ? '结构输入' : '自然输入') + ' · ' + formatElapsed(state.elapsedMs || 0);
+    };
+  </script>
+</body>
+</html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
 function deviceId(): string {

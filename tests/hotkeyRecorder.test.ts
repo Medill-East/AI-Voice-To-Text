@@ -6,8 +6,12 @@ describe('hotkey recorder', () => {
     expect(shortcutFromRecordedKeys(['Meta', 'Shift', 'Space'], 'darwin')).toBe('CommandOrControl+Shift+Space');
   });
 
-  it('normalizes user input and rejects single unmodified keys', () => {
+  it('normalizes user input and allows safe single trigger keys', () => {
     expect(normalizeAccelerator('cmd + shift + space', 'darwin')).toBe('CommandOrControl+Shift+Space');
-    expect(() => normalizeAccelerator('Space', 'darwin')).toThrow('至少包含一个修饰键');
+    expect(normalizeAccelerator('F9', 'darwin')).toBe('F9');
+    expect(normalizeAccelerator('Space', 'darwin')).toBe('Space');
+    expect(normalizeAccelerator('CapsLock', 'darwin')).toBe('CapsLock');
+    expect(() => normalizeAccelerator('A', 'darwin')).toThrow('容易影响打字');
+    expect(() => normalizeAccelerator('1', 'darwin')).toThrow('容易影响打字');
   });
 });

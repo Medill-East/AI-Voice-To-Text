@@ -37,8 +37,8 @@ export class ModelManager {
 
   async installAndActivate(modelId: string): Promise<ModelStatusRecord> {
     const model = this.getModel(modelId);
-    if (model.runtime === 'whisper-cpp') {
-      throw new Error('Whisper.cpp 候选模型已列入推荐，但本地运行时尚未打包。请先使用 SenseVoice 本地模型。');
+    if (!model.installable || model.runtime === 'whisper-cpp' || !model.sherpaModelType) {
+      throw new Error('这个模型暂时不能一键安装。请先选择推荐列表里的可安装模型。');
     }
     const installDir = this.modelInstallDir(model);
     const tempDir = `${installDir}.download`;
@@ -67,6 +67,7 @@ export class ModelManager {
             kind: model.runtime === 'sherpa-onnx' ? 'local-sherpa-onnx' : 'whisper-cpp',
             modelId: model.id,
             modelPath,
+            sherpaModelType: model.sherpaModelType,
             language: settings.providers.asr.language ?? 'zh'
           }
         }

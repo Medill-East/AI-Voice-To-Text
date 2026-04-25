@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PostProcessor } from '../src/core/postProcessor';
+import { PostProcessor, structuredPrompt } from '../src/core/postProcessor';
 import type { Lexicon, LlmClient } from '../src/core/types';
 
 const lexicon: Lexicon = {
@@ -30,18 +30,36 @@ describe('PostProcessor', () => {
     expect(llm.complete).not.toHaveBeenCalled();
   });
 
-  it('formats structured mode as Markdown bullets when no LLM is configured', async () => {
+  it('formats ordinary structured dictation as readable paragraphs when no LLM is configured', async () => {
     const processor = new PostProcessor();
 
-    const result = await processor.process('先记录 V2T 的目标。然后整理成可以发给 AI 的内容。最后保留原意。', {
+    const result = await processor.process('今天我想记录一下 V2T 的目标。它应该尽量少打扰用户，同时把口述内容整理得更容易阅读。', {
       mode: 'structured',
       lexicon
     });
 
     expect(result.usedLlm).toBe(false);
-    expect(result.text).toContain('- 先记录 V2T 的目标');
-    expect(result.text).toContain('- 然后整理成可以发给 AI 的内容');
-    expect(result.text).toContain('- 最后保留原意');
+    expect(result.text).not.toContain('- ');
+    expect(result.text).toContain('今天我想记录一下 V2T 的目标。');
+    expect(result.text).toContain('它应该尽量少打扰用户');
+  });
+
+  it('uses numbered structure only when the dictation clearly contains steps', async () => {
+    const processor = new PostProcessor();
+
+    const result = await processor.process('首先检测硬件。然后推荐模型。最后开始录音。', {
+      mode: 'structured',
+      lexicon
+    });
+
+    expect(result.usedLlm).toBe(false);
+    expect(result.text).toContain('1. 首先检测硬件');
+    expect(result.text).toContain('2. 然后推荐模型');
+    expect(result.text).toContain('3. 最后开始录音');
+  });
+
+  it('instructs LLM structured mode not to force every sentence into a list', () => {
+    expect(structuredPrompt()).toContain('不要默认把每一句都变成列表');
   });
 
   it('uses an OpenAI-compatible LLM client for structured mode when configured', async () => {

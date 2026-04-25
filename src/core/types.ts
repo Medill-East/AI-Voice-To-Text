@@ -1,6 +1,7 @@
 export type InputMode = 'natural' | 'structured';
 export type AsrProviderKind = 'local-sherpa-onnx' | 'funasr-http' | 'whisper-cpp';
 export type ModelRuntime = 'sherpa-onnx' | 'whisper-cpp';
+export type SherpaModelType = 'senseVoice' | 'funasrNano' | 'fireRedAsr' | 'fireRedAsrCtc' | 'paraformer' | 'zipformerCtc';
 export type ModelInstallStatus = 'not-installed' | 'downloading' | 'installed' | 'current' | 'failed';
 export type RecommendedTier = 'low' | 'medium' | 'high';
 
@@ -40,6 +41,7 @@ export interface Settings {
       endpoint?: string;
       modelId?: string;
       modelPath?: string;
+      sherpaModelType?: SherpaModelType;
       language: 'zh' | 'auto' | 'en' | 'yue' | 'ja' | 'ko';
     };
     llm: {
@@ -75,7 +77,11 @@ export interface HardwareProfile {
 export interface ModelCatalogItem {
   id: string;
   name: string;
+  family: string;
+  releasedAt: string;
+  installable: boolean;
   runtime: ModelRuntime;
+  sherpaModelType?: SherpaModelType;
   sourceUrl: string;
   license: string;
   sizeMb: number;

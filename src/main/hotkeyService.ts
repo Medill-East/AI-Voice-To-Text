@@ -33,6 +33,15 @@ export class HotkeyService {
       options.onStatus?.(status);
       return status;
     } catch (error) {
+      if (isSingleKeyAccelerator(options.accelerator)) {
+        const status = {
+          backend: 'electron-shortcut' as const,
+          registered: false,
+          message: `单键触发需要系统级键盘监听权限：${error instanceof Error ? error.message : String(error)}`
+        };
+        options.onStatus?.(status);
+        return status;
+      }
       const shortcutRegistered = globalShortcut.register(options.accelerator, () => {
         options.onAction({ type: 'start-recording', mode: 'toggle' });
       });
@@ -149,9 +158,19 @@ function createShortcutMatcher(accelerator: string) {
   };
 }
 
+function isSingleKeyAccelerator(accelerator: string): boolean {
+  return !accelerator.includes('+');
+}
+
 function normalizeKey(key: string): IGlobalKeyEvent['name'] {
   if (key === 'SPACE') {
     return 'SPACE';
+  }
+  if (key === 'CAPSLOCK' || key === 'CAPS LOCK') {
+    return 'CAPS LOCK' as IGlobalKeyEvent['name'];
+  }
+  if (key.startsWith('MEDIA') || key.startsWith('VOLUME') || key.startsWith('AUDIOVOLUME')) {
+    return key as IGlobalKeyEvent['name'];
   }
   if (/^F\d{1,2}$/.test(key)) {
     return key as IGlobalKeyEvent['name'];
