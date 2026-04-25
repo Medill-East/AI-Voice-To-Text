@@ -21,6 +21,8 @@ export class HotkeyService {
   private listener?: GlobalKeyboardListener;
   private listenerCallback?: IGlobalKeyListener;
   private timer?: NodeJS.Timeout;
+  private diagnosticTimer?: NodeJS.Timeout;
+  private hasSeenNativeEvent = false;
   private isShortcutDown = false;
   private detector?: HotkeyGestureDetector;
 
@@ -61,6 +63,10 @@ export class HotkeyService {
       clearTimeout(this.timer);
       this.timer = undefined;
     }
+    if (this.diagnosticTimer) {
+      clearTimeout(this.diagnosticTimer);
+      this.diagnosticTimer = undefined;
+    }
 
     if (this.listener && this.listenerCallback) {
       this.listener.removeListener(this.listenerCallback);
@@ -69,6 +75,7 @@ export class HotkeyService {
 
     this.listener = undefined;
     this.listenerCallback = undefined;
+    this.hasSeenNativeEvent = false;
     this.isShortcutDown = false;
     this.detector?.reset();
     globalShortcut.unregisterAll();
@@ -78,6 +85,7 @@ export class HotkeyService {
     patchLegacyUtil();
     const { GlobalKeyboardListener } = require('node-global-key-listener') as typeof import('node-global-key-listener');
     const matcher = createShortcutMatcher(options.accelerator);
+    this.hasSeenNativeEvent = false;
     this.listener = new GlobalKeyboardListener({
       mac: {
         onError: (error) => options.onStatus?.({ backend: 'native-listener', registered: false, message: String(error) })
@@ -88,6 +96,7 @@ export class HotkeyService {
     });
 
     this.listenerCallback = (event: IGlobalKeyEvent, down: IGlobalKeyDownMap) => {
+      this.hasSeenNativeEvent = true;
       if (!this.detector || !event.name || !matcher({ name: event.name, state: event.state }, down)) {
         return;
       }
@@ -118,6 +127,15 @@ export class HotkeyService {
     };
 
     await this.listener.addListener(this.listenerCallback);
+    this.diagnosticTimer = setTimeout(() => {
+      if (!this.hasSeenNativeEvent) {
+        options.onStatus?.({
+          backend: 'native-listener',
+          registered: true,
+          message: '如果按键没有反应，请在系统设置里给 V2T 开启“辅助功能”和“输入监控”权限。'
+        });
+      }
+    }, 2500);
   }
 
   private emitActions(actions: HotkeyAction[], onAction: (action: HotkeyAction) => void): void {

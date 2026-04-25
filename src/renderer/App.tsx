@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
-import type { InputMode, InstalledModelView, ModelRecommendation, Settings, VoiceInputPipelineResult } from '../core/types';
+import type { InputMode, InstalledModelView, ModelRecommendation, ModelStatusRecord, Settings, VoiceInputPipelineResult } from '../core/types';
 import type { HotkeyStatus } from '../main/hotkeyService';
 import type { RecordingCommand, SetupPayload } from '../preload';
 
@@ -30,6 +30,7 @@ export function App() {
   const [hotkeyStatus, setHotkeyStatus] = useState<HotkeyStatus | undefined>();
   const [capturingHotkey, setCapturingHotkey] = useState(false);
   const [installingModelId, setInstallingModelId] = useState<string | null>(null);
+  const [installProgressById, setInstallProgressById] = useState<Record<string, ModelStatusRecord>>({});
   const [activatingModelId, setActivatingModelId] = useState<string | null>(null);
   const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
   const [syncRepoUrl, setSyncRepoUrl] = useState('');
@@ -48,6 +49,7 @@ export function App() {
     setMode(nextSetup.settings.defaultMode);
     setHotkeyStatus(nextSetup.hotkeyStatus);
     setSyncRepoUrl(nextSetup.settings.sync.github.repoUrl ?? '');
+    setInstallProgressById(nextSetup.modelStatuses);
   }, []);
 
   useEffect(() => {
@@ -62,6 +64,23 @@ export function App() {
     void window.v2t.getSetup().then(applySetup);
     return window.v2t.onHotkeyStatus(setHotkeyStatus);
   }, [applySetup]);
+
+  useEffect(() => {
+    return window.v2t.onModelInstallProgress((status) => {
+      setInstallProgressById((current) => ({ ...current, [status.modelId]: status }));
+      setSetup((current) =>
+        current
+          ? {
+              ...current,
+              modelStatuses: {
+                ...current.modelStatuses,
+                [status.modelId]: status
+              }
+            }
+          : current
+      );
+    });
+  }, []);
 
   const stopRecording = useCallback(() => {
     const recorder = recorderRef.current;
@@ -387,7 +406,7 @@ export function App() {
                       key={recommendation.model.id}
                       recommendation={recommendation}
                       currentModelId={settings?.providers.asr.modelId}
-                      status={setup.modelStatuses[recommendation.model.id]?.status}
+                      statusRecord={installProgressById[recommendation.model.id] ?? setup.modelStatuses[recommendation.model.id]}
                       installingModelId={installingModelId}
                       deletingModelId={deletingModelId}
                       onInstall={installModel}
@@ -423,7 +442,7 @@ export function App() {
             <dl>
               <div>
                 <dt>当前</dt>
-                <dd>{settings?.hotkey.accelerator ?? '加载中'}</dd>
+                <dd>{settings?.hotkey.accelerator ? hotkeyLabel(settings.hotkey.accelerator) : '加载中'}</dd>
               </div>
               <div>
                 <dt>监听</dt>
@@ -632,7 +651,7 @@ function InstalledModelRow({
 function ModelRow({
   recommendation,
   currentModelId,
-  status,
+  statusRecord,
   installingModelId,
   deletingModelId,
   onInstall,
@@ -640,14 +659,15 @@ function ModelRow({
 }: {
   recommendation: ModelRecommendation;
   currentModelId?: string;
-  status?: string;
+  statusRecord?: ModelStatusRecord;
   installingModelId: string | null;
   deletingModelId: string | null;
   onInstall(modelId: string): Promise<void>;
   onDelete(modelId: string): Promise<void>;
 }) {
   const isCurrent = currentModelId === recommendation.model.id;
-  const installing = installingModelId === recommendation.model.id;
+  const status = statusRecord?.status;
+  const installing = installingModelId === recommendation.model.id || isInstallInProgress(status);
   const deleting = deletingModelId === recommendation.model.id;
   const canDelete = !isCurrent && (status === 'installed' || status === 'current');
 
@@ -659,6 +679,7 @@ function ModelRow({
         <small>
           {recommendation.model.sizeMb}MB · {recommendation.model.languages.join('/')}
         </small>
+        {statusRecord ? <InstallProgress status={statusRecord} /> : null}
       </div>
       <button onClick={() => void onInstall(recommendation.model.id)} disabled={installing || isCurrent}>
         {isCurrent ? '当前' : installing ? '安装中' : '安装'}
@@ -669,6 +690,31 @@ function ModelRow({
         </button>
       ) : null}
     </article>
+  );
+}
+
+function InstallProgress({ status }: { status: ModelStatusRecord }) {
+  if (!isInstallInProgress(status.status) && status.status !== 'failed') {
+    return null;
+  }
+
+  return (
+    <div className="install-progress">
+      <div>
+        <span>{installStatusLabel(status)}</span>
+        {status.progress === undefined && status.downloadedBytes ? <span>{formatBytes(status.downloadedBytes)}</span> : null}
+      </div>
+      {status.progress !== undefined ? (
+        <div className="progress-track">
+          <span style={{ width: `${Math.min(100, Math.max(0, status.progress))}%` }} />
+        </div>
+      ) : (
+        <div className="progress-track indeterminate">
+          <span />
+        </div>
+      )}
+      {status.error ? <p className="progress-error">{status.error}</p> : null}
+    </div>
   );
 }
 
@@ -695,7 +741,48 @@ function tierLabel(tier: string): string {
   return '轻量';
 }
 
+function isInstallInProgress(status?: string): boolean {
+  return status === 'downloading' || status === 'extracting' || status === 'verifying' || status === 'activating';
+}
+
+function installStatusLabel(status: ModelStatusRecord): string {
+  if (status.status === 'downloading') {
+    return status.progress === undefined ? '下载中' : `下载中 ${status.progress}%`;
+  }
+  if (status.status === 'extracting') {
+    return '解压中';
+  }
+  if (status.status === 'verifying') {
+    return '校验中';
+  }
+  if (status.status === 'activating') {
+    return '启用中';
+  }
+  if (status.status === 'failed') {
+    return '安装失败';
+  }
+  return '';
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(1)}GB`;
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+  }
+  if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(1)}KB`;
+  }
+  return `${bytes}B`;
+}
+
 function capturedKeysFromEvent(event: React.KeyboardEvent<HTMLButtonElement>): string[] {
+  const currentModifier = sideSpecificModifierFromCode(event.code);
+  if (currentModifier) {
+    return [currentModifier];
+  }
+
   const keys = [
     event.metaKey ? 'Meta' : '',
     event.ctrlKey ? 'Control' : '',
@@ -708,6 +795,51 @@ function capturedKeysFromEvent(event: React.KeyboardEvent<HTMLButtonElement>): s
   }
 
   return keys;
+}
+
+function sideSpecificModifierFromCode(code: string): string | null {
+  if (code === 'AltRight') {
+    return 'AltRight';
+  }
+  if (code === 'AltLeft') {
+    return 'AltLeft';
+  }
+  if (code === 'MetaRight') {
+    return 'MetaRight';
+  }
+  if (code === 'MetaLeft') {
+    return 'MetaLeft';
+  }
+  if (code === 'ControlRight') {
+    return 'ControlRight';
+  }
+  if (code === 'ControlLeft') {
+    return 'ControlLeft';
+  }
+  if (code === 'ShiftRight') {
+    return 'ShiftRight';
+  }
+  if (code === 'ShiftLeft') {
+    return 'ShiftLeft';
+  }
+  return null;
+}
+
+function hotkeyLabel(accelerator: string): string {
+  return accelerator
+    .replaceAll('RightAlt', '右 Option')
+    .replaceAll('LeftAlt', '左 Option')
+    .replaceAll('Alt', '任意 Option')
+    .replaceAll('RightCommand', '右 Command')
+    .replaceAll('LeftCommand', '左 Command')
+    .replaceAll('CommandOrControl', 'Command/Ctrl')
+    .replaceAll('Command', '任意 Command')
+    .replaceAll('RightControl', '右 Control')
+    .replaceAll('LeftControl', '左 Control')
+    .replaceAll('Control', '任意 Control')
+    .replaceAll('RightShift', '右 Shift')
+    .replaceAll('LeftShift', '左 Shift')
+    .replaceAll('Shift', '任意 Shift');
 }
 
 function hotkeyPlatform(): NodeJS.Platform {

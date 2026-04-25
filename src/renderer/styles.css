@@ -368,6 +368,45 @@ select {
   font-size: 11px;
 }
 
+.install-progress {
+  display: grid;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.install-progress > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #69746f;
+  font-size: 11px;
+}
+
+.progress-track {
+  overflow: hidden;
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background: #ddd8cf;
+}
+
+.progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #2d6a4f;
+  transition: width 160ms ease;
+}
+
+.progress-track.indeterminate span {
+  width: 42%;
+  animation: progress-slide 1.2s ease-in-out infinite;
+}
+
+.progress-error {
+  color: #9a2d25;
+}
+
 .model-row button:disabled,
 .setup-callout button:disabled {
   cursor: default;
@@ -457,5 +496,15 @@ select {
 
   50% {
     box-shadow: 0 0 0 20px rgba(216, 77, 63, 0.05);
+  }
+}
+
+@keyframes progress-slide {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  100% {
+    transform: translateX(260%);
   }
 }

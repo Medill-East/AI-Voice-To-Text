@@ -1,19 +1,33 @@
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { once } from 'node:events';
 import { dirname, join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { InstalledModelView, ModelCatalogItem, ModelInstallStatus, ModelStatusRecord, Settings, SherpaModelType } from './types';
 import type { UserDataStore } from './userDataStore';
+import { LocalSherpaAsrProvider } from './asrProviders';
 
 const execFileAsync = promisify(execFile);
+
+interface DownloadProgress {
+  progress?: number;
+  downloadedBytes?: number;
+  totalBytes?: number;
+}
+
+export type ModelInstallProgressCallback = (status: ModelStatusRecord) => void;
 
 interface ModelManagerOptions {
   modelRoot: string;
   store: UserDataStore;
   catalog: ModelCatalogItem[];
-  downloader?: (model: ModelCatalogItem, archivePath: string) => Promise<void>;
+  downloader?: (
+    model: ModelCatalogItem,
+    archivePath: string,
+    onProgress?: (progress: DownloadProgress) => Promise<void> | void
+  ) => Promise<void>;
   extractor?: (model: ModelCatalogItem, archivePath: string, installDir: string) => Promise<void>;
   verifier?: (model: ModelCatalogItem, installDir: string) => Promise<void>;
 }
@@ -22,7 +36,11 @@ export class ModelManager {
   private readonly modelRoot: string;
   private readonly store: UserDataStore;
   private readonly catalog: ModelCatalogItem[];
-  private readonly downloader: (model: ModelCatalogItem, archivePath: string) => Promise<void>;
+  private readonly downloader: (
+    model: ModelCatalogItem,
+    archivePath: string,
+    onProgress?: (progress: DownloadProgress) => Promise<void> | void
+  ) => Promise<void>;
   private readonly extractor: (model: ModelCatalogItem, archivePath: string, installDir: string) => Promise<void>;
   private readonly verifier: (model: ModelCatalogItem, installDir: string) => Promise<void>;
 
@@ -35,7 +53,7 @@ export class ModelManager {
     this.verifier = options.verifier ?? verifyModelFiles;
   }
 
-  async installAndActivate(modelId: string): Promise<ModelStatusRecord> {
+  async installAndActivate(modelId: string, onProgress?: ModelInstallProgressCallback): Promise<ModelStatusRecord> {
     const model = this.getModel(modelId);
     if (!model.installable || model.runtime === 'whisper-cpp' || !model.sherpaModelType) {
       throw new Error('这个模型暂时不能一键安装。请先选择推荐列表里的可安装模型。');
@@ -45,14 +63,28 @@ export class ModelManager {
     const archivePath = join(this.modelRoot, 'downloads', `${model.id}.${model.archiveType === 'file' ? 'bin' : 'tar.bz2'}`);
 
     await mkdir(dirname(archivePath), { recursive: true });
-    await this.writeStatus(model.id, { status: 'downloading', progress: 0 });
+    await this.updateInstallStatus(model.id, { status: 'downloading', progress: 0 }, onProgress);
 
     try {
       await rm(tempDir, { recursive: true, force: true });
       await mkdir(tempDir, { recursive: true });
-      await this.downloader(model, archivePath);
+      await this.downloader(model, archivePath, async (progress) => {
+        await this.updateInstallStatus(
+          model.id,
+          {
+            status: 'downloading',
+            progress: progress.progress,
+            downloadedBytes: progress.downloadedBytes,
+            totalBytes: progress.totalBytes
+          },
+          onProgress
+        );
+      });
+      await this.updateInstallStatus(model.id, { status: 'extracting', progress: 55 }, onProgress);
       await this.extractor(model, archivePath, tempDir);
+      await this.updateInstallStatus(model.id, { status: 'verifying', progress: 75 }, onProgress);
       await this.verifier(model, tempDir);
+      await this.updateInstallStatus(model.id, { status: 'activating', progress: 90 }, onProgress);
       await rm(installDir, { recursive: true, force: true });
       await rename(tempDir, installDir);
 
@@ -73,13 +105,13 @@ export class ModelManager {
         }
       });
 
-      return this.writeStatus(model.id, { status: 'current', progress: 100, modelPath });
+      return this.updateInstallStatus(model.id, { status: 'current', progress: 100, modelPath }, onProgress);
     } catch (error) {
       await rm(tempDir, { recursive: true, force: true });
-      await this.writeStatus(model.id, {
+      await this.updateInstallStatus(model.id, {
         status: 'failed',
         error: error instanceof Error ? error.message : String(error)
-      });
+      }, onProgress);
       throw error;
     }
   }
@@ -217,6 +249,16 @@ export class ModelManager {
     return record;
   }
 
+  private async updateInstallStatus(
+    modelId: string,
+    value: Omit<ModelStatusRecord, 'modelId' | 'updatedAt'>,
+    onProgress?: ModelInstallProgressCallback
+  ): Promise<ModelStatusRecord> {
+    const record = await this.writeStatus(modelId, value);
+    onProgress?.(record);
+    return record;
+  }
+
   private async writeStatuses(statuses: Record<string, ModelStatusRecord>): Promise<void> {
     await mkdir(this.modelRoot, { recursive: true });
     await writeFile(this.statusPath(), `${JSON.stringify(statuses, null, 2)}\n`, 'utf8');
@@ -250,7 +292,11 @@ function legacyModelName(modelId: string): string {
     .join(' ');
 }
 
-async function downloadModelArchive(model: ModelCatalogItem, archivePath: string): Promise<void> {
+async function downloadModelArchive(
+  model: ModelCatalogItem,
+  archivePath: string,
+  onProgress?: (progress: DownloadProgress) => Promise<void> | void
+): Promise<void> {
   const response = await fetch(model.sourceUrl);
   if (!response.ok || !response.body) {
     throw new Error(`模型下载失败：${response.status} ${response.statusText}`);
@@ -259,18 +305,34 @@ async function downloadModelArchive(model: ModelCatalogItem, archivePath: string
   await mkdir(dirname(archivePath), { recursive: true });
   const file = createWriteStream(archivePath);
   const reader = response.body.getReader();
+  const totalBytes = Number(response.headers.get('content-length')) || undefined;
+  let downloadedBytes = 0;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      const chunk = Buffer.from(value);
+      downloadedBytes += chunk.byteLength;
+      if (!file.write(chunk)) {
+        await once(file, 'drain');
+      }
+      await onProgress?.({
+        downloadedBytes,
+        totalBytes,
+        progress: totalBytes ? Math.min(50, Math.round((downloadedBytes / totalBytes) * 50)) : undefined
+      });
     }
-    file.write(Buffer.from(value));
-  }
 
-  await new Promise<void>((resolve, reject) => {
-    file.end((error?: Error | null) => (error ? reject(error) : resolve()));
-  });
+    await new Promise<void>((resolve, reject) => {
+      file.end((error?: Error | null) => (error ? reject(error) : resolve()));
+    });
+  } catch (error) {
+    file.destroy();
+    throw error;
+  }
 
   if (model.checksum) {
     const digest = createHash('sha256').update(await readFile(archivePath)).digest('hex');
@@ -298,5 +360,35 @@ async function verifyModelFiles(model: ModelCatalogItem, installDir: string): Pr
     if (fileStat.size <= 0) {
       throw new Error(`模型文件为空：${file}`);
     }
+  }
+
+  await smokeTestInstalledModel(model, installDir);
+}
+
+async function smokeTestInstalledModel(model: ModelCatalogItem, installDir: string): Promise<void> {
+  if (model.runtime !== 'sherpa-onnx' || !model.sherpaModelType) {
+    return;
+  }
+
+  const extractedDir = join(installDir, model.extractedDir);
+  const zhWavPath = join(extractedDir, 'test_wavs', 'zh.wav');
+  if (!existsSync(zhWavPath)) {
+    return;
+  }
+
+  try {
+    const audio = await readFile(zhWavPath);
+    const provider = new LocalSherpaAsrProvider({
+      modelId: model.id,
+      modelPath: join(extractedDir, model.primaryModelFile),
+      sherpaModelType: model.sherpaModelType,
+      language: 'zh'
+    });
+    const result = await provider.transcribe(audio);
+    if (!result.text.trim() || /^\d+$/.test(result.text.trim())) {
+      throw new Error('模型自检输出异常');
+    }
+  } catch (error) {
+    throw new Error(`模型运行失败，请重新安装或选择其他模型：${error instanceof Error ? error.message : String(error)}`);
   }
 }

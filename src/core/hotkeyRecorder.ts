@@ -1,4 +1,20 @@
-const MODIFIER_ORDER = ['CommandOrControl', 'Command', 'Control', 'Alt', 'Shift'] as const;
+const MODIFIER_ORDER = [
+  'CommandOrControl',
+  'Command',
+  'LeftCommand',
+  'RightCommand',
+  'Control',
+  'LeftControl',
+  'RightControl',
+  'Alt',
+  'LeftAlt',
+  'RightAlt',
+  'Shift',
+  'LeftShift',
+  'RightShift'
+] as const;
+
+type ModifierKey = (typeof MODIFIER_ORDER)[number];
 
 const KEY_ALIASES: Record<string, string> = {
   ' ': 'Space',
@@ -13,12 +29,44 @@ const KEY_ALIASES: Record<string, string> = {
   CMD: 'Command',
   COMMAND: 'Command',
   META: 'Command',
+  COMMANDLEFT: 'LeftCommand',
+  LEFTCOMMAND: 'LeftCommand',
+  CMDLEFT: 'LeftCommand',
+  LEFTCMD: 'LeftCommand',
+  METALEFT: 'LeftCommand',
+  LEFTMETA: 'LeftCommand',
+  COMMANDRIGHT: 'RightCommand',
+  RIGHTCOMMAND: 'RightCommand',
+  CMDRIGHT: 'RightCommand',
+  RIGHTCMD: 'RightCommand',
+  METARIGHT: 'RightCommand',
+  RIGHTMETA: 'RightCommand',
   CONTROL: 'Control',
   CTRL: 'Control',
+  CONTROLLEFT: 'LeftControl',
+  LEFTCONTROL: 'LeftControl',
+  CTRLLEFT: 'LeftControl',
+  LEFTCTRL: 'LeftControl',
+  CONTROLRIGHT: 'RightControl',
+  RIGHTCONTROL: 'RightControl',
+  CTRLRIGHT: 'RightControl',
+  RIGHTCTRL: 'RightControl',
   COMMANDORCONTROL: 'CommandOrControl',
   OPTION: 'Alt',
   ALT: 'Alt',
-  SHIFT: 'Shift'
+  OPTIONLEFT: 'LeftAlt',
+  LEFTOPTION: 'LeftAlt',
+  ALTLEFT: 'LeftAlt',
+  LEFTALT: 'LeftAlt',
+  OPTIONRIGHT: 'RightAlt',
+  RIGHTOPTION: 'RightAlt',
+  ALTRIGHT: 'RightAlt',
+  RIGHTALT: 'RightAlt',
+  SHIFT: 'Shift',
+  SHIFTLEFT: 'LeftShift',
+  LEFTSHIFT: 'LeftShift',
+  SHIFTRIGHT: 'RightShift',
+  RIGHTSHIFT: 'RightShift'
 };
 
 const SAFE_SINGLE_KEYS = new Set([
@@ -56,7 +104,7 @@ export function normalizeAccelerator(input: string, platform: NodeJS.Platform): 
   let mainKey: string | undefined;
 
   for (const part of parts) {
-    if (part === 'CommandOrControl' || part === 'Command' || part === 'Control' || part === 'Alt' || part === 'Shift') {
+    if (isModifier(part)) {
       modifiers.add(part);
       continue;
     }
@@ -75,6 +123,10 @@ export function normalizeAccelerator(input: string, platform: NodeJS.Platform): 
   }
 
   return [...MODIFIER_ORDER.filter((modifier) => modifiers.has(modifier)), mainKey].join('+');
+}
+
+function isModifier(part: string): part is ModifierKey {
+  return (MODIFIER_ORDER as readonly string[]).includes(part);
 }
 
 export function isSafeSingleKey(key: string): boolean {

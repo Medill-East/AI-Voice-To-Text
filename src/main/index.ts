@@ -13,7 +13,7 @@ import { createVoiceInputPipeline } from '../core/pipeline';
 import { PostProcessor } from '../core/postProcessor';
 import { TextInjectionService } from '../core/textInjection';
 import { UserDataStore } from '../core/userDataStore';
-import type { InputMode, ModelInstallStatus, Settings } from '../core/types';
+import type { InputMode, ModelInstallStatus, ModelStatusRecord, Settings } from '../core/types';
 import { getFocusedAppName } from './focusedApp';
 import { HotkeyService, type HotkeyStatus } from './hotkeyService';
 import { OsPasteKeySender } from './osPasteKeySender';
@@ -141,10 +141,18 @@ function registerIpc(): void {
   ipcMain.handle('v2t:connect-sync-repo', async (_event, repoUrl: string) => connectSyncRepo(repoUrl));
   ipcMain.handle('v2t:pull-sync', async () => pullSync());
   ipcMain.handle('v2t:push-sync', async () => pushSync());
-  ipcMain.handle('v2t:install-model', async (_event, modelId: string) => {
+  ipcMain.handle('v2t:install-model', async (event, modelId: string) => {
     const manager = createModelManager();
+    const sendProgress = (status: ModelStatusRecord) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('v2t:model-install-progress', status);
+      }
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.id !== event.sender.id) {
+        mainWindow.webContents.send('v2t:model-install-progress', status);
+      }
+    };
     try {
-      const status = await manager.installAndActivate(modelId);
+      const status = await manager.installAndActivate(modelId, sendProgress);
       settings = await store.loadSettings();
       return { ok: true, status, setup: await getSetupPayload() };
     } catch (error) {

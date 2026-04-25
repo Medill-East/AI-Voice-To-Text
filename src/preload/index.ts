@@ -35,6 +35,7 @@ export interface V2TApi {
   processAudio(payload: { bytes: Uint8Array; mode: InputMode }): Promise<VoiceInputPipelineResult>;
   onRecordingCommand(callback: (command: RecordingCommand) => void): () => void;
   onHotkeyStatus(callback: (status: HotkeyStatus) => void): () => void;
+  onModelInstallProgress(callback: (status: ModelStatusRecord) => void): () => void;
 }
 
 export interface SetupPayload {
@@ -105,6 +106,11 @@ const api: V2TApi = {
     const listener = (_event: Electron.IpcRendererEvent, status: HotkeyStatus) => callback(status);
     ipcRenderer.on('v2t:hotkey-status', listener);
     return () => ipcRenderer.off('v2t:hotkey-status', listener);
+  },
+  onModelInstallProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: ModelStatusRecord) => callback(status);
+    ipcRenderer.on('v2t:model-install-progress', listener);
+    return () => ipcRenderer.off('v2t:model-install-progress', listener);
   }
 };
 

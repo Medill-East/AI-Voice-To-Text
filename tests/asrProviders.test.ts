@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createSherpaOfflineRecognizerConfig,
@@ -76,6 +79,26 @@ describe('ASR providers', () => {
         },
         tokens: '/models/firered/tokens.txt'
       }
+    });
+  });
+
+  it('turns native sherpa numeric throws into a user-facing transcription error', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-asr-'));
+    await mkdir(baseDir, { recursive: true });
+    const modelPath = join(baseDir, 'model.int8.onnx');
+    await writeFile(modelPath, 'model');
+    await writeFile(join(baseDir, 'tokens.txt'), 'tokens');
+    const provider = new LocalSherpaAsrProvider({
+      modelId: 'sensevoice-onnx-int8-2025-09-09',
+      modelPath,
+      recognizerFactory: () => {
+        throw 16182408;
+      }
+    });
+
+    await expect(provider.transcribe(Buffer.from('audio'))).rejects.toMatchObject({
+      name: 'UserFacingAsrError',
+      message: expect.stringContaining('本地语音模型转写失败')
     });
   });
 });

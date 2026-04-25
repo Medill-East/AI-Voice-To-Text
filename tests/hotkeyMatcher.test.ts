@@ -10,6 +10,20 @@ describe('hotkey matcher', () => {
     expect(matcher({ name: 'A', state: 'DOWN' }, { A: true })).toBe(false);
   });
 
+  it('matches left, right, and generic Option triggers on the first keydown', () => {
+    const generic = createShortcutMatcher('Alt');
+    const right = createShortcutMatcher('RightAlt');
+    const left = createShortcutMatcher('LeftAlt');
+
+    expect(generic({ name: 'RIGHT ALT', state: 'DOWN' }, {})).toBe(true);
+    expect(generic({ name: 'LEFT ALT', state: 'DOWN' }, {})).toBe(true);
+    expect(right({ name: 'RIGHT ALT', state: 'DOWN' }, {})).toBe(true);
+    expect(right({ name: 'LEFT ALT', state: 'DOWN' }, {})).toBe(false);
+    expect(left({ name: 'LEFT ALT', state: 'DOWN' }, {})).toBe(true);
+    expect(left({ name: 'RIGHT ALT', state: 'DOWN' }, {})).toBe(false);
+    expect(right({ name: 'RIGHT ALT', state: 'UP' }, {})).toBe(true);
+  });
+
   it('keeps Command and Control as distinct modifier triggers', () => {
     const command = createShortcutMatcher('Command');
     const control = createShortcutMatcher('Control');
@@ -24,7 +38,7 @@ describe('hotkey matcher', () => {
     const matcher = createShortcutMatcher('CommandOrControl+Alt');
 
     expect(matcher({ name: 'LEFT META', state: 'DOWN' }, { 'LEFT META': true })).toBe(false);
-    expect(matcher({ name: 'LEFT ALT', state: 'DOWN' }, { 'LEFT META': true, 'LEFT ALT': true })).toBe(true);
+    expect(matcher({ name: 'LEFT ALT', state: 'DOWN' }, { 'LEFT META': true })).toBe(true);
     expect(matcher({ name: 'LEFT ALT', state: 'UP' }, { 'LEFT META': true })).toBe(true);
   });
 });

@@ -22,6 +22,7 @@ interface LocalSherpaProviderOptions {
 type SherpaRecognizerFactory = (config: SherpaOfflineRecognizerConfig) => SherpaRecognizer;
 
 export interface SherpaOfflineRecognizerConfig {
+  featConfig?: Record<string, unknown>;
   modelConfig: Record<string, unknown>;
 }
 
@@ -105,17 +106,20 @@ export class LocalSherpaAsrProvider implements AsrProvider {
       sherpaModelType: this.sherpaModelType,
       language: this.language
     });
-    const recognizer = this.recognizerFactory
-      ? this.recognizerFactory(recognizerConfig)
-      : createDefaultSherpaRecognizer(recognizerConfig);
-
     const workDir = await mkdtemp(join(tmpdir(), `v2t-${this.modelId ?? 'asr'}-`));
     const audioPath = join(workDir, 'recording.wav');
 
     try {
+      const recognizer = this.recognizerFactory
+        ? this.recognizerFactory(recognizerConfig)
+        : createDefaultSherpaRecognizer(recognizerConfig);
       await writeFile(audioPath, audio);
       const text = await recognizer.transcribe(audioPath);
-      return { text: stripSherpaTags(text) };
+      const normalizedText = stripSherpaTags(text);
+      if (!normalizedText || /^\d{6,}$/.test(normalizedText)) {
+        throw new Error(`本地模型输出异常：${normalizedText || '空结果'}`);
+      }
+      return { text: normalizedText };
     } catch (error) {
       if (error instanceof UserFacingAsrError) {
         throw error;
@@ -164,11 +168,16 @@ export function createSherpaOfflineRecognizerConfig(options: {
   const baseModelConfig = {
     tokens: join(options.modelRoot, 'tokens.txt'),
     debug: false,
+    provider: 'cpu',
     numThreads: 2
   };
 
   if (options.sherpaModelType === 'funasrNano') {
     return {
+      featConfig: {
+        sampleRate: 16000,
+        featureDim: 80
+      },
       modelConfig: {
         ...baseModelConfig,
         tokens: '',
@@ -193,6 +202,10 @@ export function createSherpaOfflineRecognizerConfig(options: {
 
   if (options.sherpaModelType === 'fireRedAsr') {
     return {
+      featConfig: {
+        sampleRate: 16000,
+        featureDim: 80
+      },
       modelConfig: {
         ...baseModelConfig,
         fireRedAsr: {
@@ -205,6 +218,10 @@ export function createSherpaOfflineRecognizerConfig(options: {
 
   if (options.sherpaModelType === 'fireRedAsrCtc') {
     return {
+      featConfig: {
+        sampleRate: 16000,
+        featureDim: 80
+      },
       modelConfig: {
         ...baseModelConfig,
         fireRedAsrCtc: {
@@ -216,6 +233,10 @@ export function createSherpaOfflineRecognizerConfig(options: {
 
   if (options.sherpaModelType === 'paraformer') {
     return {
+      featConfig: {
+        sampleRate: 16000,
+        featureDim: 80
+      },
       modelConfig: {
         ...baseModelConfig,
         paraformer: {
@@ -227,6 +248,10 @@ export function createSherpaOfflineRecognizerConfig(options: {
 
   if (options.sherpaModelType === 'zipformerCtc') {
     return {
+      featConfig: {
+        sampleRate: 16000,
+        featureDim: 80
+      },
       modelConfig: {
         ...baseModelConfig,
         zipformerCtc: {
@@ -237,6 +262,10 @@ export function createSherpaOfflineRecognizerConfig(options: {
   }
 
   return {
+    featConfig: {
+      sampleRate: 16000,
+      featureDim: 80
+    },
     modelConfig: {
       ...baseModelConfig,
       senseVoice: {
@@ -265,43 +294,65 @@ function requiredSherpaFiles(modelType: SherpaModelType): string[] {
   return ['model.int8.onnx', 'tokens.txt'];
 }
 
-function createDefaultSherpaRecognizer(config: SherpaOfflineRecognizerConfig): SherpaRecognizer {
-  let sherpaOnnx: {
-    createOfflineRecognizer: (config: unknown) => {
-      createStream: () => {
-        acceptWaveform: (sampleRate: number, samples: Float32Array) => void;
-        free: () => void;
-      };
-      decode: (stream: unknown) => void;
-      getResult: (stream: unknown) => { text: string };
-      free: () => void;
-    };
-    readWave: (audioPath: string) => { sampleRate: number; samples: Float32Array };
+export function createDefaultSherpaRecognizer(config: SherpaOfflineRecognizerConfig): SherpaRecognizer {
+  type SherpaWave = { sampleRate: number; samples: Float32Array };
+  type SherpaStream = {
+    acceptWaveform: ((sampleRate: number, samples: Float32Array) => void) | ((wave: SherpaWave) => void);
+    free?: () => void;
+  };
+  type SherpaRecognizerLike = {
+    createStream: () => SherpaStream;
+    decode: (stream: SherpaStream) => void;
+    getResult: (stream: SherpaStream) => { text: string };
+    free?: () => void;
+  };
+  type SherpaModule = {
+    OfflineRecognizer?: new (config: unknown) => SherpaRecognizerLike;
+    createOfflineRecognizer?: (config: unknown) => SherpaRecognizerLike;
+    readWave: (audioPath: string) => SherpaWave;
   };
 
+  let sherpaOnnx: SherpaModule;
+  let usesNativeAddon = false;
+
   try {
-    sherpaOnnx = require('sherpa-onnx');
+    sherpaOnnx = require('sherpa-onnx-node');
+    usesNativeAddon = true;
   } catch (error) {
-    throw new UserFacingAsrError(
-      '本地语音识别运行库尚未安装。请重新安装应用，或在开发环境运行 npm install。',
-      'asr-local-runtime-missing',
-      error
-    );
+    try {
+      sherpaOnnx = require('sherpa-onnx');
+    } catch {
+      throw new UserFacingAsrError(
+        '本地语音识别运行库尚未安装。请重新安装应用，或在开发环境运行 npm install。',
+        'asr-local-runtime-missing',
+        error
+      );
+    }
   }
 
-  const recognizer = sherpaOnnx.createOfflineRecognizer(config);
+  const recognizer = sherpaOnnx.OfflineRecognizer
+    ? new sherpaOnnx.OfflineRecognizer(config)
+    : sherpaOnnx.createOfflineRecognizer?.(config);
+
+  if (!recognizer) {
+    throw new UserFacingAsrError('本地语音识别运行库不支持离线识别器。', 'asr-local-runtime-missing');
+  }
 
   return {
     transcribe(audioPath: string): string {
       const stream = recognizer.createStream();
       try {
         const wave = sherpaOnnx.readWave(audioPath);
-        stream.acceptWaveform(wave.sampleRate, wave.samples);
+        if (usesNativeAddon) {
+          (stream.acceptWaveform as (wave: SherpaWave) => void)(wave);
+        } else {
+          (stream.acceptWaveform as (sampleRate: number, samples: Float32Array) => void)(wave.sampleRate, wave.samples);
+        }
         recognizer.decode(stream);
         return recognizer.getResult(stream).text;
       } finally {
-        stream.free();
-        recognizer.free();
+        stream.free?.();
+        recognizer.free?.();
       }
     }
   };

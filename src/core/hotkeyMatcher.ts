@@ -5,26 +5,63 @@ export interface GlobalKeyEventLike {
 
 export type GlobalKeyDownMapLike = Record<string, boolean | undefined>;
 
-type Modifier = 'COMMANDORCONTROL' | 'COMMAND' | 'CONTROL' | 'ALT' | 'SHIFT';
+type Modifier =
+  | 'COMMANDORCONTROL'
+  | 'COMMAND'
+  | 'LEFTCOMMAND'
+  | 'RIGHTCOMMAND'
+  | 'CONTROL'
+  | 'LEFTCONTROL'
+  | 'RIGHTCONTROL'
+  | 'ALT'
+  | 'LEFTALT'
+  | 'RIGHTALT'
+  | 'SHIFT'
+  | 'LEFTSHIFT'
+  | 'RIGHTSHIFT';
 
 const MODIFIER_KEYS: Record<Modifier, string[]> = {
   COMMANDORCONTROL: ['LEFT CTRL', 'RIGHT CTRL', 'LEFT META', 'RIGHT META'],
   COMMAND: ['LEFT META', 'RIGHT META'],
+  LEFTCOMMAND: ['LEFT META'],
+  RIGHTCOMMAND: ['RIGHT META'],
   CONTROL: ['LEFT CTRL', 'RIGHT CTRL'],
+  LEFTCONTROL: ['LEFT CTRL'],
+  RIGHTCONTROL: ['RIGHT CTRL'],
   ALT: ['LEFT ALT', 'RIGHT ALT'],
-  SHIFT: ['LEFT SHIFT', 'RIGHT SHIFT']
+  LEFTALT: ['LEFT ALT'],
+  RIGHTALT: ['RIGHT ALT'],
+  SHIFT: ['LEFT SHIFT', 'RIGHT SHIFT'],
+  LEFTSHIFT: ['LEFT SHIFT'],
+  RIGHTSHIFT: ['RIGHT SHIFT']
 };
 
 const MODIFIER_ALIASES: Record<string, Modifier> = {
   CTRL: 'CONTROL',
   CONTROL: 'CONTROL',
+  LEFTCTRL: 'LEFTCONTROL',
+  LEFTCONTROL: 'LEFTCONTROL',
+  RIGHTCTRL: 'RIGHTCONTROL',
+  RIGHTCONTROL: 'RIGHTCONTROL',
   COMMAND: 'COMMAND',
   CMD: 'COMMAND',
   META: 'COMMAND',
+  LEFTCOMMAND: 'LEFTCOMMAND',
+  LEFTCMD: 'LEFTCOMMAND',
+  LEFTMETA: 'LEFTCOMMAND',
+  RIGHTCOMMAND: 'RIGHTCOMMAND',
+  RIGHTCMD: 'RIGHTCOMMAND',
+  RIGHTMETA: 'RIGHTCOMMAND',
   COMMANDORCONTROL: 'COMMANDORCONTROL',
   OPTION: 'ALT',
   ALT: 'ALT',
-  SHIFT: 'SHIFT'
+  LEFTOPTION: 'LEFTALT',
+  LEFTALT: 'LEFTALT',
+  RIGHTOPTION: 'RIGHTALT',
+  RIGHTALT: 'RIGHTALT',
+  SHIFT: 'SHIFT',
+  LEFTSHIFT: 'LEFTSHIFT',
+  RIGHTSHIFT: 'RIGHTSHIFT'
 };
 
 export function createShortcutMatcher(accelerator: string) {
@@ -46,7 +83,7 @@ export function createShortcutMatcher(accelerator: string) {
       if (event.state === 'UP') {
         return true;
       }
-      return modifiers.every((modifier) => isModifierDown(modifier, down));
+      return modifiers.every((modifier) => isModifierDown(modifier, downWithCurrentEvent(event, down)));
     };
   }
 
@@ -68,6 +105,16 @@ export function isModifierOnlyAccelerator(accelerator: string): boolean {
 
 function isModifierDown(modifier: Modifier, down: GlobalKeyDownMapLike): boolean {
   return MODIFIER_KEYS[modifier].some((key) => Boolean(down[key]));
+}
+
+function downWithCurrentEvent(event: GlobalKeyEventLike, down: GlobalKeyDownMapLike): GlobalKeyDownMapLike {
+  if (event.state !== 'DOWN') {
+    return down;
+  }
+  return {
+    ...down,
+    [event.name]: true
+  };
 }
 
 function eventMatchesRequiredModifier(name: string, modifiers: Modifier[]): boolean {

@@ -29,6 +29,32 @@ describe('ModelManager', () => {
     expect(settings.providers.asr.sherpaModelType).toBe('funasrNano');
   });
 
+  it('reports installation progress through each stage', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    const updates: string[] = [];
+    const manager = new ModelManager({
+      modelRoot: join(baseDir, 'models'),
+      store,
+      catalog: DEFAULT_MODEL_CATALOG,
+      downloader: vi.fn().mockResolvedValue(undefined),
+      extractor: vi.fn().mockResolvedValue(undefined),
+      verifier: vi.fn().mockResolvedValue(undefined)
+    });
+
+    await manager.installAndActivate('funasr-nano-int8-2025-12-30', (status) => {
+      updates.push(`${status.status}:${status.progress ?? 'none'}`);
+    });
+
+    expect(updates).toEqual([
+      'downloading:0',
+      'extracting:55',
+      'verifying:75',
+      'activating:90',
+      'current:100'
+    ]);
+  });
+
   it('keeps the previous active model when download fails', async () => {
     const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
     const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });

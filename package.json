@@ -21,7 +21,8 @@
   },
   "dependencies": {
     "node-global-key-listener": "^0.3.0",
-    "sherpa-onnx": "^1.12.37"
+    "sherpa-onnx": "^1.12.37",
+    "sherpa-onnx-node": "^1.12.40"
   },
   "devDependencies": {
     "@types/node": "^25.0.2",
@@ -52,7 +53,12 @@
     "asar": true,
     "asarUnpack": [
       "node_modules/node-global-key-listener/**/*",
-      "node_modules/sherpa-onnx/**/*"
+      "node_modules/sherpa-onnx/**/*",
+      "node_modules/sherpa-onnx-node/**/*",
+      "node_modules/sherpa-onnx-darwin-arm64/**/*",
+      "node_modules/sherpa-onnx-darwin-x64/**/*",
+      "node_modules/sherpa-onnx-win-x64/**/*",
+      "node_modules/sherpa-onnx-win-ia32/**/*"
     ],
     "mac": {
       "category": "public.app-category.productivity",

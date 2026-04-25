@@ -2,7 +2,15 @@ export type InputMode = 'natural' | 'structured';
 export type AsrProviderKind = 'local-sherpa-onnx' | 'funasr-http' | 'whisper-cpp';
 export type ModelRuntime = 'sherpa-onnx' | 'whisper-cpp';
 export type SherpaModelType = 'senseVoice' | 'funasrNano' | 'fireRedAsr' | 'fireRedAsrCtc' | 'paraformer' | 'zipformerCtc';
-export type ModelInstallStatus = 'not-installed' | 'downloading' | 'installed' | 'current' | 'failed';
+export type ModelInstallStatus =
+  | 'not-installed'
+  | 'downloading'
+  | 'extracting'
+  | 'verifying'
+  | 'activating'
+  | 'installed'
+  | 'current'
+  | 'failed';
 export type RecommendedTier = 'low' | 'medium' | 'high';
 
 export interface LexiconTerm {
@@ -109,6 +117,8 @@ export interface ModelStatusRecord {
   modelId: string;
   status: ModelInstallStatus;
   progress?: number;
+  downloadedBytes?: number;
+  totalBytes?: number;
   modelPath?: string;
   error?: string;
   updatedAt: string;
