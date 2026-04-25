@@ -28,6 +28,7 @@ select {
 .shell {
   min-height: 100vh;
   padding: 34px;
+  -webkit-app-region: drag;
 }
 
 .topbar {
@@ -42,6 +43,7 @@ button,
 input,
 select,
 label,
+.model-row,
 .status-row,
 .mode-switch,
 .record-button,

@@ -17,11 +17,11 @@ import type { InputMode, ModelInstallStatus, ModelStatusRecord, Settings } from 
 import { getFocusedAppName } from './focusedApp';
 import { createCheckingHotkeyStatus } from './hotkeyDiagnostics';
 import { HotkeyService, type HotkeyStatus, type HotkeyTestResult } from './hotkeyService';
-import { bundledMacKeyServerPath, ensureStableMacKeyServer } from './nativeKeyHelper';
+import { ensureStableMacKeyServer, resolveBundledMacKeyServerPath } from './nativeKeyHelper';
 import { OsPasteKeySender } from './osPasteKeySender';
 import { SecretStore } from './secretStore';
 import { createTrayImage } from './trayIcon';
-import { closeShouldHideToTray, quitTrayMenuLabel } from './windowLifecycle';
+import { closeShouldHideToTray, quitMenuItemConfig, quitTrayMenuLabel } from './windowLifecycle';
 import {
   normalizeRecordingOverlayState,
   recordingOverlayBounds,
@@ -56,6 +56,7 @@ async function bootstrap(): Promise<void> {
 
   nativeHelperPath = await setupNativeKeyHelper();
   hotkeyService = new HotkeyService();
+  createApplicationMenu();
   createWindow();
   createTray();
   registerIpc();
@@ -122,6 +123,36 @@ function createTray(): void {
     ])
   );
   tray.on('click', () => showWindow());
+}
+
+function createApplicationMenu(): void {
+  const quitItem = quitMenuItemConfig();
+  const template: Electron.MenuItemConstructorOptions[] =
+    process.platform === 'darwin'
+      ? [
+          {
+            label: app.getName(),
+            submenu: [
+              {
+                label: quitItem.label,
+                accelerator: quitItem.accelerator,
+                click: () => quitApp()
+              }
+            ]
+          }
+        ]
+      : [
+          {
+            label: 'V2T',
+            submenu: [
+              {
+                label: quitTrayMenuLabel(),
+                click: () => quitApp()
+              }
+            ]
+          }
+        ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 function registerIpc(): void {
@@ -580,7 +611,7 @@ async function setupNativeKeyHelper(): Promise<string | undefined> {
     return undefined;
   }
 
-  const bundledPath = bundledMacKeyServerPath();
+  const bundledPath = await resolveBundledMacKeyServerPath(__dirname);
   try {
     return await ensureStableMacKeyServer(bundledPath, app.getPath('userData'));
   } catch (error) {
@@ -640,6 +671,10 @@ function sendRecordingCommand(command: { type: 'start' | 'stop'; trigger: 'toggl
 
 function quitApp(): void {
   isQuitting = true;
+  cleanupAppResources();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.destroy();
+  }
   app.quit();
 }
 

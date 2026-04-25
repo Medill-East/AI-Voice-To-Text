@@ -10,8 +10,22 @@ export function unpackedAsarPath(filePath: string): string {
   return filePath.replace('/app.asar/', '/app.asar.unpacked/');
 }
 
+export function bundledV2TMacKeyServerPath(mainDir: string): string {
+  return unpackedAsarPath(join(mainDir, '..', 'native', 'MacKeyServer'));
+}
+
 export function bundledMacKeyServerPath(): string {
   return unpackedAsarPath(require.resolve('node-global-key-listener/bin/MacKeyServer'));
+}
+
+export async function resolveBundledMacKeyServerPath(mainDir: string, fallbackPath = bundledMacKeyServerPath()): Promise<string> {
+  const v2tHelperPath = bundledV2TMacKeyServerPath(mainDir);
+  try {
+    await access(v2tHelperPath, constants.F_OK);
+    return v2tHelperPath;
+  } catch {
+    return fallbackPath;
+  }
 }
 
 export async function ensureStableMacKeyServer(sourcePath: string, userDataPath: string): Promise<string> {

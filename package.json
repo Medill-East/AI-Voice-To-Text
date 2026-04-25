@@ -1,6 +1,6 @@
 {
   "name": "v2t",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Cross-platform voice-to-text desktop app MVP.",
   "author": "Haodong",
@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "dev:electron": "npm run build:main && concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
-    "build": "npm run typecheck && npm run build:main && npm run build:renderer && npm run write-build-info",
+    "build": "npm run typecheck && npm run build:native && npm run build:main && npm run build:renderer && npm run write-build-info",
+    "build:native": "node scripts/build-mac-key-server.mjs",
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
     "write-build-info": "node scripts/write-build-info.mjs",
@@ -54,6 +55,7 @@
     "asar": true,
     "asarUnpack": [
       "node_modules/node-global-key-listener/**/*",
+      "dist/native/**/*",
       "node_modules/sherpa-onnx/**/*",
       "node_modules/sherpa-onnx-node/**/*",
       "node_modules/sherpa-onnx-darwin-arm64/**/*",
