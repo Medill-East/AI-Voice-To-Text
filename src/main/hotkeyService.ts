@@ -2,6 +2,7 @@ import { globalShortcut } from 'electron';
 import * as nodeUtil from 'node:util';
 import type { GlobalKeyboardListener, IGlobalKeyDownMap, IGlobalKeyEvent, IGlobalKeyListener } from 'node-global-key-listener';
 import { HotkeyGestureDetector, type HotkeyAction } from '../core/hotkeyGesture';
+import { createShortcutMatcher, isModifierOnlyAccelerator } from '../core/hotkeyMatcher';
 
 interface HotkeyServiceOptions {
   accelerator: string;
@@ -33,7 +34,7 @@ export class HotkeyService {
       options.onStatus?.(status);
       return status;
     } catch (error) {
-      if (isSingleKeyAccelerator(options.accelerator)) {
+      if (isSingleKeyAccelerator(options.accelerator) || isModifierOnlyAccelerator(options.accelerator)) {
         const status = {
           backend: 'electron-shortcut' as const,
           registered: false,
@@ -87,7 +88,7 @@ export class HotkeyService {
     });
 
     this.listenerCallback = (event: IGlobalKeyEvent, down: IGlobalKeyDownMap) => {
-      if (!this.detector || !matcher(event, down)) {
+      if (!this.detector || !event.name || !matcher({ name: event.name, state: event.state }, down)) {
         return;
       }
 
@@ -136,44 +137,6 @@ function patchLegacyUtil(): void {
   legacyUtil.isFunction ??= (value: unknown): boolean => typeof value === 'function';
 }
 
-function createShortcutMatcher(accelerator: string) {
-  const parts = accelerator.split('+').map((part) => part.trim().toUpperCase());
-  const key = normalizeKey(parts[parts.length - 1]);
-  const needsCtrl = parts.includes('CTRL') || parts.includes('CONTROL') || parts.includes('COMMANDORCONTROL');
-  const needsMeta = parts.includes('COMMAND') || parts.includes('CMD') || parts.includes('COMMANDORCONTROL');
-  const needsShift = parts.includes('SHIFT');
-  const needsAlt = parts.includes('ALT') || parts.includes('OPTION');
-
-  return (event: IGlobalKeyEvent, down: IGlobalKeyDownMap): boolean => {
-    if (event.name !== key) {
-      return false;
-    }
-
-    return (
-      (!needsShift || Boolean(down['LEFT SHIFT'] || down['RIGHT SHIFT'])) &&
-      (!needsAlt || Boolean(down['LEFT ALT'] || down['RIGHT ALT'])) &&
-      (!needsCtrl || Boolean(down['LEFT CTRL'] || down['RIGHT CTRL'] || down['LEFT META'] || down['RIGHT META'])) &&
-      (!needsMeta || Boolean(down['LEFT META'] || down['RIGHT META'] || down['LEFT CTRL'] || down['RIGHT CTRL']))
-    );
-  };
-}
-
 function isSingleKeyAccelerator(accelerator: string): boolean {
   return !accelerator.includes('+');
-}
-
-function normalizeKey(key: string): IGlobalKeyEvent['name'] {
-  if (key === 'SPACE') {
-    return 'SPACE';
-  }
-  if (key === 'CAPSLOCK' || key === 'CAPS LOCK') {
-    return 'CAPS LOCK' as IGlobalKeyEvent['name'];
-  }
-  if (key.startsWith('MEDIA') || key.startsWith('VOLUME') || key.startsWith('AUDIOVOLUME')) {
-    return key as IGlobalKeyEvent['name'];
-  }
-  if (/^F\d{1,2}$/.test(key)) {
-    return key as IGlobalKeyEvent['name'];
-  }
-  return key.length === 1 ? (key as IGlobalKeyEvent['name']) : (key as IGlobalKeyEvent['name']);
 }

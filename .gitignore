@@ -7,6 +7,7 @@ dist/
 models/
 local/
 coverage/
+release/
 
 # Environment and secret files
 .env

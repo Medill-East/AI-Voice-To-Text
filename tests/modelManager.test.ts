@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -104,5 +104,93 @@ describe('ModelManager', () => {
 
     const installed = await manager.listInstalledModels();
     expect(installed.some((item) => item.modelId === 'sensevoice-onnx-int8-2025-09-09')).toBe(false);
+  });
+
+  it('lists installed legacy models even when they are no longer in the recommendation catalog', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const modelRoot = join(baseDir, 'models');
+    const legacyId = 'sensevoice-onnx-int8-2024';
+    const legacyPath = join(modelRoot, legacyId, 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17', 'model.int8.onnx');
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    await mkdir(join(modelRoot, legacyId, 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17'), { recursive: true });
+    await writeFile(legacyPath, 'model');
+    await writeFile(join(modelRoot, 'model-status.json'), JSON.stringify({
+      [legacyId]: {
+        modelId: legacyId,
+        status: 'current',
+        modelPath: legacyPath,
+        updatedAt: '2026-04-25T00:00:00.000Z'
+      }
+    }));
+    const settings = await store.loadSettings();
+    await store.saveSettings({
+      ...settings,
+      providers: {
+        ...settings.providers,
+        asr: {
+          ...settings.providers.asr,
+          kind: 'local-sherpa-onnx',
+          modelId: legacyId,
+          modelPath: legacyPath
+        }
+      }
+    });
+
+    const manager = new ModelManager({ modelRoot, store, catalog: DEFAULT_MODEL_CATALOG });
+    const views = await manager.listInstalledModelViews(await store.loadSettings());
+
+    expect(views).toEqual([
+      expect.objectContaining({
+        modelId: legacyId,
+        name: 'SenseVoice ONNX int8 2024',
+        current: true,
+        legacy: true,
+        canActivate: false,
+        canDelete: false
+      })
+    ]);
+  });
+
+  it('activates and deletes non-current legacy SenseVoice models', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const modelRoot = join(baseDir, 'models');
+    const legacyId = 'sensevoice-onnx-int8-2024';
+    const legacyDir = join(modelRoot, legacyId, 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17');
+    const legacyPath = join(legacyDir, 'model.int8.onnx');
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    await mkdir(legacyDir, { recursive: true });
+    await writeFile(legacyPath, 'model');
+    await writeFile(join(legacyDir, 'tokens.txt'), 'tokens');
+    await writeFile(join(modelRoot, 'model-status.json'), JSON.stringify({
+      [legacyId]: {
+        modelId: legacyId,
+        status: 'installed',
+        modelPath: legacyPath,
+        updatedAt: '2026-04-25T00:00:00.000Z'
+      }
+    }));
+
+    const manager = new ModelManager({ modelRoot, store, catalog: DEFAULT_MODEL_CATALOG });
+    await manager.activateInstalledModel(legacyId);
+
+    const activated = await store.loadSettings();
+    expect(activated.providers.asr.modelId).toBe(legacyId);
+    expect(activated.providers.asr.modelPath).toBe(legacyPath);
+    expect(activated.providers.asr.sherpaModelType).toBe('senseVoice');
+
+    await store.saveSettings({
+      ...activated,
+      providers: {
+        ...activated.providers,
+        asr: {
+          ...activated.providers.asr,
+          modelId: 'funasr-nano-int8-2025-12-30',
+          modelPath: '/current/model'
+        }
+      }
+    });
+    const result = await manager.deleteModel(legacyId);
+    expect(result.status).toBe('not-installed');
+    await expect(stat(join(modelRoot, legacyId))).rejects.toThrow();
   });
 });

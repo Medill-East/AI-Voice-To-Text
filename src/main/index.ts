@@ -18,6 +18,7 @@ import { getFocusedAppName } from './focusedApp';
 import { HotkeyService, type HotkeyStatus } from './hotkeyService';
 import { OsPasteKeySender } from './osPasteKeySender';
 import { SecretStore } from './secretStore';
+import { createTrayImage } from './trayIcon';
 import {
   normalizeRecordingOverlayState,
   recordingOverlayBounds,
@@ -89,7 +90,7 @@ function createWindow(): void {
 }
 
 function createTray(): void {
-  tray = new Tray(createTrayImage());
+  tray = new Tray(createTrayImage(process.platform, nativeImage));
   tray.setToolTip('V2T');
   if (process.platform === 'darwin') {
     tray.setTitle('V2T');
@@ -152,6 +153,16 @@ function registerIpc(): void {
         error: error instanceof Error ? error.message : String(error),
         setup: await getSetupPayload()
       };
+    }
+  });
+  ipcMain.handle('v2t:activate-model', async (_event, modelId: string) => {
+    const manager = createModelManager();
+    try {
+      const status = await manager.activateInstalledModel(modelId);
+      settings = await store.loadSettings();
+      return { ok: true, status, setup: await getSetupPayload() };
+    } catch (error) {
+      return { ok: false, error: readableError(error), setup: await getSetupPayload() };
     }
   });
   ipcMain.handle('v2t:delete-model', async (_event, modelId: string) => {
@@ -313,7 +324,8 @@ async function getSetupPayload() {
     modelRoot,
     catalog: DEFAULT_MODEL_CATALOG,
     modelStatuses: rawStatuses,
-    recommendations: recommendModels(DEFAULT_MODEL_CATALOG, hardware, statusMap)
+    recommendations: recommendModels(DEFAULT_MODEL_CATALOG, hardware, statusMap),
+    installedModels: await manager.listInstalledModelViews(settings)
   };
 }
 
@@ -451,15 +463,6 @@ function showWindow(): void {
 
   mainWindow.show();
   mainWindow.focus();
-}
-
-function createTrayImage() {
-  const svg = encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><rect width="18" height="18" rx="4" fill="black"/><path d="M5 5h8v2H10v7H8V7H5z" fill="white"/></svg>'
-  );
-  const image = nativeImage.createFromDataURL(`data:image/svg+xml;charset=utf-8,${svg}`);
-  image.setTemplateImage(true);
-  return image;
 }
 
 function recordingOverlayHtmlUrl(): string {

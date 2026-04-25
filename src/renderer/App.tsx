@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
-import type { InputMode, ModelRecommendation, Settings, VoiceInputPipelineResult } from '../core/types';
+import type { InputMode, InstalledModelView, ModelRecommendation, Settings, VoiceInputPipelineResult } from '../core/types';
 import type { HotkeyStatus } from '../main/hotkeyService';
 import type { RecordingCommand, SetupPayload } from '../preload';
 
@@ -30,6 +30,7 @@ export function App() {
   const [hotkeyStatus, setHotkeyStatus] = useState<HotkeyStatus | undefined>();
   const [capturingHotkey, setCapturingHotkey] = useState(false);
   const [installingModelId, setInstallingModelId] = useState<string | null>(null);
+  const [activatingModelId, setActivatingModelId] = useState<string | null>(null);
   const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
   const [syncRepoUrl, setSyncRepoUrl] = useState('');
   const [syncBusy, setSyncBusy] = useState<string | null>(null);
@@ -39,6 +40,7 @@ export function App() {
   const modeRef = useRef<InputMode>('natural');
   const recordingStateRef = useRef<RecordingState>('idle');
   const recordingStartedAtRef = useRef<number | undefined>(undefined);
+  const capturedHotkeyKeysRef = useRef<Set<string>>(new Set());
 
   const applySetup = useCallback((nextSetup: SetupPayload) => {
     setSetup(nextSetup);
@@ -179,6 +181,17 @@ export function App() {
     }
   };
 
+  const activateModel = async (modelId: string) => {
+    setError(null);
+    setActivatingModelId(modelId);
+    const result = await window.v2t.activateModel(modelId);
+    setActivatingModelId(null);
+    applySetup(result.setup);
+    if (!result.ok) {
+      setError(result.error ?? '模型启用失败');
+    }
+  };
+
   const deleteModel = async (modelId: string) => {
     setError(null);
     setDeletingModelId(modelId);
@@ -251,26 +264,33 @@ export function App() {
     applySetup(nextSetup);
   };
 
-  const handleHotkeyCapture = async (event: React.KeyboardEvent<HTMLButtonElement>) => {
+  const handleHotkeyKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!capturingHotkey) {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
-    const mainKey = isModifierKey(event.key) ? null : event.key;
-    if (!mainKey) {
+    for (const key of capturedKeysFromEvent(event)) {
+      capturedHotkeyKeysRef.current.add(key);
+    }
+  };
+
+  const handleHotkeyKeyUp = async (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!capturingHotkey) {
       return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    for (const key of capturedKeysFromEvent(event)) {
+      capturedHotkeyKeysRef.current.add(key);
     }
 
     try {
-      const keys = [
-        event.metaKey || event.ctrlKey ? 'Meta' : '',
-        event.altKey ? 'Alt' : '',
-        event.shiftKey ? 'Shift' : '',
-        mainKey
-      ].filter(Boolean);
+      const keys = [...capturedHotkeyKeysRef.current];
+      capturedHotkeyKeysRef.current.clear();
       await updateHotkey(shortcutFromRecordedKeys(keys, hotkeyPlatform()));
     } catch (caught) {
+      capturedHotkeyKeysRef.current.clear();
       setCapturingHotkey(false);
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -355,7 +375,7 @@ export function App() {
 
         <aside className="side">
           <section>
-            <h2>模型推荐</h2>
+            <h2>推荐安装</h2>
             {setup ? (
               <>
                 <p className="hint">
@@ -375,6 +395,23 @@ export function App() {
                     />
                   ))}
                 </div>
+                {setup.installedModels.length > 0 ? (
+                  <>
+                    <h2 className="subsection-title">已安装模型</h2>
+                    <div className="model-list">
+                      {setup.installedModels.map((model) => (
+                        <InstalledModelRow
+                          key={model.modelId}
+                          model={model}
+                          activatingModelId={activatingModelId}
+                          deletingModelId={deletingModelId}
+                          onActivate={activateModel}
+                          onDelete={deleteModel}
+                        />
+                      ))}
+                    </div>
+                  </>
+                ) : null}
               </>
             ) : (
               <p className="empty">检测中</p>
@@ -397,7 +434,8 @@ export function App() {
               <button
                 className={`secondary ${capturingHotkey ? 'listening' : ''}`}
                 onClick={() => setCapturingHotkey(true)}
-                onKeyDown={(event) => void handleHotkeyCapture(event)}
+                onKeyDown={handleHotkeyKeyDown}
+                onKeyUp={(event) => void handleHotkeyKeyUp(event)}
               >
                 {capturingHotkey ? '按下触发键或组合键' : '录制快捷键'}
               </button>
@@ -405,6 +443,7 @@ export function App() {
                 恢复默认
               </button>
             </div>
+            {capturingHotkey ? <p className="hint">单个修饰键可以保存，但更容易误触；普通字母和数字单键仍会被拒绝。</p> : null}
           </section>
 
           {settings ? (
@@ -555,6 +594,41 @@ export function App() {
   );
 }
 
+function InstalledModelRow({
+  model,
+  activatingModelId,
+  deletingModelId,
+  onActivate,
+  onDelete
+}: {
+  model: InstalledModelView;
+  activatingModelId: string | null;
+  deletingModelId: string | null;
+  onActivate(modelId: string): Promise<void>;
+  onDelete(modelId: string): Promise<void>;
+}) {
+  const activating = activatingModelId === model.modelId;
+  const deleting = deletingModelId === model.modelId;
+
+  return (
+    <article className={`model-row ${model.current ? 'current' : ''}`}>
+      <div>
+        <h3>{model.name}</h3>
+        <p>{model.legacy ? '旧模型 · 本机已安装' : '本机已安装'}</p>
+        <small>{model.modelPath ?? model.modelId}</small>
+      </div>
+      <button onClick={() => void onActivate(model.modelId)} disabled={!model.canActivate || activating || model.current}>
+        {model.current ? '当前' : activating ? '启用中' : '启用'}
+      </button>
+      {model.canDelete ? (
+        <button className="danger" onClick={() => void onDelete(model.modelId)} disabled={deleting}>
+          {deleting ? '删除中' : '删除'}
+        </button>
+      ) : null}
+    </article>
+  );
+}
+
 function ModelRow({
   recommendation,
   currentModelId,
@@ -621,8 +695,19 @@ function tierLabel(tier: string): string {
   return '轻量';
 }
 
-function isModifierKey(key: string): boolean {
-  return ['Meta', 'Control', 'Shift', 'Alt'].includes(key);
+function capturedKeysFromEvent(event: React.KeyboardEvent<HTMLButtonElement>): string[] {
+  const keys = [
+    event.metaKey ? 'Meta' : '',
+    event.ctrlKey ? 'Control' : '',
+    event.altKey ? 'Alt' : '',
+    event.shiftKey ? 'Shift' : ''
+  ].filter(Boolean);
+
+  if (event.key && !keys.includes(event.key)) {
+    keys.push(event.key);
+  }
+
+  return keys;
 }
 
 function hotkeyPlatform(): NodeJS.Platform {

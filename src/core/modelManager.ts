@@ -4,7 +4,7 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { ModelCatalogItem, ModelInstallStatus, ModelStatusRecord } from './types';
+import type { InstalledModelView, ModelCatalogItem, ModelInstallStatus, ModelStatusRecord, Settings, SherpaModelType } from './types';
 import type { UserDataStore } from './userDataStore';
 
 const execFileAsync = promisify(execFile);
@@ -96,14 +96,75 @@ export class ModelManager {
     return Object.values(await this.getStatuses()).filter((record) => record.status === 'installed' || record.status === 'current');
   }
 
+  async listInstalledModelViews(settings: Settings): Promise<InstalledModelView[]> {
+    const statuses = await this.getStatuses();
+    const ids = new Set(
+      Object.values(statuses)
+        .filter((record) => record.status === 'installed' || record.status === 'current')
+        .map((record) => record.modelId)
+    );
+
+    if (settings.providers.asr.modelId) {
+      ids.add(settings.providers.asr.modelId);
+    }
+
+    return [...ids].map((modelId) => {
+      const catalogModel = this.findModel(modelId);
+      const record = statuses[modelId];
+      const modelPath = record?.modelPath ?? (settings.providers.asr.modelId === modelId ? settings.providers.asr.modelPath : undefined);
+      const current = settings.providers.asr.modelId === modelId;
+      const sherpaModelType = catalogModel?.sherpaModelType ?? inferSherpaModelType(modelId, modelPath);
+      return {
+        modelId,
+        name: catalogModel?.name ?? legacyModelName(modelId),
+        status: current ? 'current' : record?.status ?? 'installed',
+        modelPath,
+        current,
+        legacy: !catalogModel,
+        canActivate: !current && Boolean(modelPath && sherpaModelType),
+        canDelete: !current
+      };
+    });
+  }
+
+  async activateInstalledModel(modelId: string): Promise<ModelStatusRecord> {
+    const statuses = await this.getStatuses();
+    const record = statuses[modelId];
+    const model = this.findModel(modelId);
+    const modelPath = record?.modelPath ?? (model ? this.getModelPath(modelId) : undefined);
+    const sherpaModelType = model?.sherpaModelType ?? inferSherpaModelType(modelId, modelPath);
+
+    if (!modelPath || !sherpaModelType) {
+      throw new Error('这个旧模型缺少路径或运行类型，暂时不能直接启用。');
+    }
+
+    const settings = await this.store.loadSettings();
+    await this.store.saveSettings({
+      ...settings,
+      providers: {
+        ...settings.providers,
+        asr: {
+          ...settings.providers.asr,
+          kind: 'local-sherpa-onnx',
+          modelId,
+          modelPath,
+          sherpaModelType,
+          language: settings.providers.asr.language ?? 'zh'
+        }
+      }
+    });
+
+    return this.writeStatus(modelId, { status: 'current', progress: 100, modelPath });
+  }
+
   async deleteModel(modelId: string): Promise<ModelStatusRecord> {
     const settings = await this.store.loadSettings();
     if (settings.providers.asr.modelId === modelId) {
       throw new Error('当前正在使用这个模型。请先切换到另一个模型，再删除它。');
     }
 
-    const model = this.getModel(modelId);
-    await rm(this.modelInstallDir(model), { recursive: true, force: true });
+    const model = this.findModel(modelId);
+    await rm(model ? this.modelInstallDir(model) : join(this.modelRoot, modelId), { recursive: true, force: true });
     const statuses = await this.getStatuses();
     delete statuses[modelId];
     await this.writeStatuses(statuses);
@@ -121,11 +182,15 @@ export class ModelManager {
   }
 
   private getModel(modelId: string): ModelCatalogItem {
-    const model = this.catalog.find((item) => item.id === modelId);
+    const model = this.findModel(modelId);
     if (!model) {
       throw new Error(`Unknown model: ${modelId}`);
     }
     return model;
+  }
+
+  private findModel(modelId: string): ModelCatalogItem | undefined {
+    return this.catalog.find((item) => item.id === modelId);
   }
 
   private modelInstallDir(model: ModelCatalogItem): string {
@@ -156,6 +221,33 @@ export class ModelManager {
     await mkdir(this.modelRoot, { recursive: true });
     await writeFile(this.statusPath(), `${JSON.stringify(statuses, null, 2)}\n`, 'utf8');
   }
+}
+
+function inferSherpaModelType(modelId: string, modelPath?: string): SherpaModelType | undefined {
+  const value = `${modelId} ${modelPath ?? ''}`.toLowerCase();
+  if (value.includes('sensevoice') || value.includes('sense-voice')) {
+    return 'senseVoice';
+  }
+  if (value.includes('funasr-nano') || value.includes('fun-asr-nano')) {
+    return 'funasrNano';
+  }
+  if (value.includes('firered')) {
+    return 'fireRedAsr';
+  }
+  return undefined;
+}
+
+function legacyModelName(modelId: string): string {
+  const lower = modelId.toLowerCase();
+  const year = lower.match(/20\d{2}/)?.[0];
+  if (lower.includes('sensevoice')) {
+    return `SenseVoice ONNX int8${year ? ` ${year}` : ''}`;
+  }
+  return modelId
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 async function downloadModelArchive(model: ModelCatalogItem, archivePath: string): Promise<void> {

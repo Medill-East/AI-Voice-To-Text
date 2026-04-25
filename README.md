@@ -26,6 +26,15 @@ npm run build
 npm start
 ```
 
+## Packaged App
+
+```bash
+npm run package
+open release/mac*/V2T.app
+```
+
+`npm run package` creates a local app you can open directly. `npm run dist` creates installer artifacts under `release/`.
+
 ## Checks
 
 ```bash

@@ -1,4 +1,4 @@
-const MODIFIER_ORDER = ['CommandOrControl', 'Alt', 'Shift'] as const;
+const MODIFIER_ORDER = ['CommandOrControl', 'Command', 'Control', 'Alt', 'Shift'] as const;
 
 const KEY_ALIASES: Record<string, string> = {
   ' ': 'Space',
@@ -10,11 +10,11 @@ const KEY_ALIASES: Record<string, string> = {
   ENTER: 'Enter',
   CAPSLOCK: 'CapsLock',
   CAPS_LOCK: 'CapsLock',
-  CMD: 'CommandOrControl',
-  COMMAND: 'CommandOrControl',
-  META: 'CommandOrControl',
-  CONTROL: 'CommandOrControl',
-  CTRL: 'CommandOrControl',
+  CMD: 'Command',
+  COMMAND: 'Command',
+  META: 'Command',
+  CONTROL: 'Control',
+  CTRL: 'Control',
   COMMANDORCONTROL: 'CommandOrControl',
   OPTION: 'Alt',
   ALT: 'Alt',
@@ -56,7 +56,7 @@ export function normalizeAccelerator(input: string, platform: NodeJS.Platform): 
   let mainKey: string | undefined;
 
   for (const part of parts) {
-    if (part === 'CommandOrControl' || part === 'Alt' || part === 'Shift') {
+    if (part === 'CommandOrControl' || part === 'Command' || part === 'Control' || part === 'Alt' || part === 'Shift') {
       modifiers.add(part);
       continue;
     }
@@ -64,6 +64,9 @@ export function normalizeAccelerator(input: string, platform: NodeJS.Platform): 
   }
 
   if (!mainKey) {
+    if (modifiers.size > 0) {
+      return MODIFIER_ORDER.filter((modifier) => modifiers.has(modifier)).join('+');
+    }
     throw new Error('快捷键需要包含一个主按键');
   }
 

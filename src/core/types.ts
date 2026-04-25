@@ -114,6 +114,17 @@ export interface ModelStatusRecord {
   updatedAt: string;
 }
 
+export interface InstalledModelView {
+  modelId: string;
+  name: string;
+  status: ModelInstallStatus;
+  modelPath?: string;
+  current: boolean;
+  legacy: boolean;
+  canActivate: boolean;
+  canDelete: boolean;
+}
+
 export interface GitHubSyncStatus {
   configured: boolean;
   repoUrl?: string;

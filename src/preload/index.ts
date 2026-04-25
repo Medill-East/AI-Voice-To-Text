@@ -3,6 +3,7 @@ import type {
   GitHubSyncStatus,
   HardwareProfile,
   InputMode,
+  InstalledModelView,
   ModelCatalogItem,
   ModelRecommendation,
   ModelStatusRecord,
@@ -23,6 +24,7 @@ export interface V2TApi {
   saveSettings(settings: Settings): Promise<{ settings: Settings; hotkeyStatus?: HotkeyStatus }>;
   updateHotkey(accelerator: string): Promise<HotkeyUpdateResult>;
   installModel(modelId: string): Promise<InstallModelResult>;
+  activateModel(modelId: string): Promise<InstallModelResult>;
   deleteModel(modelId: string): Promise<InstallModelResult>;
   getSyncStatus(): Promise<GitHubSyncStatus>;
   connectSyncRepo(repoUrl: string): Promise<SyncActionResult>;
@@ -43,6 +45,7 @@ export interface SetupPayload {
   catalog: ModelCatalogItem[];
   modelStatuses: Record<string, ModelStatusRecord>;
   recommendations: ModelRecommendation[];
+  installedModels: InstalledModelView[];
 }
 
 interface ProcessAudioResponse {
@@ -78,6 +81,7 @@ const api: V2TApi = {
   saveSettings: (settings) => ipcRenderer.invoke('v2t:save-settings', settings),
   updateHotkey: (accelerator) => ipcRenderer.invoke('v2t:update-hotkey', accelerator),
   installModel: (modelId) => ipcRenderer.invoke('v2t:install-model', modelId),
+  activateModel: (modelId) => ipcRenderer.invoke('v2t:activate-model', modelId),
   deleteModel: (modelId) => ipcRenderer.invoke('v2t:delete-model', modelId),
   getSyncStatus: () => ipcRenderer.invoke('v2t:get-sync-status'),
   connectSyncRepo: (repoUrl) => ipcRenderer.invoke('v2t:connect-sync-repo', repoUrl),

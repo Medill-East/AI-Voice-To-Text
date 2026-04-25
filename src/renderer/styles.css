@@ -35,6 +35,19 @@ select {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 30px;
+  -webkit-app-region: drag;
+}
+
+button,
+input,
+select,
+label,
+.status-row,
+.mode-switch,
+.record-button,
+.history,
+.side {
+  -webkit-app-region: no-drag;
 }
 
 .eyebrow {
@@ -318,6 +331,10 @@ select {
   display: grid;
   gap: 12px;
   margin-top: 14px;
+}
+
+.subsection-title {
+  margin-top: 22px;
 }
 
 .model-row {
