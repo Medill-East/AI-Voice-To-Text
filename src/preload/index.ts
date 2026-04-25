@@ -9,6 +9,7 @@ import type {
   ModelCatalogItem,
   ModelRecommendation,
   ModelStatusRecord,
+  PromptFiles,
   Settings,
   VoiceInputPipelineResult
 } from '../core/types';
@@ -16,7 +17,7 @@ import type { HotkeyStatus, HotkeyTestResult } from '../main/hotkeyService';
 import type { RecordingOverlayUpdate } from '../main/recordingOverlay';
 
 export interface RecordingCommand {
-  type: 'start' | 'stop';
+  type: 'start' | 'stop' | 'set-mode';
   trigger: 'toggle' | 'hold';
   inputMode?: InputMode;
 }
@@ -27,6 +28,9 @@ export interface V2TApi {
   saveSettings(settings: Settings): Promise<{ settings: Settings; hotkeyStatus?: HotkeyStatus }>;
   getLexicon(): Promise<Lexicon>;
   saveLexicon(lexicon: Lexicon): Promise<LexiconSaveResult>;
+  getPrompts(): Promise<PromptFiles>;
+  savePrompt(mode: InputMode, content: string): Promise<PromptSaveResult>;
+  resetPrompt(mode: InputMode): Promise<PromptSaveResult>;
   getHistory(limit?: number): Promise<HistoryEntry[]>;
   updateHotkey(accelerator: string): Promise<HotkeyUpdateResult>;
   installModel(modelId: string): Promise<InstallModelResult>;
@@ -36,6 +40,7 @@ export interface V2TApi {
   connectSyncRepo(repoUrl: string): Promise<SyncActionResult>;
   pullSync(): Promise<SyncActionResult>;
   pushSync(): Promise<SyncActionResult>;
+  syncAll(): Promise<SyncActionResult>;
   setRecordingOverlayState(update: RecordingOverlayUpdate): Promise<{ ok: true }>;
   openAccessibilitySettings(): Promise<{ ok: true }>;
   refreshHotkeyPermissions(): Promise<SetupPayload>;
@@ -98,12 +103,21 @@ interface LexiconSaveResult {
   error?: string;
 }
 
+interface PromptSaveResult {
+  ok: boolean;
+  prompts?: PromptFiles;
+  error?: string;
+}
+
 const api: V2TApi = {
   getSettings: () => ipcRenderer.invoke('v2t:get-settings'),
   getSetup: () => ipcRenderer.invoke('v2t:get-setup'),
   saveSettings: (settings) => ipcRenderer.invoke('v2t:save-settings', settings),
   getLexicon: () => ipcRenderer.invoke('v2t:get-lexicon'),
   saveLexicon: (lexicon) => ipcRenderer.invoke('v2t:save-lexicon', lexicon),
+  getPrompts: () => ipcRenderer.invoke('v2t:get-prompts'),
+  savePrompt: (mode, content) => ipcRenderer.invoke('v2t:save-prompt', mode, content),
+  resetPrompt: (mode) => ipcRenderer.invoke('v2t:reset-prompt', mode),
   getHistory: (limit) => ipcRenderer.invoke('v2t:get-history', limit),
   updateHotkey: (accelerator) => ipcRenderer.invoke('v2t:update-hotkey', accelerator),
   installModel: (modelId) => ipcRenderer.invoke('v2t:install-model', modelId),
@@ -113,6 +127,7 @@ const api: V2TApi = {
   connectSyncRepo: (repoUrl) => ipcRenderer.invoke('v2t:connect-sync-repo', repoUrl),
   pullSync: () => ipcRenderer.invoke('v2t:pull-sync'),
   pushSync: () => ipcRenderer.invoke('v2t:push-sync'),
+  syncAll: () => ipcRenderer.invoke('v2t:sync-all'),
   setRecordingOverlayState: (update) => ipcRenderer.invoke('v2t:set-recording-overlay-state', update),
   openAccessibilitySettings: () => ipcRenderer.invoke('v2t:open-accessibility-settings'),
   refreshHotkeyPermissions: () => ipcRenderer.invoke('v2t:refresh-hotkey-permissions'),

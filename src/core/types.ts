@@ -41,6 +41,8 @@ export interface Settings {
     accelerator: string;
     longPressMs: number;
     fallbackAccelerator?: string;
+    singleClickMode: InputMode;
+    doubleClickMode: InputMode;
   };
   dataDir?: string;
   providers: {
@@ -67,6 +69,7 @@ export interface Settings {
       localPath?: string;
       branch: string;
       lastSyncAt?: string;
+      includeHistory?: boolean;
     };
   };
 }
@@ -111,6 +114,41 @@ export interface ModelCatalogItem {
     sourceLabel: string;
     sourceUrl?: string;
     note?: string;
+  };
+  evaluationSources?: ModelEvaluationSources;
+}
+
+export interface ModelEvaluationMetric {
+  label: string;
+  metric: 'WER' | 'CER' | 'RTFx' | 'Rank';
+  value: number;
+  lowerIsBetter?: boolean;
+  dataset?: string;
+}
+
+export interface OpenAsrLeaderboardEvaluation {
+  sourceLabel: string;
+  sourceUrl: string;
+  track: string;
+  rank?: number;
+  avgWer?: number;
+  rtfx?: number;
+  exactModelMatch: boolean;
+  note?: string;
+}
+
+export interface OfficialBenchmarkEvaluation {
+  sourceLabel: string;
+  sourceUrl: string;
+  metrics: ModelEvaluationMetric[];
+  note?: string;
+}
+
+export interface ModelEvaluationSources {
+  openAsrLeaderboard?: OpenAsrLeaderboardEvaluation;
+  officialBenchmark?: OfficialBenchmarkEvaluation;
+  localRecommendation?: {
+    note: string;
   };
 }
 
@@ -158,6 +196,15 @@ export interface GitHubSyncStatus {
   dirty: boolean;
   lastSyncAt?: string;
   message?: string;
+}
+
+export interface PromptFiles {
+  natural: string;
+  structured: string;
+  paths: {
+    natural: string;
+    structured: string;
+  };
 }
 
 export interface HistoryEntry {

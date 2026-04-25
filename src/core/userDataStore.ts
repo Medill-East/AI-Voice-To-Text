@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join, parse } from 'node:path';
-import type { HistoryEntry, Lexicon, Settings } from './types';
+import type { HistoryEntry, InputMode, Lexicon, PromptFiles, Settings } from './types';
 import { naturalPrompt, structuredPrompt } from './postProcessor';
 
 interface StoreOptions {
@@ -16,7 +16,9 @@ const DEFAULT_SETTINGS: Settings = {
   hotkey: {
     accelerator: 'CommandOrControl+Shift+Space',
     longPressMs: 350,
-    fallbackAccelerator: 'CommandOrControl+Alt+Space'
+    fallbackAccelerator: 'CommandOrControl+Alt+Space',
+    singleClickMode: 'natural',
+    doubleClickMode: 'structured'
   },
   providers: {
     asr: {
@@ -34,7 +36,8 @@ const DEFAULT_SETTINGS: Settings = {
   sync: {
     kind: 'local-folder',
     github: {
-      branch: 'main'
+      branch: 'main',
+      includeHistory: false
     }
   }
 };
@@ -76,6 +79,34 @@ export class UserDataStore {
 
   async saveLexicon(lexicon: Lexicon): Promise<void> {
     await this.writeJsonTracked('lexicon.json', lexicon);
+  }
+
+  async readPrompt(mode: InputMode): Promise<string> {
+    return this.readTextTracked(this.promptPath(mode));
+  }
+
+  async savePrompt(mode: InputMode, content: string): Promise<void> {
+    await this.writeTextTracked(this.promptPath(mode), content.endsWith('\n') ? content : `${content}\n`);
+  }
+
+  async resetPrompt(mode: InputMode): Promise<void> {
+    await this.savePrompt(mode, defaultPrompt(mode));
+  }
+
+  async loadPrompts(): Promise<PromptFiles> {
+    const paths = this.getPromptPaths();
+    return {
+      natural: await this.readPrompt('natural'),
+      structured: await this.readPrompt('structured'),
+      paths
+    };
+  }
+
+  getPromptPaths(): PromptFiles['paths'] {
+    return {
+      natural: this.promptPath('natural'),
+      structured: this.promptPath('structured')
+    };
   }
 
   async appendHistory(entry: HistoryEntry): Promise<void> {
@@ -167,6 +198,10 @@ export class UserDataStore {
     }
   }
 
+  private promptPath(mode: InputMode): string {
+    return join(this.baseDir, 'prompts', `${mode}.md`);
+  }
+
   private async readJsonTracked<T>(fileName: JsonFile): Promise<T> {
     const filePath = join(this.baseDir, fileName);
     const content = await readFile(filePath, 'utf8');
@@ -179,6 +214,21 @@ export class UserDataStore {
     const filePath = join(this.baseDir, fileName);
     await this.backupIfExternallyChanged(filePath);
     await writeJson(filePath, value);
+    const fileStat = await stat(filePath);
+    this.knownMtimes.set(filePath, fileStat.mtimeMs);
+  }
+
+  private async readTextTracked(filePath: string): Promise<string> {
+    const content = await readFile(filePath, 'utf8');
+    const fileStat = await stat(filePath);
+    this.knownMtimes.set(filePath, fileStat.mtimeMs);
+    return content;
+  }
+
+  private async writeTextTracked(filePath: string, value: string): Promise<void> {
+    await this.backupIfExternallyChanged(filePath);
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, value, 'utf8');
     const fileStat = await stat(filePath);
     this.knownMtimes.set(filePath, fileStat.mtimeMs);
   }
@@ -218,7 +268,9 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
     hotkey: {
       ...DEFAULT_SETTINGS.hotkey,
       ...(raw.hotkey ?? {}),
-      longPressMs: Math.max(raw.hotkey?.longPressMs ?? DEFAULT_SETTINGS.hotkey.longPressMs, DEFAULT_SETTINGS.hotkey.longPressMs)
+      longPressMs: Math.max(raw.hotkey?.longPressMs ?? DEFAULT_SETTINGS.hotkey.longPressMs, DEFAULT_SETTINGS.hotkey.longPressMs),
+      singleClickMode: raw.hotkey?.singleClickMode ?? DEFAULT_SETTINGS.hotkey.singleClickMode,
+      doubleClickMode: raw.hotkey?.doubleClickMode ?? oppositeMode(raw.hotkey?.singleClickMode ?? DEFAULT_SETTINGS.hotkey.singleClickMode)
     },
     providers: {
       asr: {
@@ -241,4 +293,12 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
       }
     }
   };
+}
+
+function defaultPrompt(mode: InputMode): string {
+  return mode === 'natural' ? naturalPrompt() : structuredPrompt();
+}
+
+function oppositeMode(mode: InputMode): InputMode {
+  return mode === 'natural' ? 'structured' : 'natural';
 }

@@ -1,6 +1,6 @@
 import type { InputMode } from '../core/types';
 
-export type RecordingOverlayUiState = 'idle' | 'recording' | 'processing' | 'error';
+export type RecordingOverlayUiState = 'idle' | 'starting' | 'recording' | 'processing' | 'error';
 
 export interface RecordingOverlayUpdate {
   state: RecordingOverlayUiState;
@@ -30,7 +30,7 @@ export interface DisplayBounds {
 }
 
 export function normalizeRecordingOverlayState(update: RecordingOverlayUpdate): NormalizedRecordingOverlayState {
-  const visible = update.state === 'recording' || update.state === 'processing';
+  const visible = update.state === 'starting' || update.state === 'recording' || update.state === 'processing';
   const level = clamp(update.level ?? 0, 0, 1);
   return {
     visible,

@@ -30,7 +30,31 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     benchmarks: {
       sourceLabel: 'sherpa-onnx / Fun-ASR-Nano',
       sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/funasr-nano/pretrained.html',
-      note: '暂无统一公开评测；V2T 先按中文适配、本机速度和硬件匹配推荐。'
+      note: '官方评测同源模型参考；V2T 先按中文适配、本机速度和硬件匹配推荐。'
+    },
+    evaluationSources: {
+      openAsrLeaderboard: {
+        sourceLabel: 'Open ASR Leaderboard',
+        sourceUrl: 'https://github.com/huggingface/open_asr_leaderboard',
+        track: '通用 ASR',
+        exactModelMatch: false,
+        note: '未找到当前 sherpa-onnx ONNX int8 包的 exact match；不硬套公开榜单排名。'
+      },
+      officialBenchmark: {
+        sourceLabel: 'FunAudioLLM/Fun-ASR-Nano-2512 model card',
+        sourceUrl: 'https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-2512',
+        note: '同源模型参考，不代表当前 ONNX int8 实测。',
+        metrics: [
+          { label: 'AIShell1', metric: 'WER', value: 1.8, lowerIsBetter: true, dataset: 'Open-source dataset' },
+          { label: 'Fleurs-zh', metric: 'WER', value: 2.56, lowerIsBetter: true, dataset: 'Open-source dataset' },
+          { label: 'WenetSpeech Meeting', metric: 'WER', value: 6.6, lowerIsBetter: true, dataset: 'Open-source dataset' },
+          { label: 'WenetSpeech Net', metric: 'WER', value: 6.01, lowerIsBetter: true, dataset: 'Open-source dataset' },
+          { label: 'Dialect', metric: 'WER', value: 28.18, lowerIsBetter: true, dataset: 'Industry dataset' }
+        ]
+      },
+      localRecommendation: {
+        note: 'V2T 本机适配分，结合中文适配、速度、硬件匹配、体积和语言覆盖计算。'
+      }
     }
   },
   {
@@ -55,7 +79,28 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     benchmarks: {
       sourceLabel: 'sherpa-onnx / FireRed ASR2',
       sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/FireRedAsr/pretrained.html',
-      note: '暂无统一公开评测；V2T 先按中文适配、本机速度和硬件匹配推荐。'
+      note: '官方评测同源模型参考；V2T 先按中文适配、本机速度和硬件匹配推荐。'
+    },
+    evaluationSources: {
+      openAsrLeaderboard: {
+        sourceLabel: 'Open ASR Leaderboard',
+        sourceUrl: 'https://github.com/huggingface/open_asr_leaderboard',
+        track: '通用 ASR',
+        exactModelMatch: false,
+        note: '未找到当前 sherpa-onnx ONNX int8 包的 exact match；不硬套公开榜单排名。'
+      },
+      officialBenchmark: {
+        sourceLabel: 'FireRedASR2S paper / official benchmark',
+        sourceUrl: 'https://github.com/FireRedTeam/FireRedASR2S',
+        note: '同源模型参考，不代表当前 ONNX int8 实测。',
+        metrics: [
+          { label: 'Mandarin public avg', metric: 'CER', value: 2.89, lowerIsBetter: true, dataset: '4 public Mandarin benchmarks' },
+          { label: 'Dialect public avg', metric: 'CER', value: 11.55, lowerIsBetter: true, dataset: '19 Chinese dialect/accent benchmarks' }
+        ]
+      },
+      localRecommendation: {
+        note: 'V2T 本机适配分，结合中文适配、速度、硬件匹配、体积和语言覆盖计算。'
+      }
     }
   },
   {
@@ -80,7 +125,28 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     benchmarks: {
       sourceLabel: 'sherpa-onnx / SenseVoice',
       sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/sense-voice/pretrained.html',
-      note: '暂无统一公开评测；V2T 先按中文适配、本机速度和硬件匹配推荐。'
+      note: '官方评测同源模型参考；V2T 先按中文适配、本机速度和硬件匹配推荐。'
+    },
+    evaluationSources: {
+      openAsrLeaderboard: {
+        sourceLabel: 'Open ASR Leaderboard',
+        sourceUrl: 'https://github.com/huggingface/open_asr_leaderboard',
+        track: '通用 ASR',
+        exactModelMatch: false,
+        note: '未找到 exact match；不硬套公开榜单排名。'
+      },
+      officialBenchmark: {
+        sourceLabel: 'SenseVoice / sherpa-onnx model notes',
+        sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/sense-voice/pretrained.html',
+        note: '同源模型参考，不代表当前 ONNX int8 实测；官方重点说明多语言和粤语覆盖。',
+        metrics: [
+          { label: '模型体积', metric: 'Rank', value: 240, lowerIsBetter: true, dataset: 'MB' },
+          { label: '覆盖语言', metric: 'Rank', value: 5, lowerIsBetter: false, dataset: 'zh/en/ja/ko/yue' }
+        ]
+      },
+      localRecommendation: {
+        note: 'V2T 本机适配分，结合中文适配、速度、硬件匹配、体积和语言覆盖计算。'
+      }
     }
   }
 ];

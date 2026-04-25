@@ -30,7 +30,11 @@ describe('model catalog recommendation', () => {
     expect(recommendations[0].scoreBreakdown.map((item) => item.label)).toEqual(
       expect.arrayContaining(['中文适配', '本机速度', '硬件匹配', '体积', '语言覆盖'])
     );
-    expect(recommendations[0].model.benchmarks?.note).toContain('暂无统一公开评测');
+    expect(recommendations[0].model.evaluationSources?.officialBenchmark?.metrics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: 'AIShell1', metric: 'WER', value: 1.8 })])
+    );
+    expect(recommendations[0].model.evaluationSources?.officialBenchmark?.note).toContain('同源模型参考');
+    expect(recommendations[0].model.evaluationSources?.openAsrLeaderboard?.exactModelMatch).toBe(false);
   });
 
   it('prefers smaller models on low-memory devices', () => {
@@ -47,5 +51,13 @@ describe('model catalog recommendation', () => {
 
     expect(recommendations[0].model.id).toBe('sensevoice-onnx-int8-2025-09-09');
     expect(recommendations[0].reasons.join(' ')).toContain('低内存');
+  });
+
+  it('keeps public evaluation data separate from V2T local recommendation score', () => {
+    const senseVoice = DEFAULT_MODEL_CATALOG.find((model) => model.family === 'sensevoice');
+
+    expect(senseVoice?.evaluationSources?.officialBenchmark?.sourceLabel).toContain('SenseVoice');
+    expect(senseVoice?.evaluationSources?.openAsrLeaderboard?.note).toContain('未找到 exact match');
+    expect(senseVoice?.evaluationSources?.localRecommendation?.note).toContain('V2T');
   });
 });

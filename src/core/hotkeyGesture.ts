@@ -2,51 +2,56 @@ export type RecordingTriggerMode = 'toggle' | 'hold';
 
 export type HotkeyAction =
   | { type: 'start-recording'; mode: RecordingTriggerMode; inputMode: 'natural' | 'structured' }
+  | { type: 'set-recording-mode'; inputMode: 'natural' | 'structured' }
   | { type: 'stop-recording'; mode: RecordingTriggerMode };
 
-type GestureState = 'idle' | 'pressed' | 'waiting-second-click' | 'recording';
+type InputMode = 'natural' | 'structured';
+type GestureState = 'idle' | 'recording';
 
 export class HotkeyGestureDetector {
   private state: GestureState = 'idle';
-  private firstClickUpAt: number | null = null;
+  private firstClickAt: number | null = null;
+  private doubleClickApplied = false;
   private suppressNextKeyUp = false;
   private readonly longPressMs: number;
+  private readonly singleClickMode: InputMode;
+  private readonly doubleClickMode: InputMode;
 
-  constructor(options: { longPressMs: number }) {
+  constructor(options: { longPressMs: number; singleClickMode?: InputMode; doubleClickMode?: InputMode }) {
     this.longPressMs = options.longPressMs;
+    this.singleClickMode = options.singleClickMode ?? 'natural';
+    this.doubleClickMode = options.doubleClickMode ?? 'structured';
   }
 
   keyDown(timestampMs: number): HotkeyAction[] {
+    if (this.state === 'idle') {
+      this.state = 'recording';
+      this.firstClickAt = timestampMs;
+      this.doubleClickApplied = false;
+      return [{ type: 'start-recording', mode: 'toggle', inputMode: this.singleClickMode }];
+    }
+
+    if (this.isDoubleClick(timestampMs)) {
+      this.doubleClickApplied = true;
+      this.suppressNextKeyUp = true;
+      return [{ type: 'set-recording-mode', inputMode: this.doubleClickMode }];
+    }
+
     if (this.state === 'recording') {
       this.state = 'idle';
-      this.firstClickUpAt = null;
+      this.firstClickAt = null;
+      this.doubleClickApplied = false;
       this.suppressNextKeyUp = true;
       return [{ type: 'stop-recording', mode: 'toggle' }];
     }
-
-    if (this.state === 'waiting-second-click' && this.firstClickUpAt !== null && timestampMs - this.firstClickUpAt <= this.longPressMs) {
-      this.state = 'recording';
-      this.firstClickUpAt = null;
-      this.suppressNextKeyUp = true;
-      return [{ type: 'start-recording', mode: 'toggle', inputMode: 'structured' }];
-    }
-
-    this.state = 'pressed';
     return [];
   }
 
   thresholdElapsed(timestampMs: number): HotkeyAction[] {
-    if (this.state !== 'waiting-second-click' || this.firstClickUpAt === null) {
-      return [];
+    if (this.state === 'recording' && this.firstClickAt !== null && timestampMs - this.firstClickAt >= this.longPressMs) {
+      this.firstClickAt = null;
     }
-
-    if (timestampMs - this.firstClickUpAt < this.longPressMs) {
-      return [];
-    }
-
-    this.state = 'recording';
-    this.firstClickUpAt = null;
-    return [{ type: 'start-recording', mode: 'toggle', inputMode: 'natural' }];
+    return [];
   }
 
   keyUp(timestampMs: number): HotkeyAction[] {
@@ -55,35 +60,41 @@ export class HotkeyGestureDetector {
       return [];
     }
 
-    if (this.state === 'pressed') {
-      this.state = 'waiting-second-click';
-      this.firstClickUpAt = timestampMs;
-    }
-
     return [];
   }
 
   shortcutActivated(timestampMs: number): HotkeyAction[] {
-    if (this.state === 'recording') {
-      this.state = 'idle';
-      this.firstClickUpAt = null;
-      return [{ type: 'stop-recording', mode: 'toggle' }];
-    }
-
-    if (this.state === 'waiting-second-click' && this.firstClickUpAt !== null && timestampMs - this.firstClickUpAt <= this.longPressMs) {
+    if (this.state === 'idle') {
       this.state = 'recording';
-      this.firstClickUpAt = null;
-      return [{ type: 'start-recording', mode: 'toggle', inputMode: 'structured' }];
+      this.firstClickAt = timestampMs;
+      this.doubleClickApplied = false;
+      return [{ type: 'start-recording', mode: 'toggle', inputMode: this.singleClickMode }];
     }
 
-    this.state = 'waiting-second-click';
-    this.firstClickUpAt = timestampMs;
-    return [];
+    if (this.isDoubleClick(timestampMs)) {
+      this.doubleClickApplied = true;
+      return [{ type: 'set-recording-mode', inputMode: this.doubleClickMode }];
+    }
+
+    this.state = 'idle';
+    this.firstClickAt = null;
+    this.doubleClickApplied = false;
+    return [{ type: 'stop-recording', mode: 'toggle' }];
   }
 
   reset(): void {
     this.state = 'idle';
-    this.firstClickUpAt = null;
+    this.firstClickAt = null;
+    this.doubleClickApplied = false;
     this.suppressNextKeyUp = false;
+  }
+
+  private isDoubleClick(timestampMs: number): boolean {
+    return (
+      this.state === 'recording' &&
+      this.firstClickAt !== null &&
+      !this.doubleClickApplied &&
+      timestampMs - this.firstClickAt <= this.longPressMs
+    );
   }
 }

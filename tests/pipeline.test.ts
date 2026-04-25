@@ -61,4 +61,25 @@ describe('voice input pipeline', () => {
     expect(injector.injectText).not.toHaveBeenCalled();
     await expect(store.readHistoryMonth('device-a', '2026-04')).resolves.toEqual([]);
   });
+
+  it('passes the mode prompt into post-processing', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-pipeline-'));
+    const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
+    const process = vi.fn().mockResolvedValue({ text: '整理后文本', usedLlm: true });
+    const pipeline = createVoiceInputPipeline({
+      store,
+      asr: { transcribe: vi.fn().mockResolvedValue({ text: '原文' }) },
+      injector: { injectText: vi.fn().mockResolvedValue({ method: 'clipboard' }) },
+      postProcessor: { process },
+      now: () => new Date('2026-04-25T11:00:00.000Z'),
+      idFactory: () => 'prompt-1'
+    });
+
+    await pipeline.handleAudio(Buffer.from('fake audio'), {
+      mode: 'structured',
+      prompt: '自定义结构输入 Prompt'
+    });
+
+    expect(process).toHaveBeenCalledWith('原文', expect.objectContaining({ mode: 'structured', prompt: '自定义结构输入 Prompt' }));
+  });
 });

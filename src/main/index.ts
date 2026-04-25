@@ -191,6 +191,23 @@ function registerIpc(): void {
   });
   ipcMain.handle('v2t:get-lexicon', async () => store.loadLexicon());
   ipcMain.handle('v2t:get-history', async (_event, limit?: number) => store.readRecentHistory(limit ?? 30));
+  ipcMain.handle('v2t:get-prompts', async () => store.loadPrompts());
+  ipcMain.handle('v2t:save-prompt', async (_event, mode: InputMode, content: string) => {
+    try {
+      await store.savePrompt(mode, content);
+      return { ok: true, prompts: await store.loadPrompts() };
+    } catch (error) {
+      return { ok: false, error: readableError(error) };
+    }
+  });
+  ipcMain.handle('v2t:reset-prompt', async (_event, mode: InputMode) => {
+    try {
+      await store.resetPrompt(mode);
+      return { ok: true, prompts: await store.loadPrompts() };
+    } catch (error) {
+      return { ok: false, error: readableError(error) };
+    }
+  });
   ipcMain.handle('v2t:save-lexicon', async (_event, lexicon) => {
     try {
       await store.saveLexicon(lexicon);
@@ -239,6 +256,7 @@ function registerIpc(): void {
   ipcMain.handle('v2t:connect-sync-repo', async (_event, repoUrl: string) => connectSyncRepo(repoUrl));
   ipcMain.handle('v2t:pull-sync', async () => pullSync());
   ipcMain.handle('v2t:push-sync', async () => pushSync());
+  ipcMain.handle('v2t:sync-all', async () => syncAll());
   ipcMain.handle('v2t:install-model', async (event, modelId: string) => {
     const manager = createModelManager();
     const sendProgress = (status: ModelStatusRecord) => {
@@ -285,7 +303,8 @@ function registerIpc(): void {
       const pipeline = await createPipeline();
       const result = await pipeline.handleAudio(Buffer.from(payload.bytes), {
         mode: payload.mode,
-        targetApp: await getFocusedAppName()
+        targetApp: await getFocusedAppName(),
+        prompt: await store.readPrompt(payload.mode)
       });
       return { ok: true, result };
     } catch (error) {
@@ -401,6 +420,8 @@ async function registerHotkey(): Promise<void> {
     accelerator: settings.hotkey.accelerator,
     fallbackAccelerator: settings.hotkey.fallbackAccelerator,
     longPressMs: settings.hotkey.longPressMs,
+    singleClickMode: settings.hotkey.singleClickMode,
+    doubleClickMode: settings.hotkey.doubleClickMode,
     accessibilityTrusted: getAccessibilityTrusted(),
     nativeHelperPath,
     nativeHelperSignature,
@@ -571,7 +592,8 @@ function createSyncService(repoUrl = settings.sync.github.repoUrl): GitHubSyncSe
     dataDir: store.getBaseDir(),
     repoDir: settings.sync.github.localPath ?? join(app.getPath('userData'), 'sync-repo'),
     repoUrl,
-    branch: settings.sync.github.branch
+    branch: settings.sync.github.branch,
+    includeHistory: settings.sync.github.includeHistory ?? false
   });
 }
 
@@ -638,6 +660,26 @@ async function pushSync() {
   }
 }
 
+async function syncAll() {
+  try {
+    const status = await createSyncService().smartSync('sync: update v2t archive');
+    settings = {
+      ...settings,
+      sync: {
+        kind: 'github',
+        github: {
+          ...settings.sync.github,
+          lastSyncAt: new Date().toISOString()
+        }
+      }
+    };
+    await store.saveSettings(settings);
+    return { ok: true, status, setup: await getSetupPayload() };
+  } catch (error) {
+    return { ok: false, error: readableError(error), status: await createSyncService().status() };
+  }
+}
+
 async function updateHotkey(accelerator: string) {
   const previous = settings;
   settings = {
@@ -652,6 +694,8 @@ async function updateHotkey(accelerator: string) {
     accelerator: settings.hotkey.accelerator,
     fallbackAccelerator: settings.hotkey.fallbackAccelerator,
     longPressMs: settings.hotkey.longPressMs,
+    singleClickMode: settings.hotkey.singleClickMode,
+    doubleClickMode: settings.hotkey.doubleClickMode,
     accessibilityTrusted: getAccessibilityTrusted(),
     nativeHelperPath,
     nativeHelperSignature,
@@ -759,15 +803,17 @@ function showWindow(): void {
   mainWindow.focus();
 }
 
-function sendHotkeyAction(action: { type: 'start-recording' | 'stop-recording'; mode: 'toggle' | 'hold'; inputMode?: InputMode }): void {
+function sendHotkeyAction(action: { type: 'start-recording' | 'stop-recording' | 'set-recording-mode'; mode?: 'toggle' | 'hold'; inputMode?: InputMode }): void {
   if (action.type === 'start-recording') {
-    sendRecordingCommand({ type: 'start', trigger: action.mode, inputMode: action.inputMode });
+    sendRecordingCommand({ type: 'start', trigger: action.mode ?? 'toggle', inputMode: action.inputMode });
+  } else if (action.type === 'set-recording-mode') {
+    sendRecordingCommand({ type: 'set-mode', trigger: 'toggle', inputMode: action.inputMode });
   } else {
-    sendRecordingCommand({ type: 'stop', trigger: action.mode });
+    sendRecordingCommand({ type: 'stop', trigger: action.mode ?? 'toggle' });
   }
 }
 
-function sendRecordingCommand(command: { type: 'start' | 'stop'; trigger: 'toggle' | 'hold'; inputMode?: InputMode }): void {
+function sendRecordingCommand(command: { type: 'start' | 'stop' | 'set-mode'; trigger: 'toggle' | 'hold'; inputMode?: InputMode }): void {
   mainWindow?.webContents.send('v2t:recording-command', command);
 }
 

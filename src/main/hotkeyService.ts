@@ -8,6 +8,8 @@ interface HotkeyServiceOptions {
   accelerator: string;
   fallbackAccelerator?: string;
   longPressMs: number;
+  singleClickMode?: 'natural' | 'structured';
+  doubleClickMode?: 'natural' | 'structured';
   accessibilityTrusted?: boolean;
   nativeHelperPath?: string;
   nativeHelperSignature?: string;
@@ -128,7 +130,11 @@ export class HotkeyService {
     this.unregister();
     this.currentOptions = options;
     this.nativeHelperPath = options.nativeHelperPath;
-    this.detector = new HotkeyGestureDetector({ longPressMs: options.longPressMs });
+    this.detector = new HotkeyGestureDetector({
+      longPressMs: options.longPressMs,
+      singleClickMode: options.singleClickMode,
+      doubleClickMode: options.doubleClickMode
+    });
     const nativeRequired = requiresNativeListener(options.accelerator);
 
     if (nativeRequired && options.fallbackAccelerator) {
@@ -248,7 +254,6 @@ export class HotkeyService {
       if (event.state === 'UP' && this.isShortcutDown) {
         this.isShortcutDown = false;
         this.emitActions(this.detector.keyUp(this.now()), options.onAction);
-        this.scheduleSingleClickTimer(options);
         return true;
       }
 
@@ -316,9 +321,6 @@ export class HotkeyService {
     }
     const actions = this.detector.shortcutActivated(this.now());
     this.emitActions(actions, options.onAction);
-    if (actions.length === 0) {
-      this.scheduleSingleClickTimer(options);
-    }
   }
 
   private scheduleSingleClickTimer(options: HotkeyServiceOptions): void {

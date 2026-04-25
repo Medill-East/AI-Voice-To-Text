@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -61,6 +61,28 @@ describe('GitHubSyncService', () => {
     expect(ignore).toContain('.env');
   });
 
+  it('can include text-only history in the sync archive when the user enables it', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'v2t-sync-history-'));
+    const dataDir = join(root, 'data');
+    const repoDir = join(root, 'repo');
+    await UserDataStore.create(dataDir, { deviceId: 'device-a' });
+    await writeFile(join(dataDir, 'history', 'device-a', '2026-04.jsonl'), '{"id":"history-a","outputText":"保留历史"}\n', 'utf8');
+
+    const service = new GitHubSyncService({
+      dataDir,
+      repoDir,
+      includeHistory: true,
+      git: fakeGit()
+    });
+
+    await service.exportSyncFiles();
+
+    expect(syncFileAllowlist(true)).toContain('history/');
+    await expect(readFile(join(repoDir, 'history', 'device-a', '2026-04.jsonl'), 'utf8')).resolves.toContain('history-a');
+    const ignore = await readFile(join(repoDir, '.gitignore'), 'utf8');
+    expect(ignore).not.toContain('history/');
+  });
+
   it('pushes sync files to a bare repo and another device can pull them', async () => {
     const root = await mkdtemp(join(tmpdir(), 'v2t-sync-git-'));
     const remote = join(root, 'remote.git');
@@ -115,8 +137,68 @@ describe('GitHubSyncService', () => {
     const conflicts = await service.listConflictBackups();
     expect(conflicts.some((file) => file.includes('lexicon'))).toBe(true);
   });
+
+  it('smart sync merges lexicon and history while backing up remote prompt conflicts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'v2t-sync-smart-'));
+    const dataDir = join(root, 'data');
+    const repoDir = join(root, 'repo');
+    await UserDataStore.create(dataDir, { deviceId: 'device-a' });
+    await mkdir(join(repoDir, '.git'), { recursive: true });
+    await writeFile(join(dataDir, 'lexicon.json'), '{"version":1,"terms":[{"phrase":"local"}],"replacements":[],"blocked":["嗯"]}\n', 'utf8');
+    await writeFile(join(dataDir, 'prompts', 'natural.md'), 'local prompt\n', 'utf8');
+    await mkdir(join(dataDir, 'history', 'device-a'), { recursive: true });
+    await writeFile(join(dataDir, 'history', 'device-a', '2026-04.jsonl'), '{"id":"local-history","createdAt":"2026-04-25T00:00:00.000Z"}\n', 'utf8');
+
+    const remoteFiles = new Map<string, string>([
+      ['lexicon.json', '{"version":1,"terms":[{"phrase":"remote"}],"replacements":[],"blocked":["呃"]}\n'],
+      ['prompts/natural.md', 'remote prompt\n'],
+      ['history/device-b/2026-04.jsonl', '{"id":"remote-history","createdAt":"2026-04-25T00:00:00.000Z"}\n']
+    ]);
+    const service = new GitHubSyncService({
+      dataDir,
+      repoDir,
+      includeHistory: true,
+      git: fakeRemoteGit(remoteFiles)
+    });
+
+    await service.smartSync();
+
+    const lexicon = await readFile(join(dataDir, 'lexicon.json'), 'utf8');
+    expect(lexicon).toContain('local');
+    expect(lexicon).toContain('remote');
+    expect(lexicon).toContain('嗯');
+    expect(lexicon).toContain('呃');
+    await expect(readFile(join(dataDir, 'history', 'device-b', '2026-04.jsonl'), 'utf8')).resolves.toContain('remote-history');
+    await expect(readFile(join(repoDir, 'history', 'device-a', '2026-04.jsonl'), 'utf8')).resolves.toContain('local-history');
+    expect(await readFile(join(dataDir, 'prompts', 'natural.md'), 'utf8')).toBe('local prompt\n');
+    expect((await service.listConflictBackups()).some((file) => file.includes('natural'))).toBe(true);
+  });
 });
 
 function fakeGit() {
   return async () => '';
+}
+
+function fakeRemoteGit(files: Map<string, string>) {
+  return async (args: string[]) => {
+    const command = args.join(' ');
+    if (args[0] === 'rev-parse') {
+      return 'origin/main\n';
+    }
+    if (args[0] === 'ls-tree') {
+      return [...files.keys()].filter((file) => file.startsWith('history/')).join('\n');
+    }
+    if (args[0] === 'show') {
+      const spec = args[1] ?? '';
+      const file = spec.slice(spec.indexOf(':') + 1);
+      if (!files.has(file)) {
+        throw new Error(`missing ${file}`);
+      }
+      return files.get(file) ?? '';
+    }
+    if (command.startsWith('status --porcelain')) {
+      return ' M lexicon.json\n';
+    }
+    return '';
+  };
 }

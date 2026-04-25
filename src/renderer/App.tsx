@@ -1,17 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
-import type { HistoryEntry, InputMode, InstalledModelView, Lexicon, ModelRecommendation, ModelStatusRecord, Settings, VoiceInputPipelineResult } from '../core/types';
+import type {
+  HistoryEntry,
+  InputMode,
+  InstalledModelView,
+  Lexicon,
+  ModelEvaluationMetric,
+  ModelRecommendation,
+  ModelStatusRecord,
+  PromptFiles,
+  Settings,
+  VoiceInputPipelineResult
+} from '../core/types';
 import type { HotkeyStatus } from '../main/hotkeyService';
 import type { RecordingCommand, SetupPayload } from '../preload';
 
-type RecordingState = 'idle' | 'recording' | 'processing' | 'error';
-type AppPage = 'voice' | 'models' | 'hotkey' | 'lexicon' | 'sync' | 'advanced' | 'app';
+type RecordingState = 'idle' | 'starting' | 'recording' | 'processing' | 'error';
+type AppPage = 'voice' | 'models' | 'hotkey' | 'lexicon' | 'prompts' | 'sync' | 'advanced' | 'app';
 
 const APP_PAGES: Array<{ id: AppPage; label: string }> = [
   { id: 'voice', label: '语音输入' },
   { id: 'models', label: '模型' },
   { id: 'hotkey', label: '快捷键' },
   { id: 'lexicon', label: '词库' },
+  { id: 'prompts', label: '提示词' },
   { id: 'sync', label: 'GitHub 同步' },
   { id: 'advanced', label: '高级设置' },
   { id: 'app', label: '应用' }
@@ -54,6 +66,10 @@ export function App() {
   const [lexicon, setLexicon] = useState<Lexicon | null>(null);
   const [lexiconDirty, setLexiconDirty] = useState(false);
   const [lexiconMessage, setLexiconMessage] = useState<string | null>(null);
+  const [prompts, setPrompts] = useState<PromptFiles | null>(null);
+  const [promptDrafts, setPromptDrafts] = useState<{ natural: string; structured: string }>({ natural: '', structured: '' });
+  const [promptDirty, setPromptDirty] = useState<{ natural: boolean; structured: boolean }>({ natural: false, structured: false });
+  const [promptMessage, setPromptMessage] = useState<string | null>(null);
   const recorderRef = useRef<PcmRecorder | null>(null);
   const modeRef = useRef<InputMode>('natural');
   const recordingStateRef = useRef<RecordingState>('idle');
@@ -135,6 +151,13 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    void window.v2t
+      .getPrompts()
+      .then(applyPrompts)
+      .catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
+  }, []);
+
+  useEffect(() => {
     return window.v2t.onModelInstallProgress((status) => {
       setInstallProgressById((current) => ({ ...current, [status.modelId]: status }));
       setSetup((current) =>
@@ -154,6 +177,11 @@ export function App() {
   const stopRecording = useCallback(() => {
     const recorder = recorderRef.current;
     if (!recorder) {
+      if (recordingStateRef.current === 'starting') {
+        recordingStateRef.current = 'idle';
+        setState('idle');
+        setActiveRecordingMode(null);
+      }
       return;
     }
 
@@ -169,7 +197,7 @@ export function App() {
   }, [resetInputMeter]);
 
   const startRecording = useCallback(async (activeMode: InputMode = modeRef.current) => {
-    if (recordingStateRef.current === 'recording' || recordingStateRef.current === 'processing') {
+    if (recordingStateRef.current === 'starting' || recordingStateRef.current === 'recording' || recordingStateRef.current === 'processing') {
       return;
     }
 
@@ -177,6 +205,9 @@ export function App() {
     resetInputMeter();
     modeRef.current = activeMode;
     setActiveRecordingMode(activeMode);
+    recordingStateRef.current = 'starting';
+    recordingStartedAtRef.current = Date.now();
+    setState('starting');
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -201,10 +232,11 @@ export function App() {
         chunks,
         inputSampleRate: context.sampleRate
       };
-      recordingStartedAtRef.current = Date.now();
+      recordingStateRef.current = 'recording';
       setState('recording');
     } catch (caught) {
       recordingStartedAtRef.current = undefined;
+      recordingStateRef.current = 'error';
       setActiveRecordingMode(null);
       resetInputMeter();
       setState('error');
@@ -213,6 +245,7 @@ export function App() {
   }, [resetInputMeter, updateInputMeter]);
 
   const processRecording = useCallback(async (bytes: Uint8Array, activeMode: InputMode) => {
+    recordingStateRef.current = 'processing';
     setState('processing');
     try {
       const result = await window.v2t.processAudio({ bytes, mode: activeMode });
@@ -220,11 +253,13 @@ export function App() {
       recordingStartedAtRef.current = undefined;
       setActiveRecordingMode(null);
       resetInputMeter();
+      recordingStateRef.current = 'idle';
       setState('idle');
     } catch (caught) {
       recordingStartedAtRef.current = undefined;
       setActiveRecordingMode(null);
       resetInputMeter();
+      recordingStateRef.current = 'error';
       setState('error');
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -245,7 +280,7 @@ export function App() {
         .catch(() => undefined);
     };
     syncOverlay();
-    if (state !== 'recording' && state !== 'processing') {
+    if (state !== 'starting' && state !== 'recording' && state !== 'processing') {
       return;
     }
     const timer = window.setInterval(syncOverlay, state === 'recording' ? 120 : 500);
@@ -256,6 +291,9 @@ export function App() {
     return window.v2t.onRecordingCommand((command: RecordingCommand) => {
       if (command.type === 'start') {
         void startRecording(command.inputMode ?? modeRef.current);
+      } else if (command.type === 'set-mode' && command.inputMode) {
+        modeRef.current = command.inputMode;
+        setActiveRecordingMode(command.inputMode);
       } else {
         stopRecording();
       }
@@ -284,6 +322,45 @@ export function App() {
     setHotkeyStatus(result.hotkeyStatus);
   };
 
+  const updateHotkeyClickMode = async (singleClickMode: InputMode) => {
+    if (!settings) {
+      return;
+    }
+    const nextSettings: Settings = {
+      ...settings,
+      hotkey: {
+        ...settings.hotkey,
+        singleClickMode,
+        doubleClickMode: oppositeMode(singleClickMode)
+      }
+    };
+    const result = await window.v2t.saveSettings(nextSettings);
+    setSettings(result.settings);
+    setHotkeyStatus(result.hotkeyStatus);
+    const nextSetup = await window.v2t.getSetup();
+    applySetup(nextSetup);
+  };
+
+  const updateIncludeHistory = async (includeHistory: boolean) => {
+    if (!settings) {
+      return;
+    }
+    const result = await window.v2t.saveSettings({
+      ...settings,
+      sync: {
+        ...settings.sync,
+        github: {
+          ...settings.sync.github,
+          includeHistory
+        }
+      }
+    });
+    setSettings(result.settings);
+    setHotkeyStatus(result.hotkeyStatus);
+    const nextSetup = await window.v2t.getSetup();
+    applySetup(nextSetup);
+  };
+
   const updateLexicon = (updater: (current: Lexicon) => Lexicon) => {
     setLexicon((current) => (current ? updater(current) : current));
     setLexiconDirty(true);
@@ -305,6 +382,40 @@ export function App() {
     }
 
     setError(result.error ?? '词库保存失败');
+  };
+
+  const applyPrompts = (nextPrompts: PromptFiles) => {
+    setPrompts(nextPrompts);
+    setPromptDrafts({ natural: nextPrompts.natural, structured: nextPrompts.structured });
+    setPromptDirty({ natural: false, structured: false });
+  };
+
+  const updatePromptDraft = (modeName: InputMode, value: string) => {
+    setPromptDrafts((current) => ({ ...current, [modeName]: value }));
+    setPromptDirty((current) => ({ ...current, [modeName]: true }));
+    setPromptMessage(null);
+  };
+
+  const savePrompt = async (modeName: InputMode) => {
+    setError(null);
+    const result = await window.v2t.savePrompt(modeName, promptDrafts[modeName]);
+    if (result.ok && result.prompts) {
+      applyPrompts(result.prompts);
+      setPromptMessage(`${modeName === 'natural' ? '自然输入' : '结构输入'} Prompt 已保存`);
+      return;
+    }
+    setError(result.error ?? 'Prompt 保存失败');
+  };
+
+  const resetPrompt = async (modeName: InputMode) => {
+    setError(null);
+    const result = await window.v2t.resetPrompt(modeName);
+    if (result.ok && result.prompts) {
+      applyPrompts(result.prompts);
+      setPromptMessage(`${modeName === 'natural' ? '自然输入' : '结构输入'} Prompt 已恢复默认`);
+      return;
+    }
+    setError(result.error ?? 'Prompt 恢复失败');
   };
 
   const installModel = async (modelId: string) => {
@@ -422,6 +533,22 @@ export function App() {
     }
   };
 
+  const syncAll = async () => {
+    setError(null);
+    setSyncMessage(null);
+    setSyncBusy('sync');
+    const result = await window.v2t.syncAll();
+    setSyncBusy(null);
+    if (result.setup) {
+      applySetup(result.setup);
+    }
+    if (result.ok) {
+      setSyncMessage(result.status.message ?? '已完成一键同步');
+    } else {
+      setError(result.error ?? '一键同步失败');
+    }
+  };
+
   const updateHotkey = async (accelerator: string) => {
     setError(null);
     const result = await window.v2t.updateHotkey(accelerator);
@@ -495,21 +622,42 @@ export function App() {
             </button>
           </div>
           <p className="hint mode-hint">页面按钮设置默认模式；单击快捷键自然输入，双击快捷键结构输入。</p>
+          <section className="gesture-settings">
+            <div>
+              <span>单击快捷键</span>
+              <strong>{modeLabel(settings?.hotkey.singleClickMode ?? 'natural')}</strong>
+            </div>
+            <div>
+              <span>双击快捷键</span>
+              <strong>{modeLabel(settings?.hotkey.doubleClickMode ?? 'structured')}</strong>
+            </div>
+            <button className="secondary compact" onClick={() => void updateHotkeyClickMode(oppositeMode(settings?.hotkey.singleClickMode ?? 'natural'))}>
+              互换
+            </button>
+          </section>
 
-          <button
-            className={`record-button ${state === 'recording' ? 'recording' : ''}`}
-            onClick={() => {
-              if (state === 'recording') {
-                stopRecording();
-              } else {
-                void startRecording(mode);
-              }
-            }}
-            disabled={state === 'processing'}
-          >
-            <span />
-            {state === 'recording' ? '停止' : state === 'processing' ? '整理中' : '录音'}
-          </button>
+          <section className={`record-control ${state}`}>
+            <div>
+              <span className={`status-dot ${state}`} />
+              <div>
+                <strong>{stateLabel(state)}</strong>
+                <p>{activeRecordingMode ? `本次 ${modeLabel(activeRecordingMode)}` : `窗口内录音使用 ${modeLabel(mode)}`}</p>
+              </div>
+            </div>
+            <button
+              className={state === 'recording' || state === 'starting' ? 'danger' : 'secondary'}
+              onClick={() => {
+                if (state === 'recording' || state === 'starting') {
+                  stopRecording();
+                } else {
+                  void startRecording(mode);
+                }
+              }}
+              disabled={state === 'processing'}
+            >
+              {state === 'recording' || state === 'starting' ? '停止' : state === 'processing' ? '整理中' : '开始录音'}
+            </button>
+          </section>
 
           <section className="history">
             <h2>历史</h2>
@@ -543,7 +691,7 @@ export function App() {
               <p className="hint">
                 {setup.hardware.cpuName} · {setup.hardware.memoryGb}GB · {tierLabel(setup.hardware.recommendedTier)}
               </p>
-              <p className="hint">推荐分是 V2T 本机推荐分，不等同于公开榜单排名。WER/CER 越低越好，RTFx 越高越快。</p>
+              <p className="hint">公开榜单看 Open ASR Leaderboard，官方评测看模型卡；V2T 本机适配分只表示这台设备上的推荐优先级。WER/CER 越低越好，RTFx 越高越快。</p>
               <div className="model-list">
                 {setup.recommendations.map((recommendation) => (
                   <ModelRow
@@ -554,6 +702,7 @@ export function App() {
                     installingModelId={installingModelId}
                     deletingModelId={deletingModelId}
                     onInstall={installModel}
+                    onActivate={activateModel}
                     onDelete={deleteModel}
                   />
                 ))}
@@ -587,7 +736,20 @@ export function App() {
       return (
         <section className="page-section">
           <h2>快捷键</h2>
-          <p className="hint">单击快捷键自然输入，双击快捷键结构输入；录音中再次触发会停止当前录音。</p>
+          <p className="hint">单击快捷键 {modeLabel(settings?.hotkey.singleClickMode ?? 'natural')}，双击快捷键 {modeLabel(settings?.hotkey.doubleClickMode ?? 'structured')}；录音稳定开始后再次触发会停止当前录音。</p>
+          <section className="gesture-settings">
+            <div>
+              <span>单击进入</span>
+              <strong>{modeLabel(settings?.hotkey.singleClickMode ?? 'natural')}</strong>
+            </div>
+            <div>
+              <span>双击进入</span>
+              <strong>{modeLabel(settings?.hotkey.doubleClickMode ?? 'structured')}</strong>
+            </div>
+            <button className="secondary compact" onClick={() => void updateHotkeyClickMode(oppositeMode(settings?.hotkey.singleClickMode ?? 'natural'))}>
+              互换
+            </button>
+          </section>
           <dl>
             <div>
               <dt>当前</dt>
@@ -933,7 +1095,7 @@ export function App() {
               <p className="hint">
                 建议使用一个单独的私有仓库，例如 v2t-sync。连接后 V2T 会在本机创建 sync-repo，并同步
                 settings.json、lexicon.json、prompts/natural.md、prompts/structured.md。词库页保存只改本地 lexicon.json，需要点击“推送”才会写入 GitHub。
-                历史、模型和密钥不会同步。
+                模型和密钥不会同步；同步历史默认关闭，可以在这里单独开启。
               </p>
               <label>
                 仓库 URL
@@ -956,6 +1118,18 @@ export function App() {
                   <dd>{settings.sync.github.lastSyncAt ? new Date(settings.sync.github.lastSyncAt).toLocaleString() : '暂无'}</dd>
                 </div>
               </dl>
+              <label className="check sync-history-toggle">
+                <input
+                  type="checkbox"
+                  checked={settings.sync.github.includeHistory ?? false}
+                  onChange={(event) => void updateIncludeHistory(event.target.checked)}
+                />
+                同步历史
+              </label>
+              <p className="hint">开启后会把本机文字历史同步到 GitHub 私有仓库；仍不会同步音频、模型或密钥。</p>
+              <button className="save" onClick={() => void syncAll()} disabled={Boolean(syncBusy)}>
+                {syncBusy === 'sync' ? '同步中' : '一键同步'}
+              </button>
               <div className="button-row three">
                 <button className="secondary" onClick={() => void connectSyncRepo()} disabled={Boolean(syncBusy)}>
                   {syncBusy === 'connect' ? '连接中' : '连接'}
@@ -968,6 +1142,40 @@ export function App() {
                 </button>
               </div>
               {syncMessage ? <p className="sync-message">{syncMessage}</p> : null}
+            </>
+          ) : (
+            <p className="empty">加载中</p>
+          )}
+        </section>
+      );
+    }
+
+    if (activePage === 'prompts') {
+      return (
+        <section className="page-section prompts-page">
+          <h2>提示词</h2>
+          <p className="hint">自然输入 Prompt 和结构输入 Prompt 保存在 prompts/，会随 GitHub 同步推送和拉取。</p>
+          {prompts ? (
+            <>
+              <PromptEditor
+                title="自然输入 Prompt"
+                path={prompts.paths.natural}
+                value={promptDrafts.natural}
+                dirty={promptDirty.natural}
+                onChange={(value) => updatePromptDraft('natural', value)}
+                onSave={() => void savePrompt('natural')}
+                onReset={() => void resetPrompt('natural')}
+              />
+              <PromptEditor
+                title="结构输入 Prompt"
+                path={prompts.paths.structured}
+                value={promptDrafts.structured}
+                dirty={promptDirty.structured}
+                onChange={(value) => updatePromptDraft('structured', value)}
+                onSave={() => void savePrompt('structured')}
+                onReset={() => void resetPrompt('structured')}
+              />
+              {promptMessage ? <p className="sync-message">{promptMessage}</p> : null}
             </>
           ) : (
             <p className="empty">加载中</p>
@@ -1177,6 +1385,44 @@ function InstalledModelRow({
   );
 }
 
+function PromptEditor({
+  title,
+  path,
+  value,
+  dirty,
+  onChange,
+  onSave,
+  onReset
+}: {
+  title: string;
+  path: string;
+  value: string;
+  dirty: boolean;
+  onChange(value: string): void;
+  onSave(): void;
+  onReset(): void;
+}) {
+  return (
+    <section className="prompt-editor">
+      <div className="section-heading">
+        <div>
+          <h3>{title}</h3>
+          <p>{path}</p>
+        </div>
+        <div className="inline-actions">
+          <button className="secondary compact" onClick={onReset}>
+            恢复默认
+          </button>
+          <button className="secondary compact" onClick={onSave} disabled={!dirty}>
+            保存
+          </button>
+        </div>
+      </div>
+      <textarea value={value} spellCheck={false} onChange={(event) => onChange(event.target.value)} />
+    </section>
+  );
+}
+
 function ModelRow({
   recommendation,
   currentModelId,
@@ -1184,6 +1430,7 @@ function ModelRow({
   installingModelId,
   deletingModelId,
   onInstall,
+  onActivate,
   onDelete
 }: {
   recommendation: ModelRecommendation;
@@ -1192,37 +1439,42 @@ function ModelRow({
   installingModelId: string | null;
   deletingModelId: string | null;
   onInstall(modelId: string): Promise<void>;
+  onActivate(modelId: string): Promise<void>;
   onDelete(modelId: string): Promise<void>;
 }) {
   const isCurrent = currentModelId === recommendation.model.id;
   const status = statusRecord?.status;
   const installing = installingModelId === recommendation.model.id || isInstallInProgress(status);
   const deleting = deletingModelId === recommendation.model.id;
-  const canDelete = !isCurrent && (status === 'installed' || status === 'current');
+  const installed = status === 'installed' || status === 'current';
+  const canDelete = !isCurrent && installed;
 
   return (
     <article className={`model-row ${isCurrent ? 'current' : ''}`}>
       <div>
         <h3>{recommendation.model.name}</h3>
         <div className="score-row">
-          <strong>推荐分 {recommendation.score}/100</strong>
-          <span>{recommendation.model.benchmarks?.note ?? '暂无统一公开评测'}</span>
+          <strong>V2T 本机适配推荐分 {recommendation.score}/100</strong>
+          <span>{recommendation.model.evaluationSources?.localRecommendation?.note}</span>
         </div>
-        <div className="score-breakdown">
+        <div className="score-bars">
+          <ScoreBar label="总分" value={recommendation.score} />
           {recommendation.scoreBreakdown.map((item) => (
-            <span key={item.label} title={item.reason}>
-              {item.label} {item.value}
-            </span>
+            <ScoreBar key={item.label} label={item.label} value={item.value} max={40} title={item.reason} />
           ))}
         </div>
+        <EvaluationSummary recommendation={recommendation} />
         <p>{recommendation.reasons.join(' · ')}</p>
         <small>
           {recommendation.model.sizeMb}MB · {recommendation.model.languages.join('/')}
         </small>
         {statusRecord ? <InstallProgress status={statusRecord} /> : null}
       </div>
-      <button onClick={() => void onInstall(recommendation.model.id)} disabled={installing || isCurrent}>
-        {isCurrent ? '当前' : installing ? '安装中' : '安装'}
+      <button
+        onClick={() => void (installed ? onActivate(recommendation.model.id) : onInstall(recommendation.model.id))}
+        disabled={installing || isCurrent}
+      >
+        {isCurrent ? '当前' : installing ? '安装中' : installed ? '启用' : '安装'}
       </button>
       {canDelete ? (
         <button className="danger" onClick={() => void onDelete(recommendation.model.id)} disabled={deleting}>
@@ -1230,6 +1482,56 @@ function ModelRow({
         </button>
       ) : null}
     </article>
+  );
+}
+
+function ScoreBar({ label, value, max = 100, title }: { label: string; value: number; max?: number; title?: string }) {
+  const width = Math.min(100, Math.max(0, (value / max) * 100));
+  return (
+    <div className="score-bar" title={title}>
+      <span>{label}</span>
+      <div>
+        <i style={{ width: `${width}%` }} />
+      </div>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function EvaluationSummary({ recommendation }: { recommendation: ModelRecommendation }) {
+  const sources = recommendation.model.evaluationSources;
+  return (
+    <div className="evaluation-summary">
+      <section>
+        <h4>公开榜单</h4>
+        {sources?.openAsrLeaderboard ? (
+          <p>
+            {sources.openAsrLeaderboard.exactModelMatch
+              ? `${sources.openAsrLeaderboard.track} · Rank ${sources.openAsrLeaderboard.rank ?? '-'} · WER ${sources.openAsrLeaderboard.avgWer ?? '-'} · RTFx ${sources.openAsrLeaderboard.rtfx ?? '-'}`
+              : sources.openAsrLeaderboard.note}
+          </p>
+        ) : (
+          <p>暂无 Open ASR Leaderboard exact match。</p>
+        )}
+      </section>
+      <section>
+        <h4>官方评测</h4>
+        {sources?.officialBenchmark ? (
+          <>
+            <p>{sources.officialBenchmark.note}</p>
+            <div className="metric-list">
+              {sources.officialBenchmark.metrics.slice(0, 5).map((metric) => (
+                <span key={`${metric.label}-${metric.metric}`}>
+                  {metric.label} {formatMetric(metric)}
+                </span>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p>暂无统一公开评测。</p>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -1274,6 +1576,9 @@ function historyEntryToLocalItem(entry: HistoryEntry): LocalHistoryItem {
 }
 
 function stateLabel(state: RecordingState): string {
+  if (state === 'starting') {
+    return '启动中';
+  }
   if (state === 'recording') {
     return '录音中';
   }
@@ -1294,6 +1599,14 @@ function tierLabel(tier: string): string {
     return '均衡';
   }
   return '轻量';
+}
+
+function modeLabel(inputMode: InputMode): string {
+  return inputMode === 'natural' ? '自然输入' : '结构输入';
+}
+
+function oppositeMode(inputMode: InputMode): InputMode {
+  return inputMode === 'natural' ? 'structured' : 'natural';
 }
 
 function isInstallInProgress(status?: string): boolean {
@@ -1330,6 +1643,16 @@ function formatBytes(bytes: number): string {
     return `${(bytes / 1024).toFixed(1)}KB`;
   }
   return `${bytes}B`;
+}
+
+function formatMetric(metric: ModelEvaluationMetric): string {
+  if (metric.metric === 'RTFx') {
+    return `${metric.value} RTFx`;
+  }
+  if (metric.metric === 'Rank') {
+    return `${metric.value}`;
+  }
+  return `${metric.value}% ${metric.metric}`;
 }
 
 function hotkeyStatusLabel(status?: HotkeyStatus): string {

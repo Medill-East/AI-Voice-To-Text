@@ -120,4 +120,20 @@ describe('UserDataStore', () => {
     const savedStat = await stat(join(dir, 'settings.json'));
     expect(savedStat.size).toBeGreaterThan(0);
   });
+
+  it('reads, saves, and resets editable prompts', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-store-prompts-'));
+    const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
+
+    await expect(store.readPrompt('natural')).resolves.toContain('保守');
+    await store.savePrompt('structured', '按话题边界分段\n');
+    await expect(store.readPrompt('structured')).resolves.toBe('按话题边界分段\n');
+
+    const paths = store.getPromptPaths();
+    expect(paths.natural).toBe(join(dir, 'prompts', 'natural.md'));
+    expect(paths.structured).toBe(join(dir, 'prompts', 'structured.md'));
+
+    await store.resetPrompt('structured');
+    await expect(store.readPrompt('structured')).resolves.toContain('易读 Markdown');
+  });
 });

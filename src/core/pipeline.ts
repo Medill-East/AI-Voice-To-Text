@@ -1,12 +1,16 @@
 import { PostProcessor } from './postProcessor';
-import type { AsrProvider, InputMode, TextInjector, VoiceInputPipelineResult } from './types';
+import type { AsrProvider, InputMode, ProcessedText, ProcessTextOptions, TextInjector, VoiceInputPipelineResult } from './types';
 import { UserDataStore } from './userDataStore';
+
+interface PipelinePostProcessor {
+  process(input: string, options: ProcessTextOptions): Promise<ProcessedText>;
+}
 
 interface PipelineDependencies {
   store: UserDataStore;
   asr: AsrProvider;
   injector: TextInjector;
-  postProcessor?: PostProcessor;
+  postProcessor?: PipelinePostProcessor;
   now?: () => Date;
   idFactory?: () => string;
 }
@@ -14,6 +18,7 @@ interface PipelineDependencies {
 interface HandleAudioOptions {
   mode: InputMode;
   targetApp?: string;
+  prompt?: string;
 }
 
 export function createVoiceInputPipeline(dependencies: PipelineDependencies) {
@@ -37,7 +42,8 @@ export function createVoiceInputPipeline(dependencies: PipelineDependencies) {
       }
       const processed = await postProcessor.process(asrResult.text, {
         mode: options.mode,
-        lexicon
+        lexicon,
+        prompt: options.prompt
       });
       if (!hasEffectiveText(processed.text)) {
         throw new EmptyVoiceInputError();
