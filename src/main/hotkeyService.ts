@@ -22,12 +22,14 @@ export interface HotkeyStatus {
   fallbackAccelerator?: string;
   fallbackRegistered?: boolean;
   checking?: boolean;
+  helperAttempted?: boolean;
   nativeActive?: boolean;
   nativeHelperPath?: string;
   nativeLastInfo?: string;
   nativeExitCode?: number | null;
   lastNativeEventAt?: number;
   needsAccessibilityPermission?: boolean;
+  appAccessibilityTrusted?: boolean;
   accessibilityTrusted?: boolean;
   lastError?: string;
   diagnosticMessage?: string;
@@ -78,6 +80,7 @@ export class HotkeyService {
   private currentOptions?: HotkeyServiceOptions;
   private fallbackAccelerator?: string;
   private fallbackRegistered = false;
+  private helperAttempted = false;
   private nativeActive = false;
   private nativeHelperPath?: string;
   private nativeLastInfo?: string;
@@ -105,18 +108,8 @@ export class HotkeyService {
       this.registerFallbackShortcut(options);
     }
 
-    if (nativeRequired && options.accessibilityTrusted === false) {
-      const status = this.fallbackStatus(options, {
-        needsAccessibilityPermission: true,
-        message: '纯修饰键需要 macOS 辅助功能权限。已临时启用备用快捷键。'
-      });
-      options.onStatus?.(status);
-      return status;
-    }
-
     try {
       await this.registerNativeListener(options);
-      this.nativeActive = true;
       this.lastError = undefined;
       const status = this.nativeStatus(options);
       options.onStatus?.(status);
@@ -175,6 +168,7 @@ export class HotkeyService {
     this.isShortcutDown = false;
     this.fallbackAccelerator = undefined;
     this.fallbackRegistered = false;
+    this.helperAttempted = false;
     this.nativeActive = false;
     this.nativeHelperPath = undefined;
     this.nativeLastInfo = undefined;
@@ -188,6 +182,8 @@ export class HotkeyService {
   private async registerNativeListener(options: HotkeyServiceOptions): Promise<void> {
     const matcher = createShortcutMatcher(options.accelerator);
     this.hasSeenNativeEvent = false;
+    this.helperAttempted = true;
+    this.nativeActive = false;
 
     this.listenerCallback = (event: IGlobalKeyEvent, down: IGlobalKeyDownMap) => {
       this.hasSeenNativeEvent = true;
@@ -235,7 +231,7 @@ export class HotkeyService {
     this.diagnosticTimer = setTimeout(() => {
       if (!this.hasSeenNativeEvent) {
         this.nativeActive = false;
-        const diagnosticMessage = '未收到系统按键事件，请给 V2T Keyboard Listener/MacKeyServer 开启辅助功能权限。';
+        const diagnosticMessage = helperPermissionDiagnostic(options.nativeHelperPath);
         const nativeRequired = requiresNativeListener(options.accelerator);
         if (nativeRequired && this.fallbackRegistered) {
           options.onStatus?.(
@@ -302,7 +298,7 @@ export class HotkeyService {
         ? this.fallbackStatus(options, {
             lastError: this.lastError,
             nativeExitCode: this.nativeExitCode,
-            diagnosticMessage: '系统监听组件已退出，备用快捷键生效中。',
+            diagnosticMessage: `系统监听组件已退出，备用快捷键生效中。${helperPermissionDiagnostic(options.nativeHelperPath)}`,
             recommendedAction: 'grant-native-helper-accessibility',
             message: '系统监听不可用，备用快捷键生效中。'
           })
@@ -320,20 +316,32 @@ export class HotkeyService {
   }
 
   private nativeStatus(options: HotkeyServiceOptions): HotkeyStatus {
+    const activeAccelerator = this.nativeActive
+      ? options.accelerator
+      : this.fallbackRegistered
+        ? this.fallbackAccelerator
+        : options.accelerator;
+    const waitingForNativeEvent = this.helperAttempted && !this.nativeActive;
     return {
       backend: 'native-listener',
       registered: true,
       requestedAccelerator: options.accelerator,
-      activeAccelerator: options.accelerator,
+      activeAccelerator,
       fallbackAccelerator: this.fallbackAccelerator ?? options.fallbackAccelerator,
       fallbackRegistered: this.fallbackRegistered,
+      helperAttempted: this.helperAttempted,
       nativeActive: this.nativeActive,
       nativeHelperPath: this.nativeHelperPath ?? options.nativeHelperPath,
       nativeLastInfo: this.nativeLastInfo,
       nativeExitCode: this.nativeExitCode,
       lastNativeEventAt: this.lastNativeEventAt,
+      needsAccessibilityPermission: options.accessibilityTrusted === false && !this.nativeActive ? true : undefined,
+      appAccessibilityTrusted: options.accessibilityTrusted,
       accessibilityTrusted: options.accessibilityTrusted,
-      lastError: this.lastError
+      lastError: this.lastError,
+      diagnosticMessage: waitingForNativeEvent ? helperPermissionDiagnostic(options.nativeHelperPath) : undefined,
+      recommendedAction: waitingForNativeEvent ? 'grant-native-helper-accessibility' : undefined,
+      message: waitingForNativeEvent ? '系统监听组件已启动，正在等待按键事件验证；备用快捷键保持可用。' : undefined
     };
   }
 
@@ -356,12 +364,14 @@ export class HotkeyService {
       activeAccelerator,
       fallbackAccelerator: this.fallbackAccelerator ?? options.fallbackAccelerator,
       fallbackRegistered: this.fallbackRegistered,
+      helperAttempted: this.helperAttempted,
       nativeActive: this.nativeActive,
       nativeHelperPath: this.nativeHelperPath ?? options.nativeHelperPath,
       nativeLastInfo: this.nativeLastInfo,
       nativeExitCode: details.nativeExitCode ?? this.nativeExitCode,
       lastNativeEventAt: this.lastNativeEventAt,
       needsAccessibilityPermission: details.needsAccessibilityPermission,
+      appAccessibilityTrusted: options.accessibilityTrusted,
       accessibilityTrusted: options.accessibilityTrusted,
       lastError: details.lastError ?? this.lastError,
       diagnosticMessage: details.diagnosticMessage,
@@ -402,7 +412,7 @@ export class HotkeyService {
           accelerator: options.accelerator,
           nativeHelperPath: options.nativeHelperPath,
           nativeLastInfo,
-          diagnosticMessage: '未收到系统按键事件，请给 V2T Keyboard Listener/MacKeyServer 开启辅助功能权限。',
+          diagnosticMessage: helperPermissionDiagnostic(options.nativeHelperPath),
           recommendedAction: 'grant-native-helper-accessibility'
         });
       }, options.timeoutMs);
@@ -431,7 +441,7 @@ export class HotkeyService {
               nativeLastInfo,
               nativeExitCode: exitCodeFromError(error),
               error: stringifyError(error),
-              diagnosticMessage: '系统监听组件不可用。',
+              diagnosticMessage: `系统监听组件不可用。${helperPermissionDiagnostic(options.nativeHelperPath)}`,
               recommendedAction: 'grant-native-helper-accessibility'
             });
           },
@@ -449,7 +459,7 @@ export class HotkeyService {
             accelerator: options.accelerator,
             nativeHelperPath: options.nativeHelperPath,
             error: stringifyError(error),
-            diagnosticMessage: '系统监听组件启动失败。',
+            diagnosticMessage: `系统监听组件启动失败。${helperPermissionDiagnostic(options.nativeHelperPath)}`,
             recommendedAction: 'grant-native-helper-accessibility'
           });
         });
@@ -496,6 +506,11 @@ function exitCodeFromError(error: unknown): number | null | undefined {
     return error;
   }
   return undefined;
+}
+
+function helperPermissionDiagnostic(nativeHelperPath?: string): string {
+  const target = nativeHelperPath ? `监听组件 ${nativeHelperPath}` : 'V2T Keyboard Listener/MacKeyServer';
+  return `未收到系统按键事件，请给 ${target} 开启 macOS 辅助功能权限。`;
 }
 
 function patchLegacyUtil(): void {

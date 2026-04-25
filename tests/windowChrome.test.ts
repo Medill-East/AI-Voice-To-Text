@@ -10,5 +10,7 @@ describe('window chrome styles', () => {
     expect(css).toContain('-webkit-app-region: drag');
     expect(css).toContain('-webkit-app-region: no-drag');
     expect(css).toContain('.model-row');
+    const noDragBlocks = css.match(/[^{}]+\{[^{}]*-webkit-app-region:\s*no-drag;?[^{}]*\}/g)?.join('\n') ?? '';
+    expect(noDragBlocks).not.toMatch(/(^|,|\n)\s*\.side\s*(,|\{)/);
   });
 });

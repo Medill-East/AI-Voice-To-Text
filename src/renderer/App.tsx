@@ -562,10 +562,22 @@ export function App() {
                   <dd>{new Date(hotkeyStatus.lastNativeEventAt).toLocaleTimeString()}</dd>
                 </div>
               ) : null}
+              {hotkeyStatus?.helperAttempted !== undefined ? (
+                <div>
+                  <dt>监听组件检测</dt>
+                  <dd>{hotkeyStatus.nativeActive ? '已收到系统按键事件' : hotkeyStatus.helperAttempted ? '已启动，等待按键事件验证' : '尚未开始'}</dd>
+                </div>
+              ) : null}
+              {hotkeyStatus?.appAccessibilityTrusted !== undefined ? (
+                <div>
+                  <dt>V2T 权限</dt>
+                  <dd>{hotkeyStatus.appAccessibilityTrusted ? '主应用辅助功能权限已确认' : '主应用辅助功能权限未确认；仍会继续检测监听组件'}</dd>
+                </div>
+              ) : null}
               {hotkeyStatus?.needsAccessibilityPermission ? (
                 <div>
                   <dt>权限</dt>
-                  <dd>单键或纯修饰键需要 macOS 辅助功能权限；未开启时会使用备用快捷键。</dd>
+                  <dd>{hotkeyPermissionHint(hotkeyStatus)}</dd>
                 </div>
               ) : null}
               {settings?.hotkey.fallbackAccelerator ? (
@@ -940,7 +952,8 @@ function hotkeyStatusLabel(status?: HotkeyStatus): string {
     return '检测中';
   }
   if (status.fallbackRegistered && status.nativeActive === false) {
-    return `备用快捷键已启用：${hotkeyLabel(status.activeAccelerator ?? '')}`;
+    const prefix = status.helperAttempted ? '系统监听未确认；备用快捷键已启用' : '备用快捷键已启用';
+    return `${prefix}：${hotkeyLabel(status.activeAccelerator ?? '')}`;
   }
   if (status.fallbackRegistered && status.nativeActive) {
     return '系统监听已注册；备用快捷键待命';
@@ -949,6 +962,13 @@ function hotkeyStatusLabel(status?: HotkeyStatus): string {
     return `${hotkeyBackendLabel(status.backend)} 未注册`;
   }
   return `${hotkeyBackendLabel(status.backend)} 已注册`;
+}
+
+function hotkeyPermissionHint(status?: HotkeyStatus): string {
+  if (status?.nativeHelperPath) {
+    return `纯修饰键需要 macOS 辅助功能权限；请给监听组件 ${status.nativeHelperPath} 开启权限，未确认前会使用备用快捷键。`;
+  }
+  return '单键或纯修饰键需要 macOS 辅助功能权限；未确认前会使用备用快捷键。';
 }
 
 function hotkeyBackendLabel(backend: HotkeyStatus['backend']): string {

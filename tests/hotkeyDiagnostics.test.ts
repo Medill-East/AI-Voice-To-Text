@@ -18,6 +18,8 @@ describe('hotkey diagnostics', () => {
       activeAccelerator: 'RightAlt',
       fallbackAccelerator: 'CommandOrControl+Alt+Space',
       nativeHelperPath: '/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer',
+      helperAttempted: false,
+      appAccessibilityTrusted: true,
       diagnosticMessage: '正在重新检测系统键盘监听。',
       recommendedAction: 'none'
     });

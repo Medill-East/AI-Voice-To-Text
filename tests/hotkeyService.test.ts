@@ -23,27 +23,44 @@ describe('HotkeyService', () => {
     vi.useRealTimers();
   });
 
-  it('uses the fallback shortcut when a pure modifier needs accessibility permission', async () => {
+  it('attempts native listener even when app accessibility trust is false', async () => {
     const { HotkeyService } = await import('../src/main/hotkeyService');
     const onAction = vi.fn();
-    const service = new HotkeyService();
+    const nativeFactory: NativeKeyListenerFactory = {
+      addListener: vi.fn(async () => ({
+        remove: vi.fn(),
+        kill: vi.fn()
+      }))
+    };
+    const service = new HotkeyService({ nativeFactory });
 
     const status = await service.register({
       accelerator: 'RightAlt',
       fallbackAccelerator: 'CommandOrControl+Alt+Space',
       longPressMs: 250,
       accessibilityTrusted: false,
+      nativeHelperPath: '/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer',
       onAction
     });
 
+    expect(nativeFactory.addListener).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function),
+      '/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer'
+    );
     expect(register).toHaveBeenCalledWith('CommandOrControl+Alt+Space', expect.any(Function));
     expect(status).toMatchObject({
-      backend: 'electron-shortcut',
+      backend: 'native-listener',
       registered: true,
       activeAccelerator: 'CommandOrControl+Alt+Space',
       requestedAccelerator: 'RightAlt',
       fallbackRegistered: true,
-      needsAccessibilityPermission: true
+      nativeActive: false,
+      helperAttempted: true,
+      appAccessibilityTrusted: false,
+      nativeHelperPath: '/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer',
+      diagnosticMessage: expect.stringContaining('/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer')
     });
 
     register.mock.calls[0][1]();
@@ -78,9 +95,10 @@ describe('HotkeyService', () => {
     expect(status).toMatchObject({
       backend: 'native-listener',
       registered: true,
-      activeAccelerator: 'RightAlt',
+      activeAccelerator: 'CommandOrControl+Alt+Space',
       fallbackRegistered: true,
-      nativeActive: true
+      helperAttempted: true,
+      nativeActive: false
     });
 
     reportNativeError?.(new Error('MacKeyServer exited'));
@@ -92,6 +110,7 @@ describe('HotkeyService', () => {
         activeAccelerator: 'CommandOrControl+Alt+Space',
         fallbackRegistered: true,
         nativeActive: false,
+        helperAttempted: true,
         lastError: 'MacKeyServer exited'
       })
     );
@@ -127,9 +146,10 @@ describe('HotkeyService', () => {
         registered: true,
         activeAccelerator: 'CommandOrControl+Alt+Space',
         nativeActive: false,
+        helperAttempted: true,
         nativeHelperPath: '/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer',
         recommendedAction: 'grant-native-helper-accessibility',
-        diagnosticMessage: expect.stringContaining('未收到系统按键事件')
+        diagnosticMessage: expect.stringContaining('/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer')
       })
     );
   });

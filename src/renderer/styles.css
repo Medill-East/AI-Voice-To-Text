@@ -47,8 +47,7 @@ label,
 .status-row,
 .mode-switch,
 .record-button,
-.history,
-.side {
+.history {
   -webkit-app-region: no-drag;
 }
 

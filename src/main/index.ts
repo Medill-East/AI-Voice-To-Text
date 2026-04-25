@@ -388,8 +388,11 @@ function refreshHotkeyPermissions(): void {
       activeAccelerator: settings.hotkey.fallbackAccelerator ?? settings.hotkey.accelerator,
       fallbackAccelerator: settings.hotkey.fallbackAccelerator,
       fallbackRegistered: false,
+      helperAttempted: false,
       nativeActive: false,
       nativeHelperPath,
+      appAccessibilityTrusted: getAccessibilityTrusted(),
+      accessibilityTrusted: getAccessibilityTrusted(),
       lastError: readableError(error),
       diagnosticMessage: '系统键盘监听重新检测失败。',
       recommendedAction: 'grant-native-helper-accessibility',
@@ -420,6 +423,7 @@ async function testHotkey(accelerator: string): Promise<HotkeyTestResult> {
 }
 
 function hotkeyStatusFromTestResult(result: HotkeyTestResult): HotkeyStatus {
+  const appAccessibilityTrusted = getAccessibilityTrusted();
   if (result.ok) {
     return {
       backend: 'native-listener',
@@ -428,10 +432,13 @@ function hotkeyStatusFromTestResult(result: HotkeyTestResult): HotkeyStatus {
       activeAccelerator: result.accelerator,
       fallbackAccelerator: settings.hotkey.fallbackAccelerator,
       fallbackRegistered: true,
+      helperAttempted: true,
       nativeActive: true,
       nativeHelperPath,
       nativeLastInfo: result.nativeLastInfo,
       lastNativeEventAt: Date.now(),
+      appAccessibilityTrusted,
+      accessibilityTrusted: appAccessibilityTrusted,
       diagnosticMessage: `已收到 ${result.eventName ?? '系统按键事件'}。`,
       recommendedAction: 'none',
       message: `已收到 ${result.eventName ?? '系统按键事件'}。`
@@ -445,11 +452,14 @@ function hotkeyStatusFromTestResult(result: HotkeyTestResult): HotkeyStatus {
     activeAccelerator: settings.hotkey.fallbackAccelerator ?? result.accelerator,
     fallbackAccelerator: settings.hotkey.fallbackAccelerator,
     fallbackRegistered: Boolean(settings.hotkey.fallbackAccelerator),
+    helperAttempted: true,
     nativeActive: false,
     nativeHelperPath,
     nativeLastInfo: result.nativeLastInfo,
     nativeExitCode: result.nativeExitCode,
     needsAccessibilityPermission: true,
+    appAccessibilityTrusted,
+    accessibilityTrusted: appAccessibilityTrusted,
     lastError: result.error,
     diagnosticMessage: result.diagnosticMessage,
     recommendedAction: result.recommendedAction,
