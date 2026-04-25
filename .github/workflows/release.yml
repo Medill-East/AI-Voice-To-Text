@@ -10,6 +10,8 @@ jobs:
   windows:
     name: Build Windows
     runs-on: windows-latest
+    env:
+      ELECTRON_BUILDER_PUBLISH: never
 
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +20,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run dist -- --win --publish never
+      - run: npm run dist:win
       - uses: actions/upload-artifact@v4
         with:
           name: v2t-windows

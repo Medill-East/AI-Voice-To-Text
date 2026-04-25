@@ -14,7 +14,8 @@
     "build:renderer": "vite build",
     "write-build-info": "node scripts/write-build-info.mjs",
     "package": "npm run build && node scripts/patch-osx-sign-no-timestamp.mjs && electron-builder --dir",
-    "dist": "npm run build && node scripts/patch-osx-sign-no-timestamp.mjs && electron-builder --publish never",
+    "dist": "npm run build && node scripts/patch-osx-sign-no-timestamp.mjs && electron-builder --publish=never",
+    "dist:win": "npm run build && electron-builder --win --publish=never",
     "preview": "vite preview --host 127.0.0.1",
     "postinstall": "node scripts/fix-key-listener-permissions.mjs",
     "start": "electron .",
@@ -48,6 +49,7 @@
     "directories": {
       "output": "release"
     },
+    "publish": null,
     "files": [
       "dist/**/*",
       "package.json"
