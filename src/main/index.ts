@@ -7,6 +7,7 @@ import { FunAsrHttpProvider, LocalSherpaAsrProvider, UserFacingAsrError, Whisper
 import { DEFAULT_MODEL_CATALOG, recommendModels } from '../core/modelCatalog';
 import { detectHardwareProfile } from '../core/hardware';
 import { ModelManager } from '../core/modelManager';
+import { GitHubSyncService } from '../core/githubSyncService';
 import { OpenAICompatibleClient } from '../core/llmClient';
 import { createVoiceInputPipeline } from '../core/pipeline';
 import { PostProcessor } from '../core/postProcessor';
@@ -119,6 +120,10 @@ function registerIpc(): void {
     return { ok: true };
   });
   ipcMain.handle('v2t:update-hotkey', async (_event, accelerator: string) => updateHotkey(accelerator));
+  ipcMain.handle('v2t:get-sync-status', async () => createSyncService().status());
+  ipcMain.handle('v2t:connect-sync-repo', async (_event, repoUrl: string) => connectSyncRepo(repoUrl));
+  ipcMain.handle('v2t:pull-sync', async () => pullSync());
+  ipcMain.handle('v2t:push-sync', async () => pushSync());
   ipcMain.handle('v2t:install-model', async (_event, modelId: string) => {
     const manager = createModelManager();
     try {
@@ -131,6 +136,15 @@ function registerIpc(): void {
         error: error instanceof Error ? error.message : String(error),
         setup: await getSetupPayload()
       };
+    }
+  });
+  ipcMain.handle('v2t:delete-model', async (_event, modelId: string) => {
+    const manager = createModelManager();
+    try {
+      const status = await manager.deleteModel(modelId);
+      return { ok: true, status, setup: await getSetupPayload() };
+    } catch (error) {
+      return { ok: false, error: readableError(error), setup: await getSetupPayload() };
     }
   });
   ipcMain.handle('v2t:process-audio', async (_event, payload: { bytes: Uint8Array; mode: InputMode }) => {
@@ -237,6 +251,78 @@ function createModelManager(): ModelManager {
     store,
     catalog: DEFAULT_MODEL_CATALOG
   });
+}
+
+function createSyncService(repoUrl = settings.sync.github.repoUrl): GitHubSyncService {
+  return new GitHubSyncService({
+    dataDir: store.getBaseDir(),
+    repoDir: settings.sync.github.localPath ?? join(app.getPath('userData'), 'sync-repo'),
+    repoUrl,
+    branch: settings.sync.github.branch
+  });
+}
+
+async function connectSyncRepo(repoUrl: string) {
+  try {
+    const status = await createSyncService(repoUrl).connect(repoUrl);
+    settings = {
+      ...settings,
+      sync: {
+        kind: 'github',
+        github: {
+          ...settings.sync.github,
+          repoUrl,
+          localPath: status.localPath,
+          branch: status.branch,
+          lastSyncAt: new Date().toISOString()
+        }
+      }
+    };
+    await store.saveSettings(settings);
+    return { ok: true, status, setup: await getSetupPayload() };
+  } catch (error) {
+    return { ok: false, error: readableError(error), status: await createSyncService(repoUrl).status() };
+  }
+}
+
+async function pullSync() {
+  try {
+    const status = await createSyncService().pull();
+    settings = {
+      ...(await store.loadSettings()),
+      sync: {
+        kind: 'github',
+        github: {
+          ...settings.sync.github,
+          lastSyncAt: new Date().toISOString()
+        }
+      }
+    };
+    await store.saveSettings(settings);
+    return { ok: true, status, setup: await getSetupPayload() };
+  } catch (error) {
+    return { ok: false, error: readableError(error), status: await createSyncService().status() };
+  }
+}
+
+async function pushSync() {
+  try {
+    const status = await createSyncService().push('sync: update v2t settings');
+    settings = {
+      ...settings,
+      sync: {
+        kind: 'github',
+        github: {
+          ...settings.sync.github,
+          lastSyncAt: new Date().toISOString()
+        }
+      }
+    };
+    await store.saveSettings(settings);
+    return { ok: true, status, setup: await getSetupPayload() };
+  } catch (error) {
+    return { ok: false, error: readableError(error), status: await createSyncService().status() };
+  }
 }
 
 async function updateHotkey(accelerator: string) {

@@ -322,7 +322,7 @@ select {
 
 .model-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 14px;
   align-items: center;
   padding: 14px 0;
@@ -364,6 +364,10 @@ select {
   margin-top: 14px;
 }
 
+.button-row.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
 .secondary {
   background: transparent;
   color: #1f2724;
@@ -373,6 +377,23 @@ select {
   background: #d84d3f;
   border-color: #d84d3f;
   color: #fffaf0;
+}
+
+.danger {
+  height: 36px;
+  border: 1px solid #b94b42;
+  border-radius: 6px;
+  background: transparent;
+  color: #9a2d25;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sync-message {
+  margin-top: 12px;
+  color: #2d6a4f;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .section-toggle {

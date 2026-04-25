@@ -15,6 +15,7 @@ describe('UserDataStore', () => {
     expect(settings.hotkey.accelerator).toBe('CommandOrControl+Shift+Space');
     expect(settings.providers.asr.kind).toBe('local-sherpa-onnx');
     expect(settings.providers.asr.modelId).toBeUndefined();
+    expect(settings.sync.kind).toBe('local-folder');
     expect(settings.providers.llm.apiKeyRef).toBe('system-keychain:v2t/openai-compatible');
     expect(settings.providers.llm).not.toHaveProperty('apiKey');
     expect(lexicon.terms).toEqual([]);

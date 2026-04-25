@@ -12,13 +12,46 @@ V2T is a cross-platform Electron + TypeScript voice-to-text MVP for Windows and 
 - Text injection into the current focused app with clipboard fallback.
 - Syncable settings, lexicon, prompts, and text-only history.
 
-## Development
+## Development Run
 
 ```bash
 npm install
-npm test
-npm run build
 npm run dev:electron
 ```
 
-Local models are stored under the Electron user data directory and are not committed to the repository.
+## Build Run
+
+```bash
+npm run build
+npm start
+```
+
+## Checks
+
+```bash
+npm test
+npm run build
+```
+
+## Local Data
+
+V2T keeps user data under the Electron user data directory.
+
+- Syncable data: `sync/settings.json`, `sync/lexicon.json`, and `sync/prompts/`.
+- Text history: `sync/history/<device>/YYYY-MM.jsonl`.
+- Local ASR models: `models/`.
+
+Model files are not committed to this repository and should not be synced through GitHub.
+
+## GitHub Sync
+
+The app can connect to a user-provided Git repository for settings and lexicon sync.
+
+Only these files are exported:
+
+- `settings.json`
+- `lexicon.json`
+- `prompts/natural.md`
+- `prompts/structured.md`
+
+History, models, logs, environment files, API keys, and Electron cache files are excluded. The app uses the local `git` CLI and your existing SSH or HTTPS credentials; it does not store GitHub tokens.

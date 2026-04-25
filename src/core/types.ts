@@ -50,6 +50,15 @@ export interface Settings {
       apiKeyRef: string;
     };
   };
+  sync: {
+    kind: 'local-folder' | 'github';
+    github: {
+      repoUrl?: string;
+      localPath?: string;
+      branch: string;
+      lastSyncAt?: string;
+    };
+  };
 }
 
 export interface HardwareProfile {
@@ -97,6 +106,16 @@ export interface ModelStatusRecord {
   modelPath?: string;
   error?: string;
   updatedAt: string;
+}
+
+export interface GitHubSyncStatus {
+  configured: boolean;
+  repoUrl?: string;
+  localPath: string;
+  branch: string;
+  dirty: boolean;
+  lastSyncAt?: string;
+  message?: string;
 }
 
 export interface HistoryEntry {

@@ -61,4 +61,47 @@ describe('ModelManager', () => {
     const status = JSON.parse(await readFile(join(baseDir, 'models', 'model-status.json'), 'utf8'));
     expect(status['sensevoice-onnx-int8-2025'].status).toBe('failed');
   });
+
+  it('deletes installed non-current models and refuses to delete the current model', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    const manager = new ModelManager({
+      modelRoot: join(baseDir, 'models'),
+      store,
+      catalog: DEFAULT_MODEL_CATALOG,
+      downloader: vi.fn().mockResolvedValue(undefined),
+      extractor: async (_model, _archive, installDir) => {
+        await import('node:fs/promises').then(async ({ mkdir, writeFile }) => {
+          await mkdir(join(installDir, 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17'), { recursive: true });
+          await writeFile(
+            join(installDir, 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17', 'model.int8.onnx'),
+            'model'
+          );
+          await writeFile(join(installDir, 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17', 'tokens.txt'), 'tokens');
+        });
+      }
+    });
+
+    await manager.installAndActivate('sensevoice-onnx-int8-2024');
+    await expect(manager.deleteModel('sensevoice-onnx-int8-2024')).rejects.toThrow('当前正在使用');
+
+    const settings = await store.loadSettings();
+    await store.saveSettings({
+      ...settings,
+      providers: {
+        ...settings.providers,
+        asr: {
+          ...settings.providers.asr,
+          modelId: 'sensevoice-onnx-int8-2025',
+          modelPath: '/current/model'
+        }
+      }
+    });
+
+    const result = await manager.deleteModel('sensevoice-onnx-int8-2024');
+    expect(result.status).toBe('not-installed');
+
+    const installed = await manager.listInstalledModels();
+    expect(installed.some((item) => item.modelId === 'sensevoice-onnx-int8-2024')).toBe(false);
+  });
 });

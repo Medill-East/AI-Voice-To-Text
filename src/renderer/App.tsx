@@ -30,6 +30,10 @@ export function App() {
   const [hotkeyStatus, setHotkeyStatus] = useState<HotkeyStatus | undefined>();
   const [capturingHotkey, setCapturingHotkey] = useState(false);
   const [installingModelId, setInstallingModelId] = useState<string | null>(null);
+  const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
+  const [syncRepoUrl, setSyncRepoUrl] = useState('');
+  const [syncBusy, setSyncBusy] = useState<string | null>(null);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const recorderRef = useRef<PcmRecorder | null>(null);
   const modeRef = useRef<InputMode>('natural');
@@ -40,6 +44,7 @@ export function App() {
     setSettings(nextSetup.settings);
     setMode(nextSetup.settings.defaultMode);
     setHotkeyStatus(nextSetup.hotkeyStatus);
+    setSyncRepoUrl(nextSetup.settings.sync.github.repoUrl ?? '');
   }, []);
 
   useEffect(() => {
@@ -147,6 +152,65 @@ export function App() {
     applySetup(result.setup);
     if (!result.ok) {
       setError(result.error ?? '模型安装失败');
+    }
+  };
+
+  const deleteModel = async (modelId: string) => {
+    setError(null);
+    setDeletingModelId(modelId);
+    const result = await window.v2t.deleteModel(modelId);
+    setDeletingModelId(null);
+    applySetup(result.setup);
+    if (!result.ok) {
+      setError(result.error ?? '模型删除失败');
+    }
+  };
+
+  const connectSyncRepo = async () => {
+    setError(null);
+    setSyncMessage(null);
+    setSyncBusy('connect');
+    const result = await window.v2t.connectSyncRepo(syncRepoUrl.trim());
+    setSyncBusy(null);
+    if (result.setup) {
+      applySetup(result.setup);
+    }
+    if (result.ok) {
+      setSyncMessage('同步仓库已连接');
+    } else {
+      setError(result.error ?? '同步仓库连接失败');
+    }
+  };
+
+  const pullSync = async () => {
+    setError(null);
+    setSyncMessage(null);
+    setSyncBusy('pull');
+    const result = await window.v2t.pullSync();
+    setSyncBusy(null);
+    if (result.setup) {
+      applySetup(result.setup);
+    }
+    if (result.ok) {
+      setSyncMessage(result.status.message ?? '已拉取同步');
+    } else {
+      setError(result.error ?? '拉取同步失败');
+    }
+  };
+
+  const pushSync = async () => {
+    setError(null);
+    setSyncMessage(null);
+    setSyncBusy('push');
+    const result = await window.v2t.pushSync();
+    setSyncBusy(null);
+    if (result.setup) {
+      applySetup(result.setup);
+    }
+    if (result.ok) {
+      setSyncMessage(result.status.message ?? '已推送同步');
+    } else {
+      setError(result.error ?? '推送同步失败');
     }
   };
 
@@ -279,8 +343,11 @@ export function App() {
                       key={recommendation.model.id}
                       recommendation={recommendation}
                       currentModelId={settings?.providers.asr.modelId}
+                      status={setup.modelStatuses[recommendation.model.id]?.status}
                       installingModelId={installingModelId}
+                      deletingModelId={deletingModelId}
                       onInstall={installModel}
+                      onDelete={deleteModel}
                     />
                   ))}
                 </div>
@@ -318,11 +385,56 @@ export function App() {
 
           {settings ? (
             <section>
+              <h2>GitHub 同步</h2>
+              <p className="hint">只同步设置、词库和提示词，不同步历史和模型。</p>
+              <label>
+                仓库 URL
+                <input
+                  value={syncRepoUrl}
+                  placeholder="git@github.com:you/v2t-sync.git"
+                  onChange={(event) => setSyncRepoUrl(event.target.value)}
+                />
+              </label>
+              <dl>
+                <div>
+                  <dt>本地仓库</dt>
+                  <dd>{settings.sync.github.localPath ?? '未连接'}</dd>
+                </div>
+                <div>
+                  <dt>最后同步</dt>
+                  <dd>{settings.sync.github.lastSyncAt ? new Date(settings.sync.github.lastSyncAt).toLocaleString() : '暂无'}</dd>
+                </div>
+              </dl>
+              <div className="button-row three">
+                <button className="secondary" onClick={() => void connectSyncRepo()} disabled={Boolean(syncBusy)}>
+                  {syncBusy === 'connect' ? '连接中' : '连接'}
+                </button>
+                <button className="secondary" onClick={() => void pullSync()} disabled={Boolean(syncBusy)}>
+                  {syncBusy === 'pull' ? '拉取中' : '拉取'}
+                </button>
+                <button className="secondary" onClick={() => void pushSync()} disabled={Boolean(syncBusy)}>
+                  {syncBusy === 'push' ? '推送中' : '推送'}
+                </button>
+              </div>
+              {syncMessage ? <p className="sync-message">{syncMessage}</p> : null}
+            </section>
+          ) : null}
+
+          {settings ? (
+            <section>
               <button className="section-toggle" onClick={() => setShowAdvanced((value) => !value)}>
                 {showAdvanced ? '收起高级设置' : '高级设置'}
               </button>
               {showAdvanced ? (
                 <div className="advanced">
+                  <label>
+                    当前模型目录
+                    <input value={setup?.modelRoot ?? ''} readOnly />
+                  </label>
+                  <label>
+                    同步数据目录
+                    <input value={settings.dataDir ?? ''} readOnly />
+                  </label>
                   <label>
                     ASR 模式
                     <select
@@ -422,17 +534,25 @@ export function App() {
 function ModelRow({
   recommendation,
   currentModelId,
+  status,
   installingModelId,
-  onInstall
+  deletingModelId,
+  onInstall,
+  onDelete
 }: {
   recommendation: ModelRecommendation;
   currentModelId?: string;
+  status?: string;
   installingModelId: string | null;
+  deletingModelId: string | null;
   onInstall(modelId: string): Promise<void>;
+  onDelete(modelId: string): Promise<void>;
 }) {
   const isCurrent = currentModelId === recommendation.model.id;
   const installing = installingModelId === recommendation.model.id;
+  const deleting = deletingModelId === recommendation.model.id;
   const unsupported = recommendation.model.runtime === 'whisper-cpp';
+  const canDelete = !isCurrent && (status === 'installed' || status === 'current');
 
   return (
     <article className={`model-row ${isCurrent ? 'current' : ''}`}>
@@ -446,6 +566,11 @@ function ModelRow({
       <button onClick={() => void onInstall(recommendation.model.id)} disabled={installing || isCurrent || unsupported}>
         {isCurrent ? '当前' : unsupported ? '待接入' : installing ? '安装中' : '安装'}
       </button>
+      {canDelete ? (
+        <button className="danger" onClick={() => void onDelete(recommendation.model.id)} disabled={deleting}>
+          {deleting ? '删除中' : '删除'}
+        </button>
+      ) : null}
     </article>
   );
 }

@@ -91,6 +91,29 @@ export class ModelManager {
     return JSON.parse(await readFile(statusPath, 'utf8')) as Record<string, ModelStatusRecord>;
   }
 
+  async listInstalledModels(): Promise<ModelStatusRecord[]> {
+    return Object.values(await this.getStatuses()).filter((record) => record.status === 'installed' || record.status === 'current');
+  }
+
+  async deleteModel(modelId: string): Promise<ModelStatusRecord> {
+    const settings = await this.store.loadSettings();
+    if (settings.providers.asr.modelId === modelId) {
+      throw new Error('当前正在使用这个模型。请先切换到另一个模型，再删除它。');
+    }
+
+    const model = this.getModel(modelId);
+    await rm(this.modelInstallDir(model), { recursive: true, force: true });
+    const statuses = await this.getStatuses();
+    delete statuses[modelId];
+    await this.writeStatuses(statuses);
+
+    return {
+      modelId,
+      status: 'not-installed',
+      updatedAt: new Date().toISOString()
+    };
+  }
+
   getModelPath(modelId: string): string {
     const model = this.getModel(modelId);
     return join(this.modelInstallDir(model), model.extractedDir, model.primaryModelFile);
@@ -124,8 +147,13 @@ export class ModelManager {
       ...value
     };
     statuses[modelId] = record;
-    await writeFile(this.statusPath(), `${JSON.stringify(statuses, null, 2)}\n`, 'utf8');
+    await this.writeStatuses(statuses);
     return record;
+  }
+
+  private async writeStatuses(statuses: Record<string, ModelStatusRecord>): Promise<void> {
+    await mkdir(this.modelRoot, { recursive: true });
+    await writeFile(this.statusPath(), `${JSON.stringify(statuses, null, 2)}\n`, 'utf8');
   }
 }
 

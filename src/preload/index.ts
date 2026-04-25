@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  GitHubSyncStatus,
   HardwareProfile,
   InputMode,
   ModelCatalogItem,
@@ -21,6 +22,11 @@ export interface V2TApi {
   saveSettings(settings: Settings): Promise<{ settings: Settings; hotkeyStatus?: HotkeyStatus }>;
   updateHotkey(accelerator: string): Promise<HotkeyUpdateResult>;
   installModel(modelId: string): Promise<InstallModelResult>;
+  deleteModel(modelId: string): Promise<InstallModelResult>;
+  getSyncStatus(): Promise<GitHubSyncStatus>;
+  connectSyncRepo(repoUrl: string): Promise<SyncActionResult>;
+  pullSync(): Promise<SyncActionResult>;
+  pushSync(): Promise<SyncActionResult>;
   setOpenAIKey(value: string): Promise<{ ok: true }>;
   processAudio(payload: { bytes: Uint8Array; mode: InputMode }): Promise<VoiceInputPipelineResult>;
   onRecordingCommand(callback: (command: RecordingCommand) => void): () => void;
@@ -50,6 +56,13 @@ interface InstallModelResult {
   error?: string;
 }
 
+interface SyncActionResult {
+  ok: boolean;
+  status: GitHubSyncStatus;
+  setup?: SetupPayload;
+  error?: string;
+}
+
 interface HotkeyUpdateResult {
   ok: boolean;
   settings: Settings;
@@ -63,6 +76,11 @@ const api: V2TApi = {
   saveSettings: (settings) => ipcRenderer.invoke('v2t:save-settings', settings),
   updateHotkey: (accelerator) => ipcRenderer.invoke('v2t:update-hotkey', accelerator),
   installModel: (modelId) => ipcRenderer.invoke('v2t:install-model', modelId),
+  deleteModel: (modelId) => ipcRenderer.invoke('v2t:delete-model', modelId),
+  getSyncStatus: () => ipcRenderer.invoke('v2t:get-sync-status'),
+  connectSyncRepo: (repoUrl) => ipcRenderer.invoke('v2t:connect-sync-repo', repoUrl),
+  pullSync: () => ipcRenderer.invoke('v2t:pull-sync'),
+  pushSync: () => ipcRenderer.invoke('v2t:push-sync'),
   setOpenAIKey: (value) => ipcRenderer.invoke('v2t:set-openai-key', value),
   processAudio: async (payload) => {
     const response = (await ipcRenderer.invoke('v2t:process-audio', payload)) as ProcessAudioResponse;

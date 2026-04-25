@@ -30,6 +30,12 @@ const DEFAULT_SETTINGS: Settings = {
       model: 'qwen2.5:7b',
       apiKeyRef: 'system-keychain:v2t/openai-compatible'
     }
+  },
+  sync: {
+    kind: 'local-folder',
+    github: {
+      branch: 'main'
+    }
   }
 };
 
@@ -194,6 +200,14 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
       llm: {
         ...DEFAULT_SETTINGS.providers.llm,
         ...rawLlm
+      }
+    },
+    sync: {
+      ...DEFAULT_SETTINGS.sync,
+      ...(raw.sync ?? {}),
+      github: {
+        ...DEFAULT_SETTINGS.sync.github,
+        ...(raw.sync?.github ?? {})
       }
     }
   };
