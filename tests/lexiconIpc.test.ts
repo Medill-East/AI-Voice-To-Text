@@ -13,6 +13,7 @@ describe('lexicon IPC surface', () => {
     expect(preload).toContain("ipcRenderer.invoke('v2t:copy-hotkey-diagnostics')");
     expect(preload).toContain('getPrompts(): Promise<PromptFiles>');
     expect(preload).toContain('savePrompt(mode: InputMode, content: string)');
+    expect(preload).toContain('onAutoSyncStatus');
     expect(preload).toContain("ipcRenderer.invoke('v2t:sync-all')");
     expect(main).toContain("ipcMain.handle('v2t:get-lexicon'");
     expect(main).toContain("ipcMain.handle('v2t:save-lexicon'");
@@ -20,6 +21,7 @@ describe('lexicon IPC surface', () => {
     expect(main).toContain("ipcMain.handle('v2t:get-prompts'");
     expect(main).toContain("ipcMain.handle('v2t:save-prompt'");
     expect(main).toContain("ipcMain.handle('v2t:sync-all'");
+    expect(main).toContain("scheduleAutoSync('voice-input')");
     expect(main).toContain('store.saveLexicon');
   });
 });

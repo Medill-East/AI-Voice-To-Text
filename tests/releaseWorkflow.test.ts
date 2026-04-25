@@ -6,8 +6,14 @@ describe('release workflow', () => {
     const workflow = await readFile(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
 
     expect(workflow).toContain('windows-latest');
-    expect(workflow).toContain('npm run dist -- --win');
+    expect(workflow).toContain('npm run dist -- --win --publish never');
     expect(workflow).toContain('release/*.exe');
     expect(workflow).toContain('release/*.zip');
+  });
+
+  it('prevents electron-builder publish during local packaging', async () => {
+    const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { scripts: Record<string, string> };
+
+    expect(packageJson.scripts.dist).toContain('--publish never');
   });
 });

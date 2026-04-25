@@ -13,6 +13,9 @@ type JsonFile = 'settings.json' | 'lexicon.json';
 const DEFAULT_SETTINGS: Settings = {
   schemaVersion: 1,
   defaultMode: 'natural',
+  appearance: {
+    theme: 'system'
+  },
   hotkey: {
     accelerator: 'CommandOrControl+Shift+Space',
     longPressMs: 350,
@@ -37,7 +40,8 @@ const DEFAULT_SETTINGS: Settings = {
     kind: 'local-folder',
     github: {
       branch: 'main',
-      includeHistory: false
+      includeHistory: false,
+      autoSync: false
     }
   }
 };
@@ -291,6 +295,10 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
         ...DEFAULT_SETTINGS.sync.github,
         ...(raw.sync?.github ?? {})
       }
+    },
+    appearance: {
+      ...DEFAULT_SETTINGS.appearance,
+      ...(raw.appearance ?? {})
     }
   };
 }

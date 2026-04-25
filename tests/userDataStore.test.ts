@@ -16,6 +16,8 @@ describe('UserDataStore', () => {
     expect(settings.providers.asr.kind).toBe('local-sherpa-onnx');
     expect(settings.providers.asr.modelId).toBeUndefined();
     expect(settings.sync.kind).toBe('local-folder');
+    expect(settings.sync.github.autoSync).toBe(false);
+    expect(settings.appearance.theme).toBe('system');
     expect(settings.providers.llm.apiKeyRef).toBe('system-keychain:v2t/openai-compatible');
     expect(settings.providers.llm).not.toHaveProperty('apiKey');
     expect(lexicon.terms).toEqual([]);
@@ -135,5 +137,16 @@ describe('UserDataStore', () => {
 
     await store.resetPrompt('structured');
     await expect(store.readPrompt('structured')).resolves.toContain('易读 Markdown');
+  });
+
+  it('keeps natural and structured prompts independent when saving one file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-store-prompts-independent-'));
+    const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
+
+    const originalStructured = await store.readPrompt('structured');
+    await store.savePrompt('natural', '自然输入自定义\n');
+
+    await expect(store.readPrompt('natural')).resolves.toBe('自然输入自定义\n');
+    await expect(store.readPrompt('structured')).resolves.toBe(originalStructured);
   });
 });

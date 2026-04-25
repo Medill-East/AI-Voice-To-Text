@@ -7,6 +7,7 @@ export interface RecordingOverlayUpdate {
   mode: InputMode;
   startedAt?: number;
   now?: number;
+  elapsedMs?: number;
   level?: number;
   inputActive?: boolean;
   silenceMs?: number;
@@ -36,7 +37,12 @@ export function normalizeRecordingOverlayState(update: RecordingOverlayUpdate): 
     visible,
     state: update.state,
     mode: update.mode,
-    elapsedMs: visible && update.startedAt ? Math.max(0, (update.now ?? Date.now()) - update.startedAt) : 0,
+    elapsedMs:
+      visible && update.elapsedMs !== undefined
+        ? Math.max(0, update.elapsedMs)
+        : visible && update.startedAt
+          ? Math.max(0, (update.now ?? Date.now()) - update.startedAt)
+          : 0,
     level,
     inputActive: update.inputActive ?? level > 0.03,
     silenceMs: Math.max(0, update.silenceMs ?? 0)

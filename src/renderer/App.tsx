@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
 import type {
+  AutoSyncState,
   HistoryEntry,
   InputMode,
   InstalledModelView,
   Lexicon,
+  ModelCatalogItem,
   ModelEvaluationMetric,
   ModelRecommendation,
   ModelStatusRecord,
@@ -61,6 +63,7 @@ export function App() {
   const [syncRepoUrl, setSyncRepoUrl] = useState('');
   const [syncBusy, setSyncBusy] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [autoSyncState, setAutoSyncState] = useState<AutoSyncState | null>(null);
   const [testingHotkey, setTestingHotkey] = useState(false);
   const [hotkeyTestMessage, setHotkeyTestMessage] = useState<string | null>(null);
   const [lexicon, setLexicon] = useState<Lexicon | null>(null);
@@ -74,6 +77,7 @@ export function App() {
   const modeRef = useRef<InputMode>('natural');
   const recordingStateRef = useRef<RecordingState>('idle');
   const recordingStartedAtRef = useRef<number | undefined>(undefined);
+  const recordingElapsedMsRef = useRef<number | undefined>(undefined);
   const inputLevelRef = useRef(0);
   const inputActiveRef = useRef(false);
   const silenceStartedAtRef = useRef<number | undefined>(undefined);
@@ -85,6 +89,7 @@ export function App() {
     setSettings(nextSetup.settings);
     setMode(nextSetup.settings.defaultMode);
     setHotkeyStatus(nextSetup.hotkeyStatus);
+    setAutoSyncState(nextSetup.autoSyncState);
     setSyncRepoUrl(nextSetup.settings.sync.github.repoUrl ?? '');
     setInstallProgressById(nextSetup.modelStatuses);
   }, []);
@@ -96,6 +101,10 @@ export function App() {
   useEffect(() => {
     recordingStateRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = settings?.appearance.theme ?? 'system';
+  }, [settings?.appearance.theme]);
 
   const resetInputMeter = useCallback(() => {
     inputLevelRef.current = 0;
@@ -174,6 +183,10 @@ export function App() {
     });
   }, []);
 
+  useEffect(() => {
+    return window.v2t.onAutoSyncStatus(setAutoSyncState);
+  }, []);
+
   const stopRecording = useCallback(() => {
     const recorder = recorderRef.current;
     if (!recorder) {
@@ -190,6 +203,7 @@ export function App() {
     recorder.stream.getTracks().forEach((track) => track.stop());
     void recorder.context.close();
     recorderRef.current = null;
+    recordingElapsedMsRef.current = recordingStartedAtRef.current ? Date.now() - recordingStartedAtRef.current : 0;
     resetInputMeter();
 
     const wav = encodeWav(recorder.chunks, recorder.inputSampleRate, 16000);
@@ -207,6 +221,7 @@ export function App() {
     setActiveRecordingMode(activeMode);
     recordingStateRef.current = 'starting';
     recordingStartedAtRef.current = Date.now();
+    recordingElapsedMsRef.current = undefined;
     setState('starting');
 
     try {
@@ -236,6 +251,7 @@ export function App() {
       setState('recording');
     } catch (caught) {
       recordingStartedAtRef.current = undefined;
+      recordingElapsedMsRef.current = undefined;
       recordingStateRef.current = 'error';
       setActiveRecordingMode(null);
       resetInputMeter();
@@ -251,12 +267,14 @@ export function App() {
       const result = await window.v2t.processAudio({ bytes, mode: activeMode });
       setHistory((items) => [{ ...result, createdAt: new Date().toISOString(), mode: activeMode }, ...items].slice(0, 30));
       recordingStartedAtRef.current = undefined;
+      recordingElapsedMsRef.current = undefined;
       setActiveRecordingMode(null);
       resetInputMeter();
       recordingStateRef.current = 'idle';
       setState('idle');
     } catch (caught) {
       recordingStartedAtRef.current = undefined;
+      recordingElapsedMsRef.current = undefined;
       setActiveRecordingMode(null);
       resetInputMeter();
       recordingStateRef.current = 'error';
@@ -265,13 +283,16 @@ export function App() {
     }
   }, [resetInputMeter]);
 
+  const windowRecordingMode = settings?.hotkey.singleClickMode ?? 'natural';
+
   useEffect(() => {
     const syncOverlay = () => {
       void window.v2t
         .setRecordingOverlayState({
           state,
-          mode: activeRecordingMode ?? mode,
+          mode: activeRecordingMode ?? windowRecordingMode,
           startedAt: recordingStartedAtRef.current,
+          elapsedMs: state === 'processing' ? recordingElapsedMsRef.current : undefined,
           now: Date.now(),
           level: inputLevelRef.current,
           inputActive: inputActiveRef.current,
@@ -285,7 +306,7 @@ export function App() {
     }
     const timer = window.setInterval(syncOverlay, state === 'recording' ? 120 : 500);
     return () => window.clearInterval(timer);
-  }, [activeRecordingMode, mode, state]);
+  }, [activeRecordingMode, state, windowRecordingMode]);
 
   useEffect(() => {
     return window.v2t.onRecordingCommand((command: RecordingCommand) => {
@@ -361,6 +382,43 @@ export function App() {
     applySetup(nextSetup);
   };
 
+  const updateAutoSync = async (autoSync: boolean) => {
+    if (!settings) {
+      return;
+    }
+    const result = await window.v2t.saveSettings({
+      ...settings,
+      sync: {
+        ...settings.sync,
+        github: {
+          ...settings.sync.github,
+          autoSync
+        }
+      }
+    });
+    setSettings(result.settings);
+    setHotkeyStatus(result.hotkeyStatus);
+    const nextSetup = await window.v2t.getSetup();
+    applySetup(nextSetup);
+  };
+
+  const updateTheme = async (theme: Settings['appearance']['theme']) => {
+    if (!settings) {
+      return;
+    }
+    const result = await window.v2t.saveSettings({
+      ...settings,
+      appearance: {
+        ...settings.appearance,
+        theme
+      }
+    });
+    setSettings(result.settings);
+    setHotkeyStatus(result.hotkeyStatus);
+    const nextSetup = await window.v2t.getSetup();
+    applySetup(nextSetup);
+  };
+
   const updateLexicon = (updater: (current: Lexicon) => Lexicon) => {
     setLexicon((current) => (current ? updater(current) : current));
     setLexiconDirty(true);
@@ -390,6 +448,12 @@ export function App() {
     setPromptDirty({ natural: false, structured: false });
   };
 
+  const applySavedPrompt = (modeName: InputMode, nextPrompts: PromptFiles) => {
+    setPrompts(nextPrompts);
+    setPromptDrafts((current) => ({ ...current, [modeName]: nextPrompts[modeName] }));
+    setPromptDirty((current) => ({ ...current, [modeName]: false }));
+  };
+
   const updatePromptDraft = (modeName: InputMode, value: string) => {
     setPromptDrafts((current) => ({ ...current, [modeName]: value }));
     setPromptDirty((current) => ({ ...current, [modeName]: true }));
@@ -400,7 +464,7 @@ export function App() {
     setError(null);
     const result = await window.v2t.savePrompt(modeName, promptDrafts[modeName]);
     if (result.ok && result.prompts) {
-      applyPrompts(result.prompts);
+      applySavedPrompt(modeName, result.prompts);
       setPromptMessage(`${modeName === 'natural' ? '自然输入' : '结构输入'} Prompt 已保存`);
       return;
     }
@@ -411,7 +475,7 @@ export function App() {
     setError(null);
     const result = await window.v2t.resetPrompt(modeName);
     if (result.ok && result.prompts) {
-      applyPrompts(result.prompts);
+      applySavedPrompt(modeName, result.prompts);
       setPromptMessage(`${modeName === 'natural' ? '自然输入' : '结构输入'} Prompt 已恢复默认`);
       return;
     }
@@ -613,15 +677,9 @@ export function App() {
             </section>
           ) : null}
 
-          <div className="mode-switch" role="tablist" aria-label="输入模式">
-            <button className={mode === 'natural' ? 'active' : ''} onClick={() => void updateDefaultMode('natural')}>
-              自然输入
-            </button>
-            <button className={mode === 'structured' ? 'active' : ''} onClick={() => void updateDefaultMode('structured')}>
-              结构输入
-            </button>
-          </div>
-          <p className="hint mode-hint">页面按钮设置默认模式；单击快捷键自然输入，双击快捷键结构输入。</p>
+          <p className="hint mode-hint">
+            单击快捷键 {modeLabel(settings?.hotkey.singleClickMode ?? 'natural')}，双击快捷键 {modeLabel(settings?.hotkey.doubleClickMode ?? 'structured')}；窗口内录音默认使用单击模式。
+          </p>
           <section className="gesture-settings">
             <div>
               <span>单击快捷键</span>
@@ -641,7 +699,7 @@ export function App() {
               <span className={`status-dot ${state}`} />
               <div>
                 <strong>{stateLabel(state)}</strong>
-                <p>{activeRecordingMode ? `本次 ${modeLabel(activeRecordingMode)}` : `窗口内录音使用 ${modeLabel(mode)}`}</p>
+                <p>{activeRecordingMode ? `本次 ${modeLabel(activeRecordingMode)}` : `窗口内录音使用 ${modeLabel(windowRecordingMode)}`}</p>
               </div>
             </div>
             <button
@@ -650,7 +708,7 @@ export function App() {
                 if (state === 'recording' || state === 'starting') {
                   stopRecording();
                 } else {
-                  void startRecording(mode);
+                  void startRecording(windowRecordingMode);
                 }
               }}
               disabled={state === 'processing'}
@@ -692,6 +750,7 @@ export function App() {
                 {setup.hardware.cpuName} · {setup.hardware.memoryGb}GB · {tierLabel(setup.hardware.recommendedTier)}
               </p>
               <p className="hint">公开榜单看 Open ASR Leaderboard，官方评测看模型卡；V2T 本机适配分只表示这台设备上的推荐优先级。WER/CER 越低越好，RTFx 越高越快。</p>
+              <ModelComparisonTable recommendations={setup.recommendations} referenceModels={setup.catalog.filter((model) => model.availability && model.availability !== 'installable')} />
               <div className="model-list">
                 {setup.recommendations.map((recommendation) => (
                   <ModelRow
@@ -724,6 +783,15 @@ export function App() {
                   </div>
                 </>
               ) : null}
+              <h2 className="subsection-title">公开高分参考 / 待接入</h2>
+              <p className="hint">这些模型有公开榜单或上游文档参考，但还没有完成 V2T 一键下载、运行配置和打包 smoke test，因此不会显示“安装”。</p>
+              <div className="model-list reference-models">
+                {setup.catalog
+                  .filter((model) => model.availability && model.availability !== 'installable')
+                  .map((model) => (
+                    <ReferenceModelRow key={model.id} model={model} />
+                  ))}
+              </div>
             </>
           ) : (
             <p className="empty">检测中</p>
@@ -1127,6 +1195,23 @@ export function App() {
                 同步历史
               </label>
               <p className="hint">开启后会把本机文字历史同步到 GitHub 私有仓库；仍不会同步音频、模型或密钥。</p>
+              <label className="check sync-history-toggle">
+                <input
+                  type="checkbox"
+                  checked={settings.sync.github.autoSync ?? false}
+                  onChange={(event) => void updateAutoSync(event.target.checked)}
+                />
+                自动同步
+              </label>
+              <p className="hint">
+                开启后，每次成功输入、保存词库或保存提示词都会排队同步；如果要同步录音历史，请同时开启“同步历史”。
+              </p>
+              <dl>
+                <div>
+                  <dt>自动同步状态</dt>
+                  <dd>{autoSyncStatusLabel(autoSyncState, settings)}</dd>
+                </div>
+              </dl>
               <button className="save" onClick={() => void syncAll()} disabled={Boolean(syncBusy)}>
                 {syncBusy === 'sync' ? '同步中' : '一键同步'}
               </button>
@@ -1296,6 +1381,26 @@ export function App() {
       <section className="page-section">
         <h2>应用</h2>
         <p className="hint">关闭窗口会隐藏到菜单栏；需要结束后台进程时使用完全退出。</p>
+        {settings ? (
+          <section className="appearance-settings">
+            <h3>外观</h3>
+            <div className="segmented-control" role="radiogroup" aria-label="外观主题">
+              {[
+                ['system', '跟随系统'],
+                ['light', '浅色'],
+                ['dark', '深色']
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  className={settings.appearance.theme === value ? 'active' : ''}
+                  onClick={() => void updateTheme(value as Settings['appearance']['theme'])}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
         {setup ? (
           <p className="build-info">
             当前版本 v{setup.appInfo.version} · {setup.appInfo.buildCommit}
@@ -1420,6 +1525,95 @@ function PromptEditor({
       </div>
       <textarea value={value} spellCheck={false} onChange={(event) => onChange(event.target.value)} />
     </section>
+  );
+}
+
+function ModelComparisonTable({
+  recommendations,
+  referenceModels
+}: {
+  recommendations: ModelRecommendation[];
+  referenceModels: ModelCatalogItem[];
+}) {
+  const rows = [
+    ...recommendations.map((recommendation) => ({
+      model: recommendation.model,
+      score: recommendation.score,
+      status: '可一键安装'
+    })),
+    ...referenceModels.map((model) => ({
+      model,
+      score: undefined,
+      status: model.availability === 'manual' ? '可手动配置' : '待接入'
+    }))
+  ];
+
+  return (
+    <section className="comparison-panel" aria-label="模型横向对比">
+      <h3>模型横向对比</h3>
+      <div className="comparison-table">
+        <div className="comparison-head">
+          <span>模型</span>
+          <span>公开 WER</span>
+          <span>RTFx</span>
+          <span>V2T 分</span>
+          <span>状态</span>
+        </div>
+        {rows.map(({ model, score, status }) => {
+          const openAsr = model.evaluationSources?.openAsrLeaderboard;
+          return (
+            <div className="comparison-row" key={model.id}>
+              <strong>{model.name}</strong>
+              <ComparisonMetric value={openAsr?.avgWer} label={openAsr?.avgWer ? `${openAsr.avgWer}%` : '暂无'} lowerIsBetter max={10} />
+              <ComparisonMetric value={openAsr?.rtfx} label={openAsr?.rtfx ? `${Math.round(openAsr.rtfx)}` : '暂无'} max={3500} />
+              <ComparisonMetric value={score} label={score ? `${score}` : '未评分'} max={100} />
+              <span>{status}</span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ComparisonMetric({
+  value,
+  label,
+  max,
+  lowerIsBetter = false
+}: {
+  value?: number;
+  label: string;
+  max: number;
+  lowerIsBetter?: boolean;
+}) {
+  const normalized = value === undefined ? 0 : Math.max(0, Math.min(100, lowerIsBetter ? 100 - (value / max) * 100 : (value / max) * 100));
+  return (
+    <span className="comparison-metric">
+      <i style={{ width: `${normalized}%` }} />
+      <em>{label}</em>
+    </span>
+  );
+}
+
+function ReferenceModelRow({ model }: { model: ModelCatalogItem }) {
+  const openAsr = model.evaluationSources?.openAsrLeaderboard;
+  return (
+    <article className="model-row reference">
+      <div>
+        <h3>{model.name}</h3>
+        <div className="score-row">
+          <strong>
+            {openAsr?.exactModelMatch ? `Open ASR Rank ${openAsr.rank ?? '-'} · WER ${openAsr.avgWer ?? '-'} · RTFx ${openAsr.rtfx ?? '-'}` : '暂无 exact Open ASR 排名'}
+          </strong>
+          <span>{model.availability === 'manual' ? '可手动配置' : '待接入'}</span>
+        </div>
+        <p>{model.unavailableReason}</p>
+        {model.manualSetup ? <p>配置办法：{model.manualSetup}</p> : null}
+        <small>{model.sourceUrl}</small>
+      </div>
+      <button disabled>{model.availability === 'manual' ? '手动配置' : '待接入'}</button>
+    </article>
   );
 }
 
@@ -1653,6 +1847,25 @@ function formatMetric(metric: ModelEvaluationMetric): string {
     return `${metric.value}`;
   }
   return `${metric.value}% ${metric.metric}`;
+}
+
+function autoSyncStatusLabel(state: AutoSyncState | null, settings: Settings): string {
+  if (!settings.sync.github.autoSync) {
+    return '未开启';
+  }
+  if (state?.status === 'queued') {
+    return '已排队，稍后自动同步';
+  }
+  if (state?.status === 'syncing') {
+    return '同步中';
+  }
+  if (state?.status === 'failed') {
+    return `失败：${state.error ?? settings.sync.github.lastAutoSyncError ?? '未知错误'}`;
+  }
+  if (settings.sync.github.lastAutoSyncAt) {
+    return `上次自动同步 ${new Date(settings.sync.github.lastAutoSyncAt).toLocaleString()}`;
+  }
+  return '待命';
 }
 
 function hotkeyStatusLabel(status?: HotkeyStatus): string {

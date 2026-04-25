@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   GitHubSyncStatus,
+  AutoSyncState,
   HardwareProfile,
   InputMode,
   HistoryEntry,
@@ -53,11 +54,13 @@ export interface V2TApi {
   onRecordingCommand(callback: (command: RecordingCommand) => void): () => void;
   onHotkeyStatus(callback: (status: HotkeyStatus) => void): () => void;
   onModelInstallProgress(callback: (status: ModelStatusRecord) => void): () => void;
+  onAutoSyncStatus(callback: (status: AutoSyncState) => void): () => void;
 }
 
 export interface SetupPayload {
   settings: Settings;
   hotkeyStatus?: HotkeyStatus;
+  autoSyncState: AutoSyncState;
   hardware: HardwareProfile;
   modelRoot: string;
   catalog: ModelCatalogItem[];
@@ -157,6 +160,11 @@ const api: V2TApi = {
     const listener = (_event: Electron.IpcRendererEvent, status: ModelStatusRecord) => callback(status);
     ipcRenderer.on('v2t:model-install-progress', listener);
     return () => ipcRenderer.off('v2t:model-install-progress', listener);
+  },
+  onAutoSyncStatus: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: AutoSyncState) => callback(status);
+    ipcRenderer.on('v2t:auto-sync-status', listener);
+    return () => ipcRenderer.off('v2t:auto-sync-status', listener);
   }
 };
 

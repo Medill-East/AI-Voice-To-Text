@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_MODEL_CATALOG, recommendModels } from '../src/core/modelCatalog';
+import { DEFAULT_MODEL_CATALOG, referenceModels, recommendModels } from '../src/core/modelCatalog';
 import type { HardwareProfile } from '../src/core/types';
 
 describe('model catalog recommendation', () => {
@@ -59,5 +59,25 @@ describe('model catalog recommendation', () => {
     expect(senseVoice?.evaluationSources?.officialBenchmark?.sourceLabel).toContain('SenseVoice');
     expect(senseVoice?.evaluationSources?.openAsrLeaderboard?.note).toContain('未找到 exact match');
     expect(senseVoice?.evaluationSources?.localRecommendation?.note).toContain('V2T');
+  });
+
+  it('separates one-click installable models from public high-score reference models', () => {
+    const references = referenceModels(DEFAULT_MODEL_CATALOG);
+
+    expect(references.map((model) => model.id)).toEqual(
+      expect.arrayContaining([
+        'cohere-transcribe-03-2026',
+        'ibm-granite-4.0-1b-speech',
+        'nvidia-canary-qwen-2.5b',
+        'qwen3-asr-1.7b',
+        'nvidia-parakeet-tdt-0.6b-v3',
+        'openai-whisper-large-v3'
+      ])
+    );
+    expect(references.every((model) => model.availability !== 'installable')).toBe(true);
+    expect(references.every((model) => model.unavailableReason)).toBe(true);
+    expect(references.some((model) => model.manualSetup)).toBe(true);
+    expect(references[0].evaluationSources?.openAsrLeaderboard?.exactModelMatch).toBe(true);
+    expect(references[0].evaluationSources?.openAsrLeaderboard?.rank).toBe(1);
   });
 });

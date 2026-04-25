@@ -13,6 +13,8 @@ describe('window chrome styles', () => {
     expect(noDragBlocks).toMatch(/\.page-content/);
     expect(noDragBlocks).not.toMatch(/(^|,|\n)\s*\.shell\s*(,|\{)/);
     expect(noDragBlocks).not.toMatch(/(^|,|\n)\s*\.side\s*(,|\{)/);
+    expect(css).toContain(':root[data-theme="dark"]');
+    expect(css).toContain('@media (prefers-color-scheme: dark)');
   });
 
   it('keeps standard edit actions in the application menu for text fields', async () => {

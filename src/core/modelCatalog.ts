@@ -7,6 +7,7 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     family: 'funasr-nano',
     releasedAt: '2025-12-30',
     installable: true,
+    availability: 'installable',
     runtime: 'sherpa-onnx',
     sherpaModelType: 'funasrNano',
     sourceUrl:
@@ -63,6 +64,7 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     family: 'firered-asr2',
     releasedAt: '2026-02-26',
     installable: true,
+    availability: 'installable',
     runtime: 'sherpa-onnx',
     sherpaModelType: 'fireRedAsr',
     sourceUrl:
@@ -109,6 +111,7 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     family: 'sensevoice',
     releasedAt: '2025-09-09',
     installable: true,
+    availability: 'installable',
     runtime: 'sherpa-onnx',
     sherpaModelType: 'senseVoice',
     sourceUrl:
@@ -148,6 +151,213 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
         note: 'V2T 本机适配分，结合中文适配、速度、硬件匹配、体积和语言覆盖计算。'
       }
     }
+  },
+  {
+    id: 'cohere-transcribe-03-2026',
+    name: 'Cohere Transcribe 03-2026',
+    family: 'cohere-transcribe',
+    releasedAt: '2026-03-26',
+    installable: false,
+    availability: 'reference',
+    unavailableReason: 'Open ASR Leaderboard 高分模型，但 V2T 当前没有可验证的一键下载包、sherpa-onnx Node 配置和打包 smoke test。',
+    manualSetup: '可通过外部 ASR 服务封装为 HTTP endpoint，再在高级设置里接入；V2T 暂不自动安装该模型。',
+    runtime: 'external',
+    sourceUrl: 'https://huggingface.co/CohereLabs/cohere-transcribe-03-2026',
+    license: 'Open',
+    sizeMb: 2000,
+    languages: ['多语言', '英文优先'],
+    qualityTags: ['公开榜单高分', '待接入'],
+    hardwareRequirements: { minMemoryGb: 24, recommendedTier: 'high' },
+    archiveType: 'file',
+    extractedDir: '',
+    primaryModelFile: '',
+    requiredFiles: [],
+    evaluationSources: {
+      openAsrLeaderboard: {
+        sourceLabel: 'Open ASR Leaderboard scripts/data/en_shortform.csv',
+        sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
+        track: 'English short-form',
+        rank: 1,
+        avgWer: 5.42,
+        rtfx: 524.88,
+        exactModelMatch: true
+      },
+      localRecommendation: {
+        note: '参考榜模型，不计入 V2T 一键安装推荐分。'
+      }
+    }
+  },
+  {
+    id: 'ibm-granite-4.0-1b-speech',
+    name: 'IBM Granite 4.0 1B Speech',
+    family: 'ibm-granite-speech',
+    releasedAt: '2026-01-01',
+    installable: false,
+    availability: 'reference',
+    unavailableReason: '榜单表现强，但当前 V2T 没有本地 Node runtime 接入和跨平台一键安装验证。',
+    manualSetup: '可先用外部服务方式暴露为 HTTP ASR endpoint，再从高级设置接入。',
+    runtime: 'external',
+    sourceUrl: 'https://huggingface.co/ibm-granite/granite-4.0-1b-speech',
+    license: 'Open',
+    sizeMb: 2000,
+    languages: ['英文优先'],
+    qualityTags: ['公开榜单高分', '待接入'],
+    hardwareRequirements: { minMemoryGb: 24, recommendedTier: 'high' },
+    archiveType: 'file',
+    extractedDir: '',
+    primaryModelFile: '',
+    requiredFiles: [],
+    evaluationSources: {
+      openAsrLeaderboard: {
+        sourceLabel: 'Open ASR Leaderboard scripts/data/en_shortform.csv',
+        sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
+        track: 'English short-form',
+        rank: 3,
+        avgWer: 5.52,
+        rtfx: 280.02,
+        exactModelMatch: true
+      }
+    }
+  },
+  {
+    id: 'nvidia-canary-qwen-2.5b',
+    name: 'NVIDIA Canary-Qwen 2.5B',
+    family: 'nvidia-canary-qwen',
+    releasedAt: '2025-12-15',
+    installable: false,
+    availability: 'reference',
+    unavailableReason: '榜单高分，但 V2T 当前没有 NeMo/Canary 本地 Node 转写 adapter 和打包验证。',
+    manualSetup: '可用 NeMo/Transformers 自行部署服务后，通过高级 HTTP ASR endpoint 接入。',
+    runtime: 'external',
+    sourceUrl: 'https://huggingface.co/nvidia/canary-qwen-2.5b',
+    license: 'Open',
+    sizeMb: 2500,
+    languages: ['多语言', '英文优先'],
+    qualityTags: ['公开榜单高分', '待接入'],
+    hardwareRequirements: { minMemoryGb: 24, recommendedTier: 'high' },
+    archiveType: 'file',
+    extractedDir: '',
+    primaryModelFile: '',
+    requiredFiles: [],
+    evaluationSources: {
+      openAsrLeaderboard: {
+        sourceLabel: 'Open ASR Leaderboard scripts/data/en_shortform.csv',
+        sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
+        track: 'English short-form',
+        rank: 4,
+        avgWer: 5.63,
+        rtfx: 418.28,
+        exactModelMatch: true
+      }
+    }
+  },
+  {
+    id: 'qwen3-asr-1.7b',
+    name: 'Qwen3-ASR 1.7B',
+    family: 'qwen3-asr',
+    releasedAt: '2026-03-01',
+    installable: false,
+    availability: 'manual',
+    unavailableReason: '榜单模型是 HF/PyTorch 版本；V2T 尚未实现 Qwen3-ASR 的 sherpa-onnx recognizer config 和一键 smoke test。',
+    manualSetup: 'sherpa-onnx 已提供 Qwen3-ASR 0.6B ONNX 文档；后续接入该 model type 后可升级为一键安装。',
+    runtime: 'sherpa-onnx',
+    sourceUrl: 'https://huggingface.co/Qwen/Qwen3-ASR-1.7B',
+    license: 'Open',
+    sizeMb: 1700,
+    languages: ['中文', '英文', '粤语', '多语言', '中文方言'],
+    qualityTags: ['公开榜单高分', '中文方言', '待接入'],
+    hardwareRequirements: { minMemoryGb: 24, recommendedTier: 'high' },
+    archiveType: 'file',
+    extractedDir: '',
+    primaryModelFile: '',
+    requiredFiles: [],
+    evaluationSources: {
+      openAsrLeaderboard: {
+        sourceLabel: 'Open ASR Leaderboard scripts/data/en_shortform.csv',
+        sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
+        track: 'English short-form',
+        rank: 6,
+        avgWer: 5.76,
+        rtfx: 147.93,
+        exactModelMatch: true
+      },
+      officialBenchmark: {
+        sourceLabel: 'sherpa-onnx Qwen3-ASR documentation',
+        sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/qwen3-asr/index.html',
+        note: 'sherpa-onnx 文档列出 Qwen3-ASR-0.6B ONNX 预训练模型和多语言/中文方言覆盖；V2T 尚未接入该 recognizer 类型。',
+        metrics: []
+      }
+    }
+  },
+  {
+    id: 'nvidia-parakeet-tdt-0.6b-v3',
+    name: 'NVIDIA Parakeet TDT 0.6B v3',
+    family: 'nvidia-parakeet',
+    releasedAt: '2025-11-27',
+    installable: false,
+    availability: 'manual',
+    unavailableReason: 'sherpa-onnx 有 NeMo/Parakeet 预训练模型，但 V2T 当前 LocalSherpaAsrProvider 尚未实现 NeMo transducer 配置。',
+    manualSetup: '可参考 sherpa-onnx NeMo 文档手动运行；V2T 接入 NeMo model type 后可进入一键安装区。',
+    runtime: 'sherpa-onnx',
+    sourceUrl: 'https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3',
+    license: 'Open',
+    sizeMb: 600,
+    languages: ['英文', '欧洲多语言'],
+    qualityTags: ['公开榜单高分', '速度极快', '待接入'],
+    hardwareRequirements: { minMemoryGb: 16, recommendedTier: 'high' },
+    archiveType: 'file',
+    extractedDir: '',
+    primaryModelFile: '',
+    requiredFiles: [],
+    evaluationSources: {
+      openAsrLeaderboard: {
+        sourceLabel: 'Open ASR Leaderboard scripts/data/en_shortform.csv',
+        sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
+        track: 'English short-form',
+        rank: 13,
+        avgWer: 6.32,
+        rtfx: 3332.74,
+        exactModelMatch: true
+      },
+      officialBenchmark: {
+        sourceLabel: 'sherpa-onnx NeMo documentation',
+        sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/nemo/index.html',
+        note: 'sherpa-onnx 文档已列出 Parakeet TDT 0.6B v3 int8 模型；V2T 还未实现 NeMo transducer adapter。',
+        metrics: []
+      }
+    }
+  },
+  {
+    id: 'openai-whisper-large-v3',
+    name: 'Whisper large-v3',
+    family: 'whisper',
+    releasedAt: '2024-08-12',
+    installable: false,
+    availability: 'reference',
+    unavailableReason: 'V2T 当前 whisper-cpp provider 仍是占位实现，尚未完成一键下载、量化包选择和打包 smoke test。',
+    manualSetup: '可先自行运行 whisper.cpp 或兼容 HTTP 服务，再通过高级 HTTP ASR endpoint 接入。',
+    runtime: 'whisper-cpp',
+    sourceUrl: 'https://huggingface.co/openai/whisper-large-v3',
+    license: 'Open',
+    sizeMb: 2000,
+    languages: ['多语言'],
+    qualityTags: ['生态成熟', '待接入'],
+    hardwareRequirements: { minMemoryGb: 16, recommendedTier: 'high' },
+    archiveType: 'file',
+    extractedDir: '',
+    primaryModelFile: '',
+    requiredFiles: [],
+    evaluationSources: {
+      openAsrLeaderboard: {
+        sourceLabel: 'Open ASR Leaderboard scripts/data/en_shortform.csv',
+        sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
+        track: 'English short-form',
+        rank: 37,
+        avgWer: 7.44,
+        rtfx: 145.51,
+        exactModelMatch: true
+      }
+    }
   }
 ];
 
@@ -160,6 +370,12 @@ export function recommendModels(
     .map((model) => scoreModel(model, hardware, statuses[model.id] ?? 'not-installed'))
     .sort((left, right) => right.score - left.score)
     .slice(0, 3);
+}
+
+export function referenceModels(catalog: ModelCatalogItem[]): ModelCatalogItem[] {
+  return catalog
+    .filter((model) => (model.availability ?? (model.installable ? 'installable' : 'reference')) !== 'installable')
+    .sort((left, right) => (left.evaluationSources?.openAsrLeaderboard?.rank ?? 9999) - (right.evaluationSources?.openAsrLeaderboard?.rank ?? 9999));
 }
 
 function latestInstallableByFamily(catalog: ModelCatalogItem[]): ModelCatalogItem[] {

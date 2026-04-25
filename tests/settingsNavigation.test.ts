@@ -20,9 +20,17 @@ describe('settings navigation structure', () => {
     expect(app).toContain('官方评测');
     expect(app).toContain('V2T 本机适配分');
     expect(app).toContain('同步历史');
+    expect(app).toContain('自动同步');
     expect(app).toContain('一键同步');
     expect(app).toContain('自然输入 Prompt');
     expect(app).toContain('结构输入 Prompt');
+    expect(app).toContain('外观');
+    expect(app).toContain('跟随系统');
+    expect(app).toContain('浅色');
+    expect(app).toContain('深色');
+    expect(app).toContain('公开高分参考');
+    expect(app).toContain('ModelComparisonTable');
+    expect(app).not.toContain('className=\"mode-switch\"');
     expect(app).toContain('单独的私有仓库');
     expect(app).toContain('settings.json、lexicon.json、prompts/natural.md、prompts/structured.md');
     expect(app).toContain('autoCapitalize="off"');

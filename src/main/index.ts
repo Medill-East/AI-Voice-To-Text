@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { FunAsrHttpProvider, LocalSherpaAsrProvider, UserFacingAsrError, WhisperCppAsrProvider } from '../core/asrProviders';
+import { AutoSyncService } from '../core/autoSyncService';
 import { DEFAULT_MODEL_CATALOG, recommendModels } from '../core/modelCatalog';
 import { detectHardwareProfile } from '../core/hardware';
 import { ModelManager } from '../core/modelManager';
@@ -14,7 +15,7 @@ import { createVoiceInputPipeline } from '../core/pipeline';
 import { PostProcessor } from '../core/postProcessor';
 import { TextInjectionService } from '../core/textInjection';
 import { UserDataStore } from '../core/userDataStore';
-import type { InputMode, ModelInstallStatus, ModelStatusRecord, Settings } from '../core/types';
+import type { AutoSyncState, InputMode, ModelInstallStatus, ModelStatusRecord, Settings } from '../core/types';
 import { getFocusedAppName } from './focusedApp';
 import { createCheckingHotkeyStatus } from './hotkeyDiagnostics';
 import { HotkeyDiagnosticLog } from './hotkeyDiagnosticLog';
@@ -45,6 +46,8 @@ let modelRoot: string;
 let nativeHelperPath: string | undefined;
 let nativeHelperSignature: string | undefined;
 let hotkeyLog: HotkeyDiagnosticLog;
+let autoSyncService: AutoSyncService;
+let autoSyncState: AutoSyncState = { status: 'idle', updatedAt: new Date().toISOString() };
 
 app.setName('V2T');
 
@@ -66,6 +69,7 @@ async function bootstrap(): Promise<void> {
       void hotkeyLog.write(event).catch((error) => console.warn(`Unable to write hotkey diagnostic log: ${readableError(error)}`));
     }
   });
+  autoSyncService = createAutoSyncService();
   createApplicationMenu();
   createWindow();
   createTray();
@@ -187,6 +191,7 @@ function registerIpc(): void {
     settings = nextSettings;
     await store.saveSettings(settings);
     await registerHotkey();
+    scheduleAutoSync('settings-save');
     return { settings, hotkeyStatus };
   });
   ipcMain.handle('v2t:get-lexicon', async () => store.loadLexicon());
@@ -195,6 +200,7 @@ function registerIpc(): void {
   ipcMain.handle('v2t:save-prompt', async (_event, mode: InputMode, content: string) => {
     try {
       await store.savePrompt(mode, content);
+      scheduleAutoSync('prompt-save');
       return { ok: true, prompts: await store.loadPrompts() };
     } catch (error) {
       return { ok: false, error: readableError(error) };
@@ -203,6 +209,7 @@ function registerIpc(): void {
   ipcMain.handle('v2t:reset-prompt', async (_event, mode: InputMode) => {
     try {
       await store.resetPrompt(mode);
+      scheduleAutoSync('prompt-reset');
       return { ok: true, prompts: await store.loadPrompts() };
     } catch (error) {
       return { ok: false, error: readableError(error) };
@@ -211,6 +218,7 @@ function registerIpc(): void {
   ipcMain.handle('v2t:save-lexicon', async (_event, lexicon) => {
     try {
       await store.saveLexicon(lexicon);
+      scheduleAutoSync('lexicon-save');
       return { ok: true, lexicon: await store.loadLexicon() };
     } catch (error) {
       return { ok: false, error: readableError(error) };
@@ -306,6 +314,7 @@ function registerIpc(): void {
         targetApp: await getFocusedAppName(),
         prompt: await store.readPrompt(payload.mode)
       });
+      scheduleAutoSync('voice-input');
       return { ok: true, result };
     } catch (error) {
       return { ok: false, error: readableError(error) };
@@ -569,6 +578,7 @@ async function getSetupPayload() {
   return {
     settings,
     hotkeyStatus,
+    autoSyncState,
     appInfo: getAppInfo(),
     hardware,
     modelRoot,
@@ -595,6 +605,55 @@ function createSyncService(repoUrl = settings.sync.github.repoUrl): GitHubSyncSe
     branch: settings.sync.github.branch,
     includeHistory: settings.sync.github.includeHistory ?? false
   });
+}
+
+function createAutoSyncService(): AutoSyncService {
+  return new AutoSyncService({
+    delayMs: 10_000,
+    isEnabled: () => Boolean(settings.sync.github.autoSync),
+    sync: async () => {
+      if (!settings.sync.github.repoUrl && !settings.sync.github.localPath) {
+        throw new Error('尚未连接 GitHub 同步仓库');
+      }
+      const status = await createSyncService().smartSync('sync: auto update v2t archive');
+      const syncedAt = new Date().toISOString();
+      settings = {
+        ...settings,
+        sync: {
+          kind: 'github',
+          github: {
+            ...settings.sync.github,
+            lastSyncAt: syncedAt,
+            lastAutoSyncAt: syncedAt,
+            lastAutoSyncError: undefined
+          }
+        }
+      };
+      await store.saveSettings(settings);
+      return status.message ?? '已自动同步';
+    },
+    onStatus: async (state) => {
+      autoSyncState = state;
+      if (state.status === 'failed') {
+        settings = {
+          ...settings,
+          sync: {
+            ...settings.sync,
+            github: {
+              ...settings.sync.github,
+              lastAutoSyncError: state.error
+            }
+          }
+        };
+        await store.saveSettings(settings);
+      }
+      mainWindow?.webContents.send('v2t:auto-sync-status', autoSyncState);
+    }
+  });
+}
+
+function scheduleAutoSync(reason: string): void {
+  autoSyncService?.schedule(reason);
 }
 
 async function connectSyncRepo(repoUrl: string) {
@@ -827,6 +886,7 @@ function quitApp(): void {
 }
 
 function cleanupAppResources(): void {
+  autoSyncService?.dispose();
   hotkeyService?.unregister();
   if (recordingOverlayWindow && !recordingOverlayWindow.isDestroyed()) {
     recordingOverlayWindow.destroy();

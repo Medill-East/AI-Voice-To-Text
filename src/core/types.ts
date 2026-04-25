@@ -1,6 +1,7 @@
 export type InputMode = 'natural' | 'structured';
 export type AsrProviderKind = 'local-sherpa-onnx' | 'funasr-http' | 'whisper-cpp';
-export type ModelRuntime = 'sherpa-onnx' | 'whisper-cpp';
+export type ModelRuntime = 'sherpa-onnx' | 'whisper-cpp' | 'external';
+export type ModelAvailability = 'installable' | 'manual' | 'reference';
 export type SherpaModelType = 'senseVoice' | 'funasrNano' | 'fireRedAsr' | 'fireRedAsrCtc' | 'paraformer' | 'zipformerCtc';
 export type ModelInstallStatus =
   | 'not-installed'
@@ -37,6 +38,9 @@ export interface Lexicon {
 export interface Settings {
   schemaVersion: 1;
   defaultMode: InputMode;
+  appearance: {
+    theme: 'system' | 'light' | 'dark';
+  };
   hotkey: {
     accelerator: string;
     longPressMs: number;
@@ -70,6 +74,9 @@ export interface Settings {
       branch: string;
       lastSyncAt?: string;
       includeHistory?: boolean;
+      autoSync?: boolean;
+      lastAutoSyncAt?: string;
+      lastAutoSyncError?: string;
     };
   };
 }
@@ -91,6 +98,9 @@ export interface ModelCatalogItem {
   family: string;
   releasedAt: string;
   installable: boolean;
+  availability?: ModelAvailability;
+  unavailableReason?: string;
+  manualSetup?: string;
   runtime: ModelRuntime;
   sherpaModelType?: SherpaModelType;
   sourceUrl: string;
@@ -164,6 +174,16 @@ export interface ModelRecommendation {
   scoreBreakdown: ModelScoreItem[];
   reasons: string[];
   status: ModelInstallStatus;
+}
+
+export type AutoSyncStatus = 'idle' | 'queued' | 'syncing' | 'success' | 'failed';
+
+export interface AutoSyncState {
+  status: AutoSyncStatus;
+  reason?: string;
+  message?: string;
+  error?: string;
+  updatedAt: string;
 }
 
 export interface ModelStatusRecord {

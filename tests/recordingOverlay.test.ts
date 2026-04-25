@@ -22,6 +22,22 @@ describe('recording overlay helpers', () => {
     expect(normalizeRecordingOverlayState({ state: 'error', mode: 'natural', now: 3500 }).visible).toBe(false);
   });
 
+  it('freezes processing elapsed time when the renderer provides final recording duration', () => {
+    expect(
+      normalizeRecordingOverlayState({
+        state: 'processing',
+        mode: 'structured',
+        startedAt: 1000,
+        now: 9000,
+        elapsedMs: 2600
+      })
+    ).toMatchObject({
+      visible: true,
+      state: 'processing',
+      elapsedMs: 2600
+    });
+  });
+
   it('normalizes audio level and silence metadata for the overlay', () => {
     expect(
       normalizeRecordingOverlayState({
