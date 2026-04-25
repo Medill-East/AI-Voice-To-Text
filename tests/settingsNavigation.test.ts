@@ -15,6 +15,9 @@ describe('settings navigation structure', () => {
     expect(app).toContain('复制诊断信息');
     expect(app).toContain('单独的私有仓库');
     expect(app).toContain('settings.json、lexicon.json、prompts/natural.md、prompts/structured.md');
+    expect(app).toContain('autoCapitalize="off"');
+    expect(app).toContain('autoCorrect="off"');
+    expect(app).toContain('spellCheck={false}');
     expect(app).not.toContain('showAdvanced');
     expect(app).not.toContain('收起高级设置');
   });

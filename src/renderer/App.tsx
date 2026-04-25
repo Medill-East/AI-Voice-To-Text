@@ -913,6 +913,9 @@ export function App() {
                 <input
                   value={syncRepoUrl}
                   placeholder="git@github.com:you/v2t-sync.git"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoCorrect="off"
                   onChange={(event) => setSyncRepoUrl(event.target.value)}
                 />
               </label>

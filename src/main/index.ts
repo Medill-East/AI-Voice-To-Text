@@ -137,6 +137,19 @@ function createTray(): void {
 
 function createApplicationMenu(): void {
   const quitItem = quitMenuItemConfig();
+  const editMenu: Electron.MenuItemConstructorOptions = {
+    label: 'Edit',
+    submenu: [
+      { role: 'undo' },
+      { role: 'redo' },
+      { type: 'separator' },
+      { role: 'cut' },
+      { role: 'copy' },
+      { role: 'paste' },
+      { type: 'separator' },
+      { role: 'selectAll' }
+    ]
+  };
   const template: Electron.MenuItemConstructorOptions[] =
     process.platform === 'darwin'
       ? [
@@ -149,7 +162,8 @@ function createApplicationMenu(): void {
                 click: () => quitApp()
               }
             ]
-          }
+          },
+          editMenu
         ]
       : [
           {
@@ -160,7 +174,8 @@ function createApplicationMenu(): void {
                 click: () => quitApp()
               }
             ]
-          }
+          },
+          editMenu
         ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }

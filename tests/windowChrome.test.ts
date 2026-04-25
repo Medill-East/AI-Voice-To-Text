@@ -14,4 +14,12 @@ describe('window chrome styles', () => {
     expect(noDragBlocks).not.toMatch(/(^|,|\n)\s*\.shell\s*(,|\{)/);
     expect(noDragBlocks).not.toMatch(/(^|,|\n)\s*\.side\s*(,|\{)/);
   });
+
+  it('keeps standard edit actions in the application menu for text fields', async () => {
+    const main = await readFile(new URL('../src/main/index.ts', import.meta.url), 'utf8');
+
+    for (const role of ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll']) {
+      expect(main).toContain(`role: '${role}'`);
+    }
+  });
 });
