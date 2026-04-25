@@ -1,0 +1,63 @@
+import { PostProcessor } from './postProcessor';
+import type { AsrProvider, InputMode, TextInjector, VoiceInputPipelineResult } from './types';
+import { UserDataStore } from './userDataStore';
+
+interface PipelineDependencies {
+  store: UserDataStore;
+  asr: AsrProvider;
+  injector: TextInjector;
+  postProcessor?: PostProcessor;
+  now?: () => Date;
+  idFactory?: () => string;
+}
+
+interface HandleAudioOptions {
+  mode: InputMode;
+  targetApp?: string;
+}
+
+export function createVoiceInputPipeline(dependencies: PipelineDependencies) {
+  const postProcessor = dependencies.postProcessor ?? new PostProcessor();
+  const now = dependencies.now ?? (() => new Date());
+  const idFactory =
+    dependencies.idFactory ??
+    (() => {
+      if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+        return crypto.randomUUID();
+      }
+      return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    });
+
+  return {
+    async handleAudio(audio: Buffer | Uint8Array, options: HandleAudioOptions): Promise<VoiceInputPipelineResult> {
+      const lexicon = await dependencies.store.loadLexicon();
+      const asrResult = await dependencies.asr.transcribe(audio);
+      const processed = await postProcessor.process(asrResult.text, {
+        mode: options.mode,
+        lexicon
+      });
+      const injection = await dependencies.injector.injectText(processed.text);
+      const id = idFactory();
+      const createdAt = now().toISOString();
+
+      await dependencies.store.appendHistory({
+        id,
+        createdAt,
+        mode: options.mode,
+        rawText: asrResult.text,
+        outputText: processed.text,
+        targetApp: options.targetApp,
+        injectionMethod: injection.method,
+        error: injection.error
+      });
+
+      return {
+        id,
+        rawText: asrResult.text,
+        outputText: processed.text,
+        injection,
+        usedLlm: processed.usedLlm
+      };
+    }
+  };
+}

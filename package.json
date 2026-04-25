@@ -1,0 +1,37 @@
+{
+  "name": "v2t",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cross-platform voice-to-text desktop app MVP.",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:electron": "npm run build:main && concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "build": "npm run typecheck && npm run build:main && npm run build:renderer",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "postinstall": "node scripts/fix-key-listener-permissions.mjs",
+    "start": "electron .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.main.json"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "concurrently": "^9.2.1",
+    "electron": "^39.2.7",
+    "node-global-key-listener": "^0.3.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "sherpa-onnx": "^1.12.37",
+    "vite": "^7.2.7",
+    "wait-on": "^9.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.2",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.15"
+  }
+}

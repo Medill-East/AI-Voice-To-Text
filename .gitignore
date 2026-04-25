@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# Local runtime data and generated assets
+models/
+local/
+coverage/
+
+# Environment and secret files
+.env
+.env.*
+!.env.example
