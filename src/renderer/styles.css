@@ -440,6 +440,10 @@ select {
   margin-top: 14px;
 }
 
+.hotkey-test-message {
+  margin-top: 10px;
+}
+
 .secondary.listening {
   background: #d84d3f;
   border-color: #d84d3f;

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NativeKeyListenerFactory } from '../src/main/hotkeyService';
 
 const register = vi.fn();
@@ -16,6 +16,11 @@ describe('HotkeyService', () => {
     register.mockReset();
     register.mockReturnValue(true);
     unregisterAll.mockReset();
+    vi.useRealTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('uses the fallback shortcut when a pure modifier needs accessibility permission', async () => {
@@ -90,5 +95,73 @@ describe('HotkeyService', () => {
         lastError: 'MacKeyServer exited'
       })
     );
+  });
+
+  it('reports a helper permission diagnostic when native listener starts but never receives events', async () => {
+    vi.useFakeTimers();
+    const { HotkeyService } = await import('../src/main/hotkeyService');
+    const onStatus = vi.fn();
+    const nativeFactory: NativeKeyListenerFactory = {
+      addListener: vi.fn(async () => ({
+        remove: vi.fn(),
+        kill: vi.fn()
+      }))
+    };
+    const service = new HotkeyService({ nativeFactory, noNativeEventTimeoutMs: 3000 });
+
+    await service.register({
+      accelerator: 'RightAlt',
+      fallbackAccelerator: 'CommandOrControl+Alt+Space',
+      longPressMs: 250,
+      accessibilityTrusted: true,
+      nativeHelperPath: '/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer',
+      onAction: vi.fn(),
+      onStatus
+    });
+
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(onStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        backend: 'electron-shortcut',
+        registered: true,
+        activeAccelerator: 'CommandOrControl+Alt+Space',
+        nativeActive: false,
+        nativeHelperPath: '/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer',
+        recommendedAction: 'grant-native-helper-accessibility',
+        diagnosticMessage: expect.stringContaining('未收到系统按键事件')
+      })
+    );
+  });
+
+  it('tests RightAlt by resolving when a RIGHT ALT native event is received', async () => {
+    const { HotkeyService } = await import('../src/main/hotkeyService');
+    let listener: Parameters<NativeKeyListenerFactory['addListener']>[0] | undefined;
+    const nativeFactory: NativeKeyListenerFactory = {
+      addListener: vi.fn(async (callback) => {
+        listener = callback;
+        return {
+          remove: vi.fn(),
+          kill: vi.fn()
+        };
+      })
+    };
+    const service = new HotkeyService({ nativeFactory });
+
+    const resultPromise = service.testAccelerator({
+      accelerator: 'RightAlt',
+      timeoutMs: 5000,
+      accessibilityTrusted: true,
+      nativeHelperPath: '/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer'
+    });
+
+    await Promise.resolve();
+    listener?.({ name: 'RIGHT ALT', state: 'DOWN', vKey: 0x3d, scanCode: 0x3d, _raw: 'KEYBOARD,DOWN,61,0,0,1' }, {});
+
+    await expect(resultPromise).resolves.toMatchObject({
+      ok: true,
+      eventName: 'RIGHT ALT',
+      nativeHelperPath: '/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer'
+    });
   });
 });

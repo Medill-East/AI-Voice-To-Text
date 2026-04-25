@@ -37,6 +37,8 @@ export function App() {
   const [syncBusy, setSyncBusy] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [testingHotkey, setTestingHotkey] = useState(false);
+  const [hotkeyTestMessage, setHotkeyTestMessage] = useState<string | null>(null);
   const recorderRef = useRef<PcmRecorder | null>(null);
   const modeRef = useRef<InputMode>('natural');
   const recordingStateRef = useRef<RecordingState>('idle');
@@ -275,7 +277,28 @@ export function App() {
   };
 
   const refreshHotkeyPermissions = async () => {
+    setHotkeyTestMessage('正在重新检测系统键盘监听');
     applySetup(await window.v2t.refreshHotkeyPermissions());
+  };
+
+  const testHotkey = async () => {
+    if (!settings?.hotkey.accelerator) {
+      return;
+    }
+    setTestingHotkey(true);
+    setHotkeyTestMessage(`请在 5 秒内按下 ${hotkeyLabel(settings.hotkey.accelerator)}`);
+    const result = await window.v2t.testHotkey(settings.hotkey.accelerator);
+    setTestingHotkey(false);
+    if (result.ok) {
+      setHotkeyTestMessage(`已收到 ${result.eventName ?? '系统按键事件'}`);
+    } else {
+      setHotkeyTestMessage(result.diagnosticMessage ?? result.error ?? '未收到系统按键事件');
+    }
+    applySetup(await window.v2t.getSetup());
+  };
+
+  const showNativeHelper = async () => {
+    await window.v2t.showNativeHelper();
   };
 
   const connectSyncRepo = async () => {
@@ -521,6 +544,12 @@ export function App() {
                   <dd>{hotkeyStatus.message}</dd>
                 </div>
               ) : null}
+              {hotkeyStatus?.diagnosticMessage && hotkeyStatus.diagnosticMessage !== hotkeyStatus.message ? (
+                <div>
+                  <dt>诊断</dt>
+                  <dd>{hotkeyStatus.diagnosticMessage}</dd>
+                </div>
+              ) : null}
               {hotkeyStatus?.lastError ? (
                 <div>
                   <dt>最近错误</dt>
@@ -545,17 +574,24 @@ export function App() {
                   <dd>{hotkeyLabel(settings.hotkey.fallbackAccelerator)}</dd>
                 </div>
               ) : null}
+              {hotkeyStatus?.nativeHelperPath ? (
+                <div>
+                  <dt>监听组件</dt>
+                  <dd>{hotkeyStatus.nativeHelperPath}</dd>
+                </div>
+              ) : null}
             </dl>
-            {hotkeyStatus?.needsAccessibilityPermission ? (
-              <div className="button-row">
-                <button className="secondary" onClick={() => void openAccessibilitySettings()}>
-                  打开权限设置
-                </button>
-                <button className="secondary" onClick={() => void refreshHotkeyPermissions()}>
-                  重新检测
-                </button>
-              </div>
-            ) : null}
+            <div className="button-row three">
+              <button className="secondary" onClick={() => void openAccessibilitySettings()}>
+                打开权限
+              </button>
+              <button className="secondary" onClick={() => void showNativeHelper()}>
+                显示组件
+              </button>
+              <button className="secondary" onClick={() => void refreshHotkeyPermissions()}>
+                重新检测
+              </button>
+            </div>
             <div className="button-row">
               <button
                 className={`secondary ${capturingHotkey ? 'listening' : ''}`}
@@ -569,6 +605,10 @@ export function App() {
                 恢复默认
               </button>
             </div>
+            <button className="secondary full-width" onClick={() => void testHotkey()} disabled={testingHotkey}>
+              {testingHotkey ? '等待按键中' : '测试触发键'}
+            </button>
+            {hotkeyTestMessage ? <p className="hint hotkey-test-message">{hotkeyTestMessage}</p> : null}
             {capturingHotkey ? <p className="hint">单个修饰键可以保存，但更容易误触；普通字母和数字单键仍会被拒绝。</p> : null}
           </section>
 
@@ -895,6 +935,9 @@ function formatBytes(bytes: number): string {
 function hotkeyStatusLabel(status?: HotkeyStatus): string {
   if (!status) {
     return '初始化';
+  }
+  if (status.checking) {
+    return '检测中';
   }
   if (status.fallbackRegistered && status.nativeActive === false) {
     return `备用快捷键已启用：${hotkeyLabel(status.activeAccelerator ?? '')}`;

@@ -10,7 +10,7 @@ import type {
   Settings,
   VoiceInputPipelineResult
 } from '../core/types';
-import type { HotkeyStatus } from '../main/hotkeyService';
+import type { HotkeyStatus, HotkeyTestResult } from '../main/hotkeyService';
 import type { RecordingOverlayUpdate } from '../main/recordingOverlay';
 
 export interface RecordingCommand {
@@ -33,6 +33,8 @@ export interface V2TApi {
   setRecordingOverlayState(update: RecordingOverlayUpdate): Promise<{ ok: true }>;
   openAccessibilitySettings(): Promise<{ ok: true }>;
   refreshHotkeyPermissions(): Promise<SetupPayload>;
+  testHotkey(accelerator?: string): Promise<HotkeyTestResult>;
+  showNativeHelper(): Promise<{ ok: boolean }>;
   quitApp(): Promise<{ ok: true }>;
   setOpenAIKey(value: string): Promise<{ ok: true }>;
   processAudio(payload: { bytes: Uint8Array; mode: InputMode }): Promise<VoiceInputPipelineResult>;
@@ -98,6 +100,8 @@ const api: V2TApi = {
   setRecordingOverlayState: (update) => ipcRenderer.invoke('v2t:set-recording-overlay-state', update),
   openAccessibilitySettings: () => ipcRenderer.invoke('v2t:open-accessibility-settings'),
   refreshHotkeyPermissions: () => ipcRenderer.invoke('v2t:refresh-hotkey-permissions'),
+  testHotkey: (accelerator) => ipcRenderer.invoke('v2t:test-hotkey', accelerator),
+  showNativeHelper: () => ipcRenderer.invoke('v2t:show-native-helper'),
   quitApp: () => ipcRenderer.invoke('v2t:quit-app'),
   setOpenAIKey: (value) => ipcRenderer.invoke('v2t:set-openai-key', value),
   processAudio: async (payload) => {

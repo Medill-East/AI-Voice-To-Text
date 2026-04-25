@@ -15,7 +15,9 @@ import { TextInjectionService } from '../core/textInjection';
 import { UserDataStore } from '../core/userDataStore';
 import type { InputMode, ModelInstallStatus, ModelStatusRecord, Settings } from '../core/types';
 import { getFocusedAppName } from './focusedApp';
-import { HotkeyService, type HotkeyStatus } from './hotkeyService';
+import { createCheckingHotkeyStatus } from './hotkeyDiagnostics';
+import { HotkeyService, type HotkeyStatus, type HotkeyTestResult } from './hotkeyService';
+import { bundledMacKeyServerPath, ensureStableMacKeyServer } from './nativeKeyHelper';
 import { OsPasteKeySender } from './osPasteKeySender';
 import { SecretStore } from './secretStore';
 import { createTrayImage } from './trayIcon';
@@ -38,6 +40,7 @@ let hotkeyService: HotkeyService;
 let hotkeyStatus: HotkeyStatus | undefined;
 let isQuitting = false;
 let modelRoot: string;
+let nativeHelperPath: string | undefined;
 
 app.setName('V2T');
 
@@ -51,6 +54,7 @@ async function bootstrap(): Promise<void> {
   settings.dataDir = settings.dataDir ?? defaultDataDir;
   await store.saveSettings(settings);
 
+  nativeHelperPath = await setupNativeKeyHelper();
   hotkeyService = new HotkeyService();
   createWindow();
   createTray();
@@ -139,8 +143,16 @@ function registerIpc(): void {
     return { ok: true };
   });
   ipcMain.handle('v2t:refresh-hotkey-permissions', async () => {
-    await registerHotkey();
+    refreshHotkeyPermissions();
     return getSetupPayload();
+  });
+  ipcMain.handle('v2t:test-hotkey', async (_event, accelerator?: string) => testHotkey(accelerator ?? settings.hotkey.accelerator));
+  ipcMain.handle('v2t:show-native-helper', async () => {
+    if (nativeHelperPath) {
+      shell.showItemInFolder(nativeHelperPath);
+      return { ok: true };
+    }
+    return { ok: false };
   });
   ipcMain.handle('v2t:quit-app', async () => {
     quitApp();
@@ -320,12 +332,103 @@ async function registerHotkey(): Promise<void> {
     fallbackAccelerator: settings.hotkey.fallbackAccelerator,
     longPressMs: settings.hotkey.longPressMs,
     accessibilityTrusted: getAccessibilityTrusted(),
+    nativeHelperPath,
     onAction: sendHotkeyAction,
     onStatus: (status) => {
-      hotkeyStatus = status;
-      mainWindow?.webContents.send('v2t:hotkey-status', status);
+      setHotkeyStatus(status);
     }
   });
+}
+
+function refreshHotkeyPermissions(): void {
+  setHotkeyStatus(
+    createCheckingHotkeyStatus({
+      accelerator: settings.hotkey.accelerator,
+      fallbackAccelerator: settings.hotkey.fallbackAccelerator,
+      accessibilityTrusted: getAccessibilityTrusted(),
+      nativeHelperPath
+    })
+  );
+  void registerHotkey().catch((error) => {
+    setHotkeyStatus({
+      backend: 'electron-shortcut',
+      registered: false,
+      requestedAccelerator: settings.hotkey.accelerator,
+      activeAccelerator: settings.hotkey.fallbackAccelerator ?? settings.hotkey.accelerator,
+      fallbackAccelerator: settings.hotkey.fallbackAccelerator,
+      fallbackRegistered: false,
+      nativeActive: false,
+      nativeHelperPath,
+      lastError: readableError(error),
+      diagnosticMessage: '系统键盘监听重新检测失败。',
+      recommendedAction: 'grant-native-helper-accessibility',
+      message: readableError(error)
+    });
+  });
+}
+
+async function testHotkey(accelerator: string): Promise<HotkeyTestResult> {
+  setHotkeyStatus(
+    createCheckingHotkeyStatus({
+      accelerator,
+      fallbackAccelerator: settings.hotkey.fallbackAccelerator,
+      accessibilityTrusted: getAccessibilityTrusted(),
+      nativeHelperPath,
+      diagnosticMessage: `请在 5 秒内按下 ${accelerator}。`
+    })
+  );
+  const result = await hotkeyService.testAccelerator({
+    accelerator,
+    timeoutMs: 5000,
+    accessibilityTrusted: getAccessibilityTrusted(),
+    nativeHelperPath
+  });
+  setHotkeyStatus(hotkeyStatusFromTestResult(result));
+  await registerHotkey();
+  return result;
+}
+
+function hotkeyStatusFromTestResult(result: HotkeyTestResult): HotkeyStatus {
+  if (result.ok) {
+    return {
+      backend: 'native-listener',
+      registered: true,
+      requestedAccelerator: result.accelerator,
+      activeAccelerator: result.accelerator,
+      fallbackAccelerator: settings.hotkey.fallbackAccelerator,
+      fallbackRegistered: true,
+      nativeActive: true,
+      nativeHelperPath,
+      nativeLastInfo: result.nativeLastInfo,
+      lastNativeEventAt: Date.now(),
+      diagnosticMessage: `已收到 ${result.eventName ?? '系统按键事件'}。`,
+      recommendedAction: 'none',
+      message: `已收到 ${result.eventName ?? '系统按键事件'}。`
+    };
+  }
+
+  return {
+    backend: 'electron-shortcut',
+    registered: Boolean(settings.hotkey.fallbackAccelerator),
+    requestedAccelerator: result.accelerator,
+    activeAccelerator: settings.hotkey.fallbackAccelerator ?? result.accelerator,
+    fallbackAccelerator: settings.hotkey.fallbackAccelerator,
+    fallbackRegistered: Boolean(settings.hotkey.fallbackAccelerator),
+    nativeActive: false,
+    nativeHelperPath,
+    nativeLastInfo: result.nativeLastInfo,
+    nativeExitCode: result.nativeExitCode,
+    needsAccessibilityPermission: true,
+    lastError: result.error,
+    diagnosticMessage: result.diagnosticMessage,
+    recommendedAction: result.recommendedAction,
+    message: result.diagnosticMessage ?? result.error
+  };
+}
+
+function setHotkeyStatus(status: HotkeyStatus): void {
+  hotkeyStatus = status;
+  mainWindow?.webContents.send('v2t:hotkey-status', status);
 }
 
 async function getSetupPayload() {
@@ -450,10 +553,10 @@ async function updateHotkey(accelerator: string) {
     fallbackAccelerator: settings.hotkey.fallbackAccelerator,
     longPressMs: settings.hotkey.longPressMs,
     accessibilityTrusted: getAccessibilityTrusted(),
+    nativeHelperPath,
     onAction: sendHotkeyAction,
     onStatus: (nextStatus) => {
-      hotkeyStatus = nextStatus;
-      mainWindow?.webContents.send('v2t:hotkey-status', nextStatus);
+      setHotkeyStatus(nextStatus);
     }
   });
   hotkeyStatus = status;
@@ -470,6 +573,20 @@ async function updateHotkey(accelerator: string) {
 
 function getAccessibilityTrusted(): boolean {
   return process.platform !== 'darwin' || systemPreferences.isTrustedAccessibilityClient(false);
+}
+
+async function setupNativeKeyHelper(): Promise<string | undefined> {
+  if (process.platform !== 'darwin') {
+    return undefined;
+  }
+
+  const bundledPath = bundledMacKeyServerPath();
+  try {
+    return await ensureStableMacKeyServer(bundledPath, app.getPath('userData'));
+  } catch (error) {
+    console.warn(`Unable to install stable MacKeyServer helper: ${readableError(error)}`);
+    return bundledPath;
+  }
 }
 
 function getAppInfo(): { version: string; buildCommit: string } {
