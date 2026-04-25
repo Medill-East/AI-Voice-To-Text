@@ -2,15 +2,16 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
 describe('window chrome styles', () => {
-  it('makes the top bar draggable while keeping controls interactive', async () => {
+  it('uses a fixed shell with a scrollable page content area', async () => {
     const css = await readFile(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
 
-    expect(css).toContain('.shell');
-    expect(css).toContain('.topbar');
-    expect(css).toContain('-webkit-app-region: drag');
-    expect(css).toContain('-webkit-app-region: no-drag');
-    expect(css).toContain('.model-row');
+    expect(css).toMatch(/\.shell\s*\{[^}]*height:\s*100vh;[^}]*overflow:\s*hidden;/s);
+    expect(css).toMatch(/\.page-content\s*\{[^}]*overflow-y:\s*auto;/s);
+    expect(css).toMatch(/\.topbar\s*\{[^}]*-webkit-app-region:\s*drag;/s);
     const noDragBlocks = css.match(/[^{}]+\{[^{}]*-webkit-app-region:\s*no-drag;?[^{}]*\}/g)?.join('\n') ?? '';
+    expect(noDragBlocks).toMatch(/\.page-nav/);
+    expect(noDragBlocks).toMatch(/\.page-content/);
+    expect(noDragBlocks).not.toMatch(/(^|,|\n)\s*\.shell\s*(,|\{)/);
     expect(noDragBlocks).not.toMatch(/(^|,|\n)\s*\.side\s*(,|\{)/);
   });
 });

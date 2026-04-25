@@ -5,6 +5,16 @@ import type { HotkeyStatus } from '../main/hotkeyService';
 import type { RecordingCommand, SetupPayload } from '../preload';
 
 type RecordingState = 'idle' | 'recording' | 'processing' | 'error';
+type AppPage = 'voice' | 'models' | 'hotkey' | 'sync' | 'advanced' | 'app';
+
+const APP_PAGES: Array<{ id: AppPage; label: string }> = [
+  { id: 'voice', label: '语音输入' },
+  { id: 'models', label: '模型' },
+  { id: 'hotkey', label: '触发按键' },
+  { id: 'sync', label: 'GitHub 同步' },
+  { id: 'advanced', label: '高级设置' },
+  { id: 'app', label: '应用' }
+];
 
 interface LocalHistoryItem extends VoiceInputPipelineResult {
   createdAt: string;
@@ -24,6 +34,7 @@ export function App() {
   const [setup, setSetup] = useState<SetupPayload | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [mode, setMode] = useState<InputMode>('natural');
+  const [activePage, setActivePage] = useState<AppPage>('voice');
   const [state, setState] = useState<RecordingState>('idle');
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<LocalHistoryItem[]>([]);
@@ -36,7 +47,6 @@ export function App() {
   const [syncRepoUrl, setSyncRepoUrl] = useState('');
   const [syncBusy, setSyncBusy] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [testingHotkey, setTestingHotkey] = useState(false);
   const [hotkeyTestMessage, setHotkeyTestMessage] = useState<string | null>(null);
   const recorderRef = useRef<PcmRecorder | null>(null);
@@ -396,27 +406,11 @@ export function App() {
 
   const topRecommendation = setup?.recommendations[0];
   const hasLocalModel = Boolean(settings?.providers.asr.modelId && settings.providers.asr.modelPath);
-
-  return (
-    <main className="shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">V2T</p>
-          <h1>语音输入</h1>
-          {setup ? (
-            <p className="build-info">
-              v{setup.appInfo.version} · {setup.appInfo.buildCommit}
-            </p>
-          ) : null}
-        </div>
-        <div className="status-row">
-          <span className={`status-dot ${state}`} />
-          <span>{stateLabel(state)}</span>
-        </div>
-      </header>
-
-      <section className="workspace">
-        <section className="primary">
+  const currentPage = APP_PAGES.find((page) => page.id === activePage) ?? APP_PAGES[0];
+  const pageContent = (() => {
+    if (activePage === 'voice') {
+      return (
+        <section className="page-section voice-page">
           {!hasLocalModel && topRecommendation ? (
             <section className="setup-callout">
               <div>
@@ -453,8 +447,6 @@ export function App() {
             {state === 'recording' ? '停止' : state === 'processing' ? '整理中' : '录音'}
           </button>
 
-          {error ? <p className="error">{error}</p> : null}
-
           <section className="history">
             <h2>历史</h2>
             {history.length === 0 ? (
@@ -475,158 +467,170 @@ export function App() {
             )}
           </section>
         </section>
+      );
+    }
 
-        <aside className="side">
-          <section>
-            <h2>推荐安装</h2>
-            {setup ? (
-              <>
-                <p className="hint">
-                  {setup.hardware.cpuName} · {setup.hardware.memoryGb}GB · {tierLabel(setup.hardware.recommendedTier)}
-                </p>
-                <div className="model-list">
-                  {setup.recommendations.map((recommendation) => (
-                    <ModelRow
-                      key={recommendation.model.id}
-                      recommendation={recommendation}
-                      currentModelId={settings?.providers.asr.modelId}
-                      statusRecord={installProgressById[recommendation.model.id] ?? setup.modelStatuses[recommendation.model.id]}
-                      installingModelId={installingModelId}
-                      deletingModelId={deletingModelId}
-                      onInstall={installModel}
-                      onDelete={deleteModel}
-                    />
-                  ))}
-                </div>
-                {setup.installedModels.length > 0 ? (
-                  <>
-                    <h2 className="subsection-title">已安装模型</h2>
-                    <div className="model-list">
-                      {setup.installedModels.map((model) => (
-                        <InstalledModelRow
-                          key={model.modelId}
-                          model={model}
-                          activatingModelId={activatingModelId}
-                          deletingModelId={deletingModelId}
-                          onActivate={activateModel}
-                          onDelete={deleteModel}
-                        />
-                      ))}
-                    </div>
-                  </>
-                ) : null}
-              </>
-            ) : (
-              <p className="empty">检测中</p>
-            )}
-          </section>
+    if (activePage === 'models') {
+      return (
+        <section className="page-section">
+          <h2>推荐安装</h2>
+          {setup ? (
+            <>
+              <p className="hint">
+                {setup.hardware.cpuName} · {setup.hardware.memoryGb}GB · {tierLabel(setup.hardware.recommendedTier)}
+              </p>
+              <div className="model-list">
+                {setup.recommendations.map((recommendation) => (
+                  <ModelRow
+                    key={recommendation.model.id}
+                    recommendation={recommendation}
+                    currentModelId={settings?.providers.asr.modelId}
+                    statusRecord={installProgressById[recommendation.model.id] ?? setup.modelStatuses[recommendation.model.id]}
+                    installingModelId={installingModelId}
+                    deletingModelId={deletingModelId}
+                    onInstall={installModel}
+                    onDelete={deleteModel}
+                  />
+                ))}
+              </div>
+              {setup.installedModels.length > 0 ? (
+                <>
+                  <h2 className="subsection-title">已安装模型</h2>
+                  <div className="model-list">
+                    {setup.installedModels.map((model) => (
+                      <InstalledModelRow
+                        key={model.modelId}
+                        model={model}
+                        activatingModelId={activatingModelId}
+                        deletingModelId={deletingModelId}
+                        onActivate={activateModel}
+                        onDelete={deleteModel}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : null}
+            </>
+          ) : (
+            <p className="empty">检测中</p>
+          )}
+        </section>
+      );
+    }
 
-          <section>
-            <h2>触发按键</h2>
-            <dl>
-              <div>
-                <dt>当前</dt>
-                <dd>{settings?.hotkey.accelerator ? hotkeyLabel(settings.hotkey.accelerator) : '加载中'}</dd>
-              </div>
-              <div>
-                <dt>监听</dt>
-                <dd>{hotkeyStatusLabel(hotkeyStatus)}</dd>
-              </div>
-              {hotkeyStatus?.activeAccelerator && hotkeyStatus.activeAccelerator !== settings?.hotkey.accelerator ? (
-                <div>
-                  <dt>当前生效</dt>
-                  <dd>{hotkeyLabel(hotkeyStatus.activeAccelerator)}</dd>
-                </div>
-              ) : null}
-              {hotkeyStatus?.message ? (
-                <div>
-                  <dt>提示</dt>
-                  <dd>{hotkeyStatus.message}</dd>
-                </div>
-              ) : null}
-              {hotkeyStatus?.diagnosticMessage && hotkeyStatus.diagnosticMessage !== hotkeyStatus.message ? (
-                <div>
-                  <dt>诊断</dt>
-                  <dd>{hotkeyStatus.diagnosticMessage}</dd>
-                </div>
-              ) : null}
-              {hotkeyStatus?.lastError ? (
-                <div>
-                  <dt>最近错误</dt>
-                  <dd>{hotkeyStatus.lastError}</dd>
-                </div>
-              ) : null}
-              {hotkeyStatus?.lastNativeEventAt ? (
-                <div>
-                  <dt>最近按键事件</dt>
-                  <dd>{new Date(hotkeyStatus.lastNativeEventAt).toLocaleTimeString()}</dd>
-                </div>
-              ) : null}
-              {hotkeyStatus?.helperAttempted !== undefined ? (
-                <div>
-                  <dt>监听组件检测</dt>
-                  <dd>{hotkeyStatus.nativeActive ? '已收到系统按键事件' : hotkeyStatus.helperAttempted ? '已启动，等待按键事件验证' : '尚未开始'}</dd>
-                </div>
-              ) : null}
-              {hotkeyStatus?.appAccessibilityTrusted !== undefined ? (
-                <div>
-                  <dt>V2T 权限</dt>
-                  <dd>{hotkeyStatus.appAccessibilityTrusted ? '主应用辅助功能权限已确认' : '主应用辅助功能权限未确认；仍会继续检测监听组件'}</dd>
-                </div>
-              ) : null}
-              {hotkeyStatus?.needsAccessibilityPermission ? (
-                <div>
-                  <dt>权限</dt>
-                  <dd>{hotkeyPermissionHint(hotkeyStatus)}</dd>
-                </div>
-              ) : null}
-              {settings?.hotkey.fallbackAccelerator ? (
-                <div>
-                  <dt>备用</dt>
-                  <dd>{hotkeyLabel(settings.hotkey.fallbackAccelerator)}</dd>
-                </div>
-              ) : null}
-              {hotkeyStatus?.nativeHelperPath ? (
-                <div>
-                  <dt>监听组件</dt>
-                  <dd>{hotkeyStatus.nativeHelperPath}</dd>
-                </div>
-              ) : null}
-            </dl>
-            <div className="button-row three">
-              <button className="secondary" onClick={() => void openAccessibilitySettings()}>
-                打开权限
-              </button>
-              <button className="secondary" onClick={() => void showNativeHelper()}>
-                显示组件
-              </button>
-              <button className="secondary" onClick={() => void refreshHotkeyPermissions()}>
-                重新检测
-              </button>
+    if (activePage === 'hotkey') {
+      return (
+        <section className="page-section">
+          <h2>触发按键</h2>
+          <dl>
+            <div>
+              <dt>当前</dt>
+              <dd>{settings?.hotkey.accelerator ? hotkeyLabel(settings.hotkey.accelerator) : '加载中'}</dd>
             </div>
-            <div className="button-row">
-              <button
-                className={`secondary ${capturingHotkey ? 'listening' : ''}`}
-                onClick={() => setCapturingHotkey(true)}
-                onKeyDown={handleHotkeyKeyDown}
-                onKeyUp={(event) => void handleHotkeyKeyUp(event)}
-              >
-                {capturingHotkey ? '按下触发键或组合键' : '录制快捷键'}
-              </button>
-              <button className="secondary" onClick={() => void updateHotkey('CommandOrControl+Shift+Space')}>
-                恢复默认
-              </button>
+            <div>
+              <dt>监听</dt>
+              <dd>{hotkeyStatusLabel(hotkeyStatus)}</dd>
             </div>
-            <button className="secondary full-width" onClick={() => void testHotkey()} disabled={testingHotkey}>
-              {testingHotkey ? '等待按键中' : '测试触发键'}
+            {hotkeyStatus?.activeAccelerator && hotkeyStatus.activeAccelerator !== settings?.hotkey.accelerator ? (
+              <div>
+                <dt>当前生效</dt>
+                <dd>{hotkeyLabel(hotkeyStatus.activeAccelerator)}</dd>
+              </div>
+            ) : null}
+            {hotkeyStatus?.message ? (
+              <div>
+                <dt>提示</dt>
+                <dd>{hotkeyStatus.message}</dd>
+              </div>
+            ) : null}
+            {hotkeyStatus?.diagnosticMessage && hotkeyStatus.diagnosticMessage !== hotkeyStatus.message ? (
+              <div>
+                <dt>诊断</dt>
+                <dd>{hotkeyStatus.diagnosticMessage}</dd>
+              </div>
+            ) : null}
+            {hotkeyStatus?.lastError ? (
+              <div>
+                <dt>最近错误</dt>
+                <dd>{hotkeyStatus.lastError}</dd>
+              </div>
+            ) : null}
+            {hotkeyStatus?.lastNativeEventAt ? (
+              <div>
+                <dt>最近按键事件</dt>
+                <dd>{new Date(hotkeyStatus.lastNativeEventAt).toLocaleTimeString()}</dd>
+              </div>
+            ) : null}
+            {hotkeyStatus?.helperAttempted !== undefined ? (
+              <div>
+                <dt>监听组件检测</dt>
+                <dd>{hotkeyStatus.nativeActive ? '已收到系统按键事件' : hotkeyStatus.helperAttempted ? '已启动，等待按键事件验证' : '尚未开始'}</dd>
+              </div>
+            ) : null}
+            {hotkeyStatus?.appAccessibilityTrusted !== undefined ? (
+              <div>
+                <dt>V2T 权限</dt>
+                <dd>{hotkeyStatus.appAccessibilityTrusted ? '主应用辅助功能权限已确认' : '主应用辅助功能权限未确认；仍会继续检测监听组件'}</dd>
+              </div>
+            ) : null}
+            {hotkeyStatus?.needsAccessibilityPermission ? (
+              <div>
+                <dt>权限</dt>
+                <dd>{hotkeyPermissionHint(hotkeyStatus)}</dd>
+              </div>
+            ) : null}
+            {settings?.hotkey.fallbackAccelerator ? (
+              <div>
+                <dt>备用</dt>
+                <dd>{hotkeyLabel(settings.hotkey.fallbackAccelerator)}</dd>
+              </div>
+            ) : null}
+            {hotkeyStatus?.nativeHelperPath ? (
+              <div>
+                <dt>监听组件</dt>
+                <dd>{hotkeyStatus.nativeHelperPath}</dd>
+              </div>
+            ) : null}
+          </dl>
+          <div className="button-row three">
+            <button className="secondary" onClick={() => void openAccessibilitySettings()}>
+              打开权限
             </button>
-            {hotkeyTestMessage ? <p className="hint hotkey-test-message">{hotkeyTestMessage}</p> : null}
-            {capturingHotkey ? <p className="hint">单个修饰键可以保存，但更容易误触；普通字母和数字单键仍会被拒绝。</p> : null}
-          </section>
+            <button className="secondary" onClick={() => void showNativeHelper()}>
+              显示组件
+            </button>
+            <button className="secondary" onClick={() => void refreshHotkeyPermissions()}>
+              重新检测
+            </button>
+          </div>
+          <div className="button-row">
+            <button
+              className={`secondary ${capturingHotkey ? 'listening' : ''}`}
+              onClick={() => setCapturingHotkey(true)}
+              onKeyDown={handleHotkeyKeyDown}
+              onKeyUp={(event) => void handleHotkeyKeyUp(event)}
+            >
+              {capturingHotkey ? '按下触发键或组合键' : '录制快捷键'}
+            </button>
+            <button className="secondary" onClick={() => void updateHotkey('CommandOrControl+Shift+Space')}>
+              恢复默认
+            </button>
+          </div>
+          <button className="secondary full-width" onClick={() => void testHotkey()} disabled={testingHotkey}>
+            {testingHotkey ? '等待按键中' : '测试触发键'}
+          </button>
+          {hotkeyTestMessage ? <p className="hint hotkey-test-message">{hotkeyTestMessage}</p> : null}
+          {capturingHotkey ? <p className="hint">单个修饰键可以保存，但更容易误触；普通字母和数字单键仍会被拒绝。</p> : null}
+        </section>
+      );
+    }
 
+    if (activePage === 'sync') {
+      return (
+        <section className="page-section">
+          <h2>GitHub 同步</h2>
           {settings ? (
-            <section>
-              <h2>GitHub 同步</h2>
+            <>
               <p className="hint">只同步设置、词库和提示词，不同步历史和模型。</p>
               <label>
                 仓库 URL
@@ -658,123 +662,175 @@ export function App() {
                 </button>
               </div>
               {syncMessage ? <p className="sync-message">{syncMessage}</p> : null}
-            </section>
-          ) : null}
+            </>
+          ) : (
+            <p className="empty">加载中</p>
+          )}
+        </section>
+      );
+    }
 
+    if (activePage === 'advanced') {
+      return (
+        <section className="page-section advanced">
+          <h2>高级设置</h2>
           {settings ? (
-            <section>
-              <button className="section-toggle" onClick={() => setShowAdvanced((value) => !value)}>
-                {showAdvanced ? '收起高级设置' : '高级设置'}
+            <>
+              <label>
+                当前模型目录
+                <input value={setup?.modelRoot ?? ''} readOnly />
+              </label>
+              <label>
+                同步数据目录
+                <input value={settings.dataDir ?? ''} readOnly />
+              </label>
+              <label>
+                ASR 模式
+                <select
+                  value={settings.providers.asr.kind}
+                  onChange={(event) =>
+                    setSettings({
+                      ...settings,
+                      providers: {
+                        ...settings.providers,
+                        asr: {
+                          ...settings.providers.asr,
+                          kind: event.target.value as Settings['providers']['asr']['kind']
+                        }
+                      }
+                    })
+                  }
+                >
+                  <option value="local-sherpa-onnx">本地 SenseVoice</option>
+                  <option value="funasr-http">FunASR HTTP</option>
+                  <option value="whisper-cpp">Whisper.cpp</option>
+                </select>
+              </label>
+              <label>
+                FunASR 服务地址
+                <input
+                  value={settings.providers.asr.endpoint ?? ''}
+                  onChange={(event) =>
+                    setSettings({
+                      ...settings,
+                      providers: {
+                        ...settings.providers,
+                        asr: { ...settings.providers.asr, endpoint: event.target.value }
+                      }
+                    })
+                  }
+                />
+              </label>
+              <label>
+                LLM Base URL
+                <input
+                  value={settings.providers.llm.baseUrl}
+                  onChange={(event) =>
+                    setSettings({
+                      ...settings,
+                      providers: {
+                        ...settings.providers,
+                        llm: { ...settings.providers.llm, baseUrl: event.target.value }
+                      }
+                    })
+                  }
+                />
+              </label>
+              <label>
+                LLM Model
+                <input
+                  value={settings.providers.llm.model}
+                  onChange={(event) =>
+                    setSettings({
+                      ...settings,
+                      providers: {
+                        ...settings.providers,
+                        llm: { ...settings.providers.llm, model: event.target.value }
+                      }
+                    })
+                  }
+                />
+              </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={settings.providers.llm.enabled}
+                  onChange={(event) =>
+                    setSettings({
+                      ...settings,
+                      providers: {
+                        ...settings.providers,
+                        llm: { ...settings.providers.llm, enabled: event.target.checked }
+                      }
+                    })
+                  }
+                />
+                结构输入使用 LLM
+              </label>
+              <button className="save" onClick={() => void saveSettings()}>
+                保存高级设置
               </button>
-              {showAdvanced ? (
-                <div className="advanced">
-                  <label>
-                    当前模型目录
-                    <input value={setup?.modelRoot ?? ''} readOnly />
-                  </label>
-                  <label>
-                    同步数据目录
-                    <input value={settings.dataDir ?? ''} readOnly />
-                  </label>
-                  <label>
-                    ASR 模式
-                    <select
-                      value={settings.providers.asr.kind}
-                      onChange={(event) =>
-                        setSettings({
-                          ...settings,
-                          providers: {
-                            ...settings.providers,
-                            asr: {
-                              ...settings.providers.asr,
-                              kind: event.target.value as Settings['providers']['asr']['kind']
-                            }
-                          }
-                        })
-                      }
-                    >
-                      <option value="local-sherpa-onnx">本地 SenseVoice</option>
-                      <option value="funasr-http">FunASR HTTP</option>
-                      <option value="whisper-cpp">Whisper.cpp</option>
-                    </select>
-                  </label>
-                  <label>
-                    FunASR 服务地址
-                    <input
-                      value={settings.providers.asr.endpoint ?? ''}
-                      onChange={(event) =>
-                        setSettings({
-                          ...settings,
-                          providers: {
-                            ...settings.providers,
-                            asr: { ...settings.providers.asr, endpoint: event.target.value }
-                          }
-                        })
-                      }
-                    />
-                  </label>
-                  <label>
-                    LLM Base URL
-                    <input
-                      value={settings.providers.llm.baseUrl}
-                      onChange={(event) =>
-                        setSettings({
-                          ...settings,
-                          providers: {
-                            ...settings.providers,
-                            llm: { ...settings.providers.llm, baseUrl: event.target.value }
-                          }
-                        })
-                      }
-                    />
-                  </label>
-                  <label>
-                    LLM Model
-                    <input
-                      value={settings.providers.llm.model}
-                      onChange={(event) =>
-                        setSettings({
-                          ...settings,
-                          providers: {
-                            ...settings.providers,
-                            llm: { ...settings.providers.llm, model: event.target.value }
-                          }
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="check">
-                    <input
-                      type="checkbox"
-                      checked={settings.providers.llm.enabled}
-                      onChange={(event) =>
-                        setSettings({
-                          ...settings,
-                          providers: {
-                            ...settings.providers,
-                            llm: { ...settings.providers.llm, enabled: event.target.checked }
-                          }
-                        })
-                      }
-                    />
-                    结构输入使用 LLM
-                  </label>
-                  <button className="save" onClick={() => void saveSettings()}>
-                    保存高级设置
-                  </button>
-                </div>
-              ) : null}
-            </section>
-          ) : null}
+            </>
+          ) : (
+            <p className="empty">加载中</p>
+          )}
+        </section>
+      );
+    }
 
-          <section>
-            <h2>应用</h2>
-            <p className="hint">关闭窗口会隐藏到菜单栏；需要结束后台进程时使用完全退出。</p>
-            <button className="secondary full-width" onClick={() => void window.v2t.quitApp()}>
-              完全退出 V2T
+    return (
+      <section className="page-section">
+        <h2>应用</h2>
+        <p className="hint">关闭窗口会隐藏到菜单栏；需要结束后台进程时使用完全退出。</p>
+        {setup ? (
+          <p className="build-info">
+            当前版本 v{setup.appInfo.version} · {setup.appInfo.buildCommit}
+          </p>
+        ) : null}
+        <button className="secondary full-width" onClick={() => void window.v2t.quitApp()}>
+          完全退出 V2T
+        </button>
+      </section>
+    );
+  })();
+
+  return (
+    <main className="shell">
+      <aside className="app-sidebar">
+        <div className="sidebar-brand">
+          <p className="eyebrow">V2T</p>
+          <h1>语音输入</h1>
+          {setup ? (
+            <p className="build-info">
+              v{setup.appInfo.version} · {setup.appInfo.buildCommit}
+            </p>
+          ) : null}
+        </div>
+        <nav className="page-nav" aria-label="V2T 页面">
+          {APP_PAGES.map((page) => (
+            <button key={page.id} className={activePage === page.id ? 'active' : ''} onClick={() => setActivePage(page.id)}>
+              {page.label}
             </button>
-          </section>
-        </aside>
+          ))}
+        </nav>
+      </aside>
+
+      <section className="app-main">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">当前页面</p>
+            <h1>{currentPage.label}</h1>
+          </div>
+          <div className="status-row">
+            <span className={`status-dot ${state}`} />
+            <span>{stateLabel(state)}</span>
+          </div>
+        </header>
+
+        <section className="page-content">
+          {error ? <p className="error">{error}</p> : null}
+          {pageContent}
+        </section>
       </section>
     </main>
   );
