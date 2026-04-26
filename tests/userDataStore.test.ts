@@ -114,7 +114,41 @@ describe('UserDataStore', () => {
 
     expect(history).toContain('"rawText":"原始文本"');
     expect(history).toContain('"outputText":"最终文本"');
-    expect(history).not.toContain('audio');
+    expect(history).not.toContain('audioData');
+  });
+
+  it('aggregates usage statistics from text-only history metadata', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-store-'));
+    const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
+
+    await store.appendHistory({
+      id: 'entry-1',
+      createdAt: new Date().toISOString(),
+      mode: 'structured',
+      rawText: '原始文本',
+      outputText: '最终文本',
+      injectionMethod: 'cursor',
+      postProcessorEngine: 'llm-cloud',
+      audioDurationSeconds: 12,
+      outputCharCount: 4,
+      asrModelId: 'sensevoice',
+      asrDurationMs: 3000,
+      postProcessDurationMs: 700,
+      totalDurationMs: 4100
+    });
+
+    const stats = await store.readUsageStatistics(30);
+
+    expect(stats).toMatchObject({
+      totalCount: 1,
+      totalAudioSeconds: 12,
+      totalOutputChars: 4,
+      averageTotalMs: 4100,
+      averageAsrMs: 3000,
+      averagePostProcessMs: 700
+    });
+    expect(stats.asrModels[0]).toMatchObject({ key: 'sensevoice', averageRealTimeFactor: 4 });
+    expect(stats.postProcessors[0]).toMatchObject({ key: 'llm-cloud', label: '云端 LLM' });
   });
 
   it('loads recent history for the current device in reverse chronological order', async () => {

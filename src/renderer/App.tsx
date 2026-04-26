@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
-import { referenceModels } from '../core/modelCatalog';
+import { oneClickEligibility, oneClickInstallableModels, referenceModels, scoreModel } from '../core/modelCatalog';
 import { hotkeyLabelForPlatform } from '../core/hotkeyLabels';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
 import type {
@@ -23,19 +23,23 @@ import type {
   PromptFiles,
   Settings,
   SyncImportStrategy,
+  UsageAggregate,
+  UsageStatistics,
   VoiceInputPipelineResult
 } from '../core/types';
 import type { HotkeyStatus } from '../main/hotkeyService';
 import type { RecordingCommand, SetupPayload } from '../preload';
 
 type RecordingState = 'idle' | 'starting' | 'recording' | 'processing' | 'error';
-type AppPage = 'voice' | 'asrModels' | 'llmModels' | 'hotkey' | 'lexicon' | 'prompts' | 'sync' | 'advanced' | 'app';
+type AppPage = 'voice' | 'asrModels' | 'llmModels' | 'statistics' | 'hotkey' | 'lexicon' | 'prompts' | 'sync' | 'advanced' | 'app';
 type LlmSettingsPage = 'local' | 'cloud';
+type AsrModelsPage = 'installable' | 'reference' | 'guide';
 
 const APP_PAGES: Array<{ id: AppPage; label: string }> = [
   { id: 'voice', label: '语音输入' },
   { id: 'asrModels', label: '语音识别模型' },
   { id: 'llmModels', label: '文本整理模型' },
+  { id: 'statistics', label: '统计' },
   { id: 'hotkey', label: '快捷键' },
   { id: 'lexicon', label: '词库' },
   { id: 'prompts', label: '提示词' },
@@ -101,6 +105,7 @@ export function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [mode, setMode] = useState<InputMode>('natural');
   const [activePage, setActivePage] = useState<AppPage>('voice');
+  const [asrModelsPage, setAsrModelsPage] = useState<AsrModelsPage>('installable');
   const [llmSettingsPage, setLlmSettingsPage] = useState<LlmSettingsPage>('local');
   const [state, setState] = useState<RecordingState>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -115,7 +120,10 @@ export function App() {
   const [downloadProbeById, setDownloadProbeById] = useState<Record<string, ModelDownloadProbeResult>>({});
   const [probingModelId, setProbingModelId] = useState<string | null>(null);
   const [benchmarkingModelId, setBenchmarkingModelId] = useState<string | null>(null);
+  const [batchBenchmarking, setBatchBenchmarking] = useState(false);
   const [benchmarkResultById, setBenchmarkResultById] = useState<Record<string, ModelBenchmarkResult>>({});
+  const [statisticsDays, setStatisticsDays] = useState(30);
+  const [usageStatistics, setUsageStatistics] = useState<UsageStatistics | null>(null);
   const [activatingModelId, setActivatingModelId] = useState<string | null>(null);
   const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
   const [syncRepoUrl, setSyncRepoUrl] = useState('');
@@ -241,6 +249,13 @@ export function App() {
       .then((entries) => setHistory(entries.map(historyEntryToLocalItem)))
       .catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
   }, []);
+
+  useEffect(() => {
+    void window.v2t
+      .getUsageStatistics(statisticsDays)
+      .then(setUsageStatistics)
+      .catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
+  }, [statisticsDays]);
 
   useEffect(() => {
     void window.v2t
@@ -372,6 +387,7 @@ export function App() {
     try {
       const result = await window.v2t.processAudio({ bytes, mode: activeMode });
       setHistory((items) => [{ ...result, createdAt: new Date().toISOString(), mode: activeMode }, ...items].slice(0, 30));
+      void window.v2t.getUsageStatistics(statisticsDays).then(setUsageStatistics);
       recordingStartedAtRef.current = undefined;
       recordingElapsedMsRef.current = undefined;
       setActiveRecordingMode(null);
@@ -387,7 +403,7 @@ export function App() {
       setState('error');
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [resetInputMeter]);
+  }, [resetInputMeter, statisticsDays]);
 
   const windowRecordingMode = settings?.hotkey.singleClickMode ?? 'natural';
 
@@ -758,6 +774,26 @@ export function App() {
     setBenchmarkResultById((current) => ({ ...current, [modelId]: result }));
     setBenchmarkingModelId(null);
     applySetup(await window.v2t.getSetup());
+  };
+
+  const benchmarkInstalledAsrModels = async () => {
+    setError(null);
+    setBatchBenchmarking(true);
+    try {
+      const results = await window.v2t.benchmarkInstalledAsrModels();
+      setBenchmarkResultById((current) => {
+        const next = { ...current };
+        for (const result of results) {
+          next[result.modelId] = result;
+        }
+        return next;
+      });
+      applySetup(await window.v2t.getSetup());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBatchBenchmarking(false);
+    }
   };
 
   const testHotkey = async () => {
@@ -1282,60 +1318,61 @@ export function App() {
                   </button>
                 </div>
               </section>
-              <ModelComparisonTable recommendations={setup.recommendations} referenceModels={referenceCatalog} modelStatuses={setup.modelStatuses} />
-              <div className="model-list">
-                {setup.recommendations.map((recommendation) => (
-                  <ModelRow
-                    key={recommendation.model.id}
-                    recommendation={recommendation}
+              <div className="subpage-tabs">
+                <button className={asrModelsPage === 'installable' ? 'active' : ''} onClick={() => setAsrModelsPage('installable')}>
+                  可一键安装
+                </button>
+                <button className={asrModelsPage === 'reference' ? 'active' : ''} onClick={() => setAsrModelsPage('reference')}>
+                  待接入 / 外部服务
+                </button>
+                <button className={asrModelsPage === 'guide' ? 'active' : ''} onClick={() => setAsrModelsPage('guide')}>
+                  说明
+                </button>
+              </div>
+              {asrModelsPage === 'installable' ? (
+                <>
+                  <div className="inline-actions model-table-actions">
+                    <button className="secondary compact" onClick={() => void benchmarkInstalledAsrModels()} disabled={batchBenchmarking}>
+                      {batchBenchmarking ? '批量测速中' : '批量测速已安装 ASR'}
+                    </button>
+                  </div>
+                  <AsrModelTable
+                    rows={oneClickInstallableModels(setup.catalog).map((model) =>
+                      scoreModel(model, setup.hardware, setup.modelStatuses[model.id]?.status ?? (settings?.providers.asr.modelId === model.id ? 'current' : 'not-installed'))
+                    )}
                     currentModelId={settings?.providers.asr.modelId}
-                    statusRecord={installProgressById[recommendation.model.id] ?? setup.modelStatuses[recommendation.model.id]}
-                    probeResult={downloadProbeById[recommendation.model.id]}
-                    benchmarkResult={benchmarkResultById[recommendation.model.id]}
-                    probing={probingModelId === recommendation.model.id}
-                    benchmarking={benchmarkingModelId === recommendation.model.id}
+                    modelStatuses={setup.modelStatuses}
+                    installProgressById={installProgressById}
+                    probeResultById={downloadProbeById}
+                    benchmarkResultById={benchmarkResultById}
+                    probingModelId={probingModelId}
+                    benchmarkingModelId={benchmarkingModelId}
                     installingModelId={installingModelId}
                     deletingModelId={deletingModelId}
                     onInstall={installModel}
-                     onReinstall={reinstallModel}
-                     onCancelInstall={cancelModelInstall}
-                     onImportArchive={importModelArchive}
-                     onImportDirectory={importModelDirectory}
-                     onClearInstall={clearModelInstall}
-                     onTestDownload={testModelDownload}
-                     onBenchmark={benchmarkAsrModel}
+                    onReinstall={reinstallModel}
+                    onCancelInstall={cancelModelInstall}
+                    onImportArchive={importModelArchive}
+                    onImportDirectory={importModelDirectory}
+                    onClearInstall={clearModelInstall}
+                    onTestDownload={testModelDownload}
+                    onBenchmark={benchmarkAsrModel}
                     onActivate={activateModel}
                     onDelete={deleteModel}
                   />
-                ))}
-              </div>
-              {setup.installedModels.length > 0 ? (
-                <>
-                  <h2 className="subsection-title">已安装模型</h2>
-                  <div className="model-list">
-                    {setup.installedModels.map((model) => (
-                      <InstalledModelRow
-                        key={model.modelId}
-                        model={model}
-                        activatingModelId={activatingModelId}
-                        deletingModelId={deletingModelId}
-                        onActivate={activateModel}
-                        onReinstall={reinstallModel}
-                        onBenchmark={benchmarkAsrModel}
-                        benchmarking={benchmarkingModelId === model.modelId}
-                        onDelete={deleteModel}
-                      />
-                    ))}
-                  </div>
                 </>
               ) : null}
-              <h2 className="subsection-title">公开高分参考 / 待接入</h2>
-              <p className="hint">这些模型有公开榜单或上游文档参考，但还没有完成 V2T 一键下载、运行配置和打包 smoke test，因此不会显示“安装”。</p>
-              <div className="model-list reference-models">
-                {referenceCatalog.map((model) => (
-                  <ReferenceModelRow key={model.id} model={model} />
-                ))}
-              </div>
+              {asrModelsPage === 'reference' ? (
+                <ReferenceModelTable models={referenceCatalog} />
+              ) : null}
+              {asrModelsPage === 'guide' ? (
+                <section className="advanced-group">
+                  <h3>一键安装条件</h3>
+                  <p>一键安装只开放给 V2T 已接入 runtime、文件结构明确、下载源可信、可以校验并能 smoke test 的模型。</p>
+                  <p>云 API、专有服务、缺少本地 runtime、缺少 required files 或未通过打包验证的模型会留在“待接入 / 外部服务”。</p>
+                  <p>本机测速使用 V2T 固定样例或模型包样例，表示你的设备上的实际处理速度；公开榜单 RTFx 只是外部参考，二者不混用。</p>
+                </section>
+              ) : null}
             </>
           ) : (
             <p className="empty">检测中</p>
@@ -1615,6 +1652,36 @@ export function App() {
             </>
           ) : (
             <p className="empty">加载中</p>
+          )}
+        </section>
+      );
+    }
+
+    if (activePage === 'statistics') {
+      return (
+        <section className="page-section statistics-page">
+          <h2>统计</h2>
+          <p className="hint">只统计文本和性能元数据，不保存音频。旧历史没有耗时字段时会自动跳过对应均值。</p>
+          <div className="subpage-tabs">
+            {[7, 30].map((days) => (
+              <button key={days} className={statisticsDays === days ? 'active' : ''} onClick={() => setStatisticsDays(days)}>
+                最近 {days} 天
+              </button>
+            ))}
+          </div>
+          {usageStatistics ? (
+            <>
+              <div className="stats-grid">
+                <StatCard label="输入次数" value={`${usageStatistics.totalCount}`} />
+                <StatCard label="总录音时长" value={formatSeconds(usageStatistics.totalAudioSeconds)} />
+                <StatCard label="输出字数" value={`${usageStatistics.totalOutputChars}`} />
+                <StatCard label="平均总耗时" value={formatMs(usageStatistics.averageTotalMs)} />
+              </div>
+              <UsageAggregateTable title="ASR 模型使用情况" rows={usageStatistics.asrModels} />
+              <UsageAggregateTable title="文本整理引擎使用情况" rows={usageStatistics.postProcessors} />
+            </>
+          ) : (
+            <p className="empty">统计读取中</p>
           )}
         </section>
       );
@@ -2376,11 +2443,65 @@ export function App() {
         </header>
 
         <section className="page-content">
-          {error ? <p className="error">{error}</p> : null}
+          {error ? (
+            <div className="error">
+              <span>{error}</span>
+              {error.includes('本地语音模型') || error.includes('ASR') ? (
+                <button className="secondary compact" onClick={() => void window.v2t.copyAsrDiagnostics()}>
+                  复制 ASR 诊断
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {pageContent}
         </section>
       </section>
     </main>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <article className="stat-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </article>
+  );
+}
+
+function UsageAggregateTable({ title, rows }: { title: string; rows: UsageAggregate[] }) {
+  return (
+    <section className="comparison-panel usage-panel">
+      <h3>{title}</h3>
+      {rows.length === 0 ? (
+        <p className="empty">暂无统计数据</p>
+      ) : (
+        <div className="usage-table">
+          <div className="usage-head">
+            <span>名称</span>
+            <span>次数</span>
+            <span>录音时长</span>
+            <span>输出字数</span>
+            <span>平均总耗时</span>
+            <span>平均 ASR</span>
+            <span>平均整理</span>
+            <span>平均 RTF</span>
+          </div>
+          {rows.map((row) => (
+            <div className="usage-row" key={row.key}>
+              <strong>{row.label}</strong>
+              <span>{row.count}</span>
+              <span>{formatSeconds(row.audioDurationSeconds)}</span>
+              <span>{row.outputCharCount}</span>
+              <span>{formatMs(row.averageTotalMs)}</span>
+              <span>{formatMs(row.averageAsrMs)}</span>
+              <span>{formatMs(row.averagePostProcessMs)}</span>
+              <span>{row.averageRealTimeFactor ? `${row.averageRealTimeFactor}x` : '-'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -2558,57 +2679,146 @@ function PromptEditor({
   );
 }
 
-function ModelComparisonTable({
-  recommendations,
-  referenceModels,
-  modelStatuses
+function AsrModelTable({
+  rows,
+  currentModelId,
+  modelStatuses,
+  installProgressById,
+  probeResultById,
+  benchmarkResultById,
+  probingModelId,
+  benchmarkingModelId,
+  installingModelId,
+  deletingModelId,
+  onInstall,
+  onReinstall,
+  onCancelInstall,
+  onImportArchive,
+  onImportDirectory,
+  onClearInstall,
+  onTestDownload,
+  onBenchmark,
+  onActivate,
+  onDelete
 }: {
-  recommendations: ModelRecommendation[];
-  referenceModels: ModelCatalogItem[];
+  rows: ModelRecommendation[];
+  currentModelId?: string;
   modelStatuses: Record<string, ModelStatusRecord>;
+  installProgressById: Record<string, ModelStatusRecord>;
+  probeResultById: Record<string, ModelDownloadProbeResult>;
+  benchmarkResultById: Record<string, ModelBenchmarkResult>;
+  probingModelId: string | null;
+  benchmarkingModelId: string | null;
+  installingModelId: string | null;
+  deletingModelId: string | null;
+  onInstall(modelId: string): Promise<void>;
+  onReinstall(modelId: string): Promise<void>;
+  onCancelInstall(modelId: string): Promise<void>;
+  onImportArchive(modelId: string): Promise<void>;
+  onImportDirectory(modelId: string): Promise<void>;
+  onClearInstall(modelId: string): Promise<void>;
+  onTestDownload(modelId: string): Promise<void>;
+  onBenchmark(modelId: string): Promise<void>;
+  onActivate(modelId: string): Promise<void>;
+  onDelete(modelId: string): Promise<void>;
 }) {
-  const rows = [
-    ...recommendations.map((recommendation) => ({
-      model: recommendation.model,
-      score: recommendation.score,
-      status: '可一键安装'
-    })),
-    ...referenceModels.map((model) => ({
-      model,
-      score: undefined,
-      status: model.availability === 'manual' ? '可手动配置' : '待接入'
-    }))
-  ];
-
   return (
-    <section className="comparison-panel" aria-label="模型横向对比">
-      <h3>模型横向对比</h3>
-      <div className="comparison-table">
-        <div className="comparison-head">
+    <section className="comparison-panel" aria-label="ASR 模型统一管理">
+      <h3>ASR 模型统一管理</h3>
+      <div className="comparison-table asr-management-table">
+        <div className="comparison-head asr-management-head">
           <span>模型</span>
           <span>中文推荐分</span>
           <span>中文/方言指标</span>
-          <span>英文公开榜参考</span>
-          <span>RTFx</span>
           <span>本机速度</span>
           <span>状态</span>
+          <span>操作</span>
         </div>
-        {rows.map(({ model, score, status }) => {
-          const openAsr = model.evaluationSources?.openAsrLeaderboard;
+        {rows
+          .sort((left, right) => right.score - left.score)
+          .map((recommendation) => {
+          const model = recommendation.model;
+          const statusRecord = installProgressById[model.id] ?? modelStatuses[model.id];
+          const status = statusRecord?.status;
+          const isCurrent = currentModelId === model.id;
+          const installed = isCurrent || status === 'installed' || status === 'current';
+          const installing = installingModelId === model.id || isInstallInProgress(status);
+          const deleting = deletingModelId === model.id;
+          const canClearResidue = !isCurrent && Boolean(statusRecord?.isInterrupted || statusRecord?.status === 'failed');
           const chineseMetric = bestChineseMetricLabel(model);
+          const probeResult = probeResultById[model.id];
+          const benchmarkResult = benchmarkResultById[model.id];
           return (
-            <div className="comparison-row" key={model.id}>
-              <strong>{model.name}</strong>
-              <ComparisonMetric value={score} label={score ? `${score}` : '参考'} max={100} />
+            <div className="comparison-row asr-management-row" key={model.id}>
+              <div>
+                <strong>{model.name}</strong>
+                <small>{model.sizeMb}MB · {model.runtime} · {model.languages.join('/')}</small>
+              </div>
+              <ComparisonMetric value={recommendation.score} label={`${recommendation.score}`} max={100} />
               <ComparisonMetric value={chineseMetric.value} label={chineseMetric.label} lowerIsBetter={chineseMetric.lowerIsBetter} max={chineseMetric.max} />
-              <ComparisonMetric value={openAsr?.avgWer} label={openAsr?.avgWer ? `WER ${openAsr.avgWer}%` : '无英文榜'} lowerIsBetter max={10} />
-              <ComparisonMetric value={openAsr?.rtfx} label={openAsr?.rtfx ? `${Math.round(openAsr.rtfx)}` : '暂无'} max={3500} />
               <ComparisonMetric
-                value={modelStatuses[model.id]?.benchmarkRealTimeFactor}
-                label={modelStatuses[model.id]?.benchmarkRealTimeFactor ? `${modelStatuses[model.id]?.benchmarkRealTimeFactor}x` : '未测速'}
+                value={benchmarkResult?.realTimeFactor ?? statusRecord?.benchmarkRealTimeFactor}
+                label={benchmarkResult?.realTimeFactor ?? statusRecord?.benchmarkRealTimeFactor ? `${benchmarkResult?.realTimeFactor ?? statusRecord?.benchmarkRealTimeFactor}x` : '未测速'}
                 max={20}
               />
-              <span>{status}</span>
+              <span>{isCurrent ? '当前' : statusLabel(statusRecord)}</span>
+              <div className="table-action-grid">
+                <button onClick={() => void (installed ? onActivate(model.id) : onInstall(model.id))} disabled={installing || isCurrent}>
+                  {isCurrent ? '当前' : installing ? '安装中' : installed ? '启用' : statusRecord?.status === 'failed' && statusRecord.canResume ? '继续下载' : '安装'}
+                </button>
+                <button className="secondary compact" onClick={() => void onImportArchive(model.id)} disabled={installing}>导入包</button>
+                <button className="secondary compact" onClick={() => void onImportDirectory(model.id)} disabled={installing}>导入目录</button>
+                <button className="secondary compact" onClick={() => void onTestDownload(model.id)} disabled={probingModelId === model.id || installing}>
+                  {probingModelId === model.id ? '测速中' : probeResult ? '重测下载' : '下载测速'}
+                </button>
+                {installed ? (
+                  <button className="secondary compact" onClick={() => void onBenchmark(model.id)} disabled={benchmarkingModelId === model.id || installing}>
+                    {benchmarkingModelId === model.id ? '测速中' : '本机测速'}
+                  </button>
+                ) : null}
+                {installed || statusRecord?.status === 'failed' ? (
+                  <button className="secondary compact" onClick={() => void onReinstall(model.id)} disabled={installing}>重装</button>
+                ) : null}
+                {installing ? <button className="secondary compact" onClick={() => void onCancelInstall(model.id)}>取消</button> : null}
+                {canClearResidue ? <button className="secondary compact" onClick={() => void onClearInstall(model.id)}>清残留</button> : null}
+                {installed && !isCurrent ? (
+                  <button className="danger compact" onClick={() => void onDelete(model.id)} disabled={deleting}>
+                    {deleting ? '删除中' : '删除'}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ReferenceModelTable({ models }: { models: ModelCatalogItem[] }) {
+  return (
+    <section className="comparison-panel" aria-label="待接入模型">
+      <h3>待接入 / 外部服务</h3>
+      <p className="hint">这些模型有公开榜单或上游文档参考，但还没有完成 V2T 一键下载、运行配置和打包 smoke test。</p>
+      <div className="comparison-table reference-table">
+        <div className="comparison-head reference-head">
+          <span>模型</span>
+          <span>公开参考</span>
+          <span>状态</span>
+          <span>不能一键安装的原因</span>
+        </div>
+        {models.map((model) => {
+          const eligibility = oneClickEligibility(model);
+          const openAsr = model.evaluationSources?.openAsrLeaderboard;
+          return (
+            <div className="comparison-row reference-row" key={model.id}>
+              <div>
+                <strong>{model.name}</strong>
+                <small>{model.languages.join('/')} · {model.runtime}</small>
+              </div>
+              <span>{openAsr?.exactModelMatch ? `Open ASR Rank ${openAsr.rank ?? '-'} · WER ${openAsr.avgWer ?? '-'}` : '中文/官方参考'}</span>
+              <span>{model.availability === 'manual' ? '可手动配置' : '待接入'}</span>
+              <p>{model.unavailableReason ?? eligibility.reasons.join('；') ?? '尚未完成 V2T runtime 验证'}</p>
             </div>
           );
         })}
@@ -2924,7 +3134,7 @@ function BenchmarkSummary({ status, result }: { status?: ModelStatusRecord; resu
   }
 
   if (!realTimeFactor && !charsPerSecond) {
-    return <p className="progress-meta">本机测速会用模型自带中文/中英样例，显示你的设备真实转写速度。</p>;
+    return <p className="progress-meta">本机测速会优先用模型自带样例，没有样例时使用 V2T 内置标准音频，显示你的设备真实转写速度。</p>;
   }
 
   return (
@@ -3176,6 +3386,23 @@ function formatDuration(seconds: number): string {
   return `${Math.max(1, Math.round(seconds))} 秒`;
 }
 
+function formatSeconds(seconds?: number): string {
+  if (!seconds) {
+    return '0 秒';
+  }
+  return formatDuration(seconds);
+}
+
+function formatMs(ms?: number): string {
+  if (ms === undefined) {
+    return '-';
+  }
+  if (ms >= 1000) {
+    return `${(ms / 1000).toFixed(1)} 秒`;
+  }
+  return `${Math.round(ms)} ms`;
+}
+
 function formatMetric(metric: ModelEvaluationMetric): string {
   if (metric.metric === 'RTFx') {
     return `${metric.value} RTFx`;
@@ -3184,6 +3411,34 @@ function formatMetric(metric: ModelEvaluationMetric): string {
     return `${metric.value}`;
   }
   return `${metric.value}% ${metric.metric}`;
+}
+
+function statusLabel(status?: ModelStatusRecord): string {
+  if (!status) {
+    return '未安装';
+  }
+  if (status.status === 'current') {
+    return '当前';
+  }
+  if (status.status === 'installed') {
+    return '已安装';
+  }
+  if (status.status === 'downloading') {
+    return status.progress === undefined ? '下载中' : `下载中 ${status.progress}%`;
+  }
+  if (status.status === 'extracting') {
+    return '解压中';
+  }
+  if (status.status === 'verifying') {
+    return '校验中';
+  }
+  if (status.status === 'activating') {
+    return '启用中';
+  }
+  if (status.status === 'failed') {
+    return '失败';
+  }
+  return '未安装';
 }
 
 function bestChineseMetricLabel(model: ModelCatalogItem): { value?: number; label: string; max: number; lowerIsBetter: boolean } {

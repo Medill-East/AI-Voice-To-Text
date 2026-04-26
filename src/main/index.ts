@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { autoUpdater } from 'electron-updater';
-import { FunAsrHttpProvider, LocalSherpaAsrProvider, UserFacingAsrError, WhisperCppAsrProvider } from '../core/asrProviders';
+import { FunAsrHttpProvider, LocalSherpaAsrProvider, UserFacingAsrError, WhisperCppAsrProvider, type AsrErrorDiagnostic } from '../core/asrProviders';
 import { AppUpdateService } from '../core/appUpdateService';
 import { AutoSyncService } from '../core/autoSyncService';
 import { checkManualMacUpdate, macDownloadUrlFromState, type GitHubReleaseLike } from '../core/manualAppUpdate';
@@ -94,6 +94,7 @@ let modelCatalogRefreshState: ModelCatalogRefreshState = {
   message: '使用内置模型榜单'
 };
 let lastProcessingDiagnostic: ProcessingDiagnostic | undefined;
+let lastAsrDiagnostic: { error: string; diagnostic?: AsrErrorDiagnostic; processing?: ProcessingDiagnostic; at: string } | undefined;
 const RELEASE_PAGE_URL = 'https://github.com/Medill-East/AI-Voice-To-Text/releases/latest';
 const LATEST_RELEASE_API_URL = 'https://api.github.com/repos/Medill-East/AI-Voice-To-Text/releases/latest';
 
@@ -280,6 +281,7 @@ function registerIpc(): void {
   });
   ipcMain.handle('v2t:get-lexicon', async () => store.loadLexicon());
   ipcMain.handle('v2t:get-history', async (_event, limit?: number) => store.readRecentHistory(limit ?? 30));
+  ipcMain.handle('v2t:get-usage-statistics', async (_event, days?: number) => store.readUsageStatistics(days ?? 30));
   ipcMain.handle('v2t:get-prompts', async () => store.loadPrompts());
   ipcMain.handle('v2t:save-prompt', async (_event, mode: InputMode, content: string) => {
     try {
@@ -406,6 +408,10 @@ function registerIpc(): void {
     clipboard.writeText(JSON.stringify(lastProcessingDiagnostic ?? (await readProcessingMarker()) ?? {}, null, 2));
     return { ok: true };
   });
+  ipcMain.handle('v2t:copy-asr-diagnostics', async () => {
+    clipboard.writeText(JSON.stringify(lastAsrDiagnostic ?? {}, null, 2));
+    return { ok: true };
+  });
   ipcMain.handle('v2t:install-model', async (event, modelId: string) => {
     const manager = createModelManager();
     const sendProgress = (status: ModelStatusRecord) => {
@@ -501,6 +507,20 @@ function registerIpc(): void {
     }
     return result;
   });
+  ipcMain.handle('v2t:benchmark-installed-asr-models', async () => {
+    const manager = createModelManager();
+    const installed = await manager.listInstalledModelViews(settings);
+    const results = [];
+    for (const model of installed.filter((item) => item.canActivate || item.current)) {
+      const result = await manager.benchmarkInstalledModel(model.modelId);
+      results.push(result);
+      const status = (await manager.getStatuses())[model.modelId];
+      if (status) {
+        mainWindow?.webContents.send('v2t:model-install-progress', status);
+      }
+    }
+    return results;
+  });
   ipcMain.handle('v2t:activate-model', async (_event, modelId: string) => {
     const manager = createModelManager();
     try {
@@ -529,7 +549,11 @@ function registerIpc(): void {
       const result = await pipeline.handleAudio(Buffer.from(payload.bytes), {
         mode: payload.mode,
         targetApp: await getFocusedAppName(),
-        prompt: await store.readPrompt(payload.mode)
+        prompt: await store.readPrompt(payload.mode),
+        audioDurationSeconds: diagnostic.audioDurationSeconds,
+        asrModelId: settings.providers.asr.modelId,
+        asrProviderKind: settings.providers.asr.kind,
+        llmModel: activeLlmModelLabel()
       });
       hotkeyService.suppressWindowsModifierTap('text-injected');
       await clearProcessingMarker();
@@ -537,6 +561,14 @@ function registerIpc(): void {
       return { ok: true, result };
     } catch (error) {
       hotkeyService.suppressWindowsModifierTap('processing-failed');
+      if (isAsrError(error)) {
+        lastAsrDiagnostic = {
+          error: readableError(error),
+          diagnostic: error.diagnostic,
+          processing: diagnostic,
+          at: new Date().toISOString()
+        };
+      }
       await writeProcessingMarker({ ...diagnostic, stage: 'failed', error: readableError(error) }).catch(() => undefined);
       await clearProcessingMarker().catch(() => undefined);
       return { ok: false, error: readableError(error) };
@@ -589,6 +621,20 @@ async function createPipeline() {
     }),
     postProcessor: new PostProcessor({ llm, fallbackLlm, primaryEngine: cloudEnabled ? 'llm-cloud' : 'llm-local' })
   });
+}
+
+function activeLlmModelLabel(): string | undefined {
+  if (settings.providers.llm.engine === 'local' || settings.providers.llm.engine === 'local-with-cloud-fallback') {
+    return settings.providers.llm.model;
+  }
+  if (settings.providers.llm.engine === 'cloud') {
+    return settings.providers.llm.fallback.model;
+  }
+  return undefined;
+}
+
+function isAsrError(error: unknown): error is UserFacingAsrError {
+  return error instanceof UserFacingAsrError || (error instanceof Error && error.name === 'UserFacingAsrError');
 }
 
 async function enableLlmProvider(detection: LlmProviderDetection, model: string) {

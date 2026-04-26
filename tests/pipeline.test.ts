@@ -42,9 +42,12 @@ describe('voice input pipeline', () => {
       outputText: '记录 V2T 的目标',
       targetApp: 'Obsidian',
       injectionMethod: 'cursor',
-      postProcessorEngine: 'local-rules'
+      postProcessorEngine: 'local-rules',
+      audioBytes: 10,
+      rawCharCount: 9,
+      outputCharCount: 8
     });
-    expect(JSON.stringify(entries[0])).not.toContain('audio');
+    expect(JSON.stringify(entries[0])).not.toContain('audioData');
   });
 
   it('skips injection and history when no effective text is detected', async () => {

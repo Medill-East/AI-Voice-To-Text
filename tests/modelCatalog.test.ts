@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_MODEL_CATALOG, referenceModels, recommendModels } from '../src/core/modelCatalog';
+import { DEFAULT_MODEL_CATALOG, oneClickEligibility, oneClickInstallableModels, referenceModels, recommendModels } from '../src/core/modelCatalog';
 import type { HardwareProfile } from '../src/core/types';
 
 describe('model catalog recommendation', () => {
@@ -108,5 +108,15 @@ describe('model catalog recommendation', () => {
     expect(references.some((model) => model.manualSetup)).toBe(true);
     expect(references[0].evaluationSources?.chineseBenchmark?.sourceLabel).toContain('Qwen3-ASR');
     expect(references.find((model) => model.id === 'zoom-scribe-v1')?.license).toBe('Proprietary');
+  });
+
+  it('opens one-click access for every model that satisfies the V2T install contract', () => {
+    const installable = oneClickInstallableModels(DEFAULT_MODEL_CATALOG);
+
+    expect(installable.map((model) => model.id)).toEqual(
+      expect.arrayContaining(['firered-asr2-zh-en-int8-2026-02-26', 'qwen3-asr-0.6b', 'funasr-nano-int8-2025-12-30', 'sensevoice-onnx-int8-2025-09-09'])
+    );
+    expect(installable.every((model) => oneClickEligibility(model).eligible)).toBe(true);
+    expect(oneClickEligibility(DEFAULT_MODEL_CATALOG.find((model) => model.id === 'cohere-transcribe-03-2026')!).reasons.join(' ')).toContain('不能作为本地一键模型');
   });
 });

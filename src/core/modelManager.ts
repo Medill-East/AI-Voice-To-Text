@@ -399,17 +399,16 @@ export class ModelManager {
       return { modelId, ok: false, error: '这个模型尚未安装，不能进行本机测速。' };
     }
 
-    const samplePath = await benchmarkWavPath(model, dirname(modelPath));
-    if (!samplePath) {
-      return { modelId, ok: false, error: '这个模型没有可用的本机测速音频。' };
-    }
-
     try {
-      const audio = await readFile(samplePath);
-      const audioSeconds = estimatePcm16WavDurationSeconds(audio);
+      const audios = await benchmarkWavBuffers(model, dirname(modelPath));
+      const audioSeconds = audios.reduce((total, audio) => total + (estimatePcm16WavDurationSeconds(audio) ?? 0), 0);
       const startedAt = this.nowMs();
-      const text = await this.benchmarkTranscriber(model, modelPath, audio);
+      const texts: string[] = [];
+      for (const audio of audios) {
+        texts.push(await this.benchmarkTranscriber(model, modelPath, audio));
+      }
       const processMs = Math.max(1, this.nowMs() - startedAt);
+      const text = texts.join('\n').trim();
       const chars = [...text.trim()].length;
       const benchmark: ModelBenchmarkResult = {
         modelId,
@@ -576,18 +575,19 @@ async function missingRequiredFiles(model: ModelCatalogItem, root: string): Prom
   return missing;
 }
 
-async function benchmarkWavPath(model: ModelCatalogItem, modelRoot: string): Promise<string | undefined> {
+async function benchmarkWavBuffers(model: ModelCatalogItem, modelRoot: string): Promise<Buffer[]> {
   const candidates =
     model.sherpaModelType === 'qwen3Asr'
       ? ['test_wavs/codeswitch.wav', 'test_wavs/noise2.wav', 'test_wavs/raokouling.wav']
       : ['test_wavs/zh.wav', 'test_wavs/noise2.wav', 'test_wavs/codeswitch.wav'];
+  const buffers: Buffer[] = [];
   for (const candidate of candidates) {
     const filePath = join(modelRoot, candidate);
     if (existsSync(filePath)) {
-      return filePath;
+      buffers.push(await readFile(filePath));
     }
   }
-  return undefined;
+  return buffers.length > 0 ? buffers : createBuiltInBenchmarkWavs();
 }
 
 function estimatePcm16WavDurationSeconds(bytes: Buffer | Uint8Array): number | undefined {
@@ -903,10 +903,39 @@ async function defaultBenchmarkTranscriber(model: ModelCatalogItem, modelPath: s
     modelId: model.id,
     modelPath,
     sherpaModelType: model.sherpaModelType,
-    language: 'zh'
+    language: 'zh',
+    allowEmptyResult: true
   });
   const result = await provider.transcribe(audio);
   return result.text;
+}
+
+function createBuiltInBenchmarkWavs(): Buffer[] {
+  return [createSyntheticBenchmarkWav(4, 16000, 330), createSyntheticBenchmarkWav(6, 16000, 440)];
+}
+
+function createSyntheticBenchmarkWav(seconds: number, sampleRate: number, frequency: number): Buffer {
+  const sampleCount = Math.floor(seconds * sampleRate);
+  const dataSize = sampleCount * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write('RIFF', 0, 'ascii');
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8, 'ascii');
+  buffer.write('fmt ', 12, 'ascii');
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36, 'ascii');
+  buffer.writeUInt32LE(dataSize, 40);
+  for (let index = 0; index < sampleCount; index += 1) {
+    const sample = Math.sin((2 * Math.PI * frequency * index) / sampleRate) * 0.12;
+    buffer.writeInt16LE(Math.round(sample * 32767), 44 + index * 2);
+  }
+  return buffer;
 }
 
 function readableError(error: unknown): string {

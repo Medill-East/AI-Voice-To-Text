@@ -296,6 +296,10 @@ h2 {
 }
 
 .error {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
   max-width: 640px;
   margin-bottom: 22px;
   color: var(--color-error);
@@ -491,6 +495,10 @@ textarea {
   min-width: 1060px;
 }
 
+.asr-management-table {
+  min-width: 1120px;
+}
+
 .comparison-head,
 .comparison-row {
   display: grid;
@@ -514,6 +522,88 @@ textarea {
   font-size: 12px;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.asr-management-head,
+.asr-management-row {
+  grid-template-columns: 250px 124px 170px 120px 92px minmax(260px, 1fr);
+}
+
+.reference-table {
+  min-width: 900px;
+}
+
+.reference-head,
+.reference-row {
+  grid-template-columns: 240px 190px 120px minmax(280px, 1fr);
+}
+
+.asr-management-row small,
+.reference-row small {
+  display: block;
+  margin-top: 3px;
+  color: var(--color-muted-2);
+  font-size: 11px;
+}
+
+.table-action-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.model-table-actions {
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.stat-card {
+  padding: 12px;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.stat-card span {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.stat-card strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--color-text);
+  font-size: 22px;
+}
+
+.usage-table {
+  display: grid;
+  gap: 8px;
+  min-width: 900px;
+}
+
+.usage-head,
+.usage-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 64px 110px 90px 110px 110px 110px 90px;
+  gap: 10px;
+  align-items: center;
+}
+
+.usage-head {
+  color: var(--color-muted-2);
+  font-size: 11px;
+}
+
+.usage-row {
+  color: var(--color-text);
+  font-size: 12px;
 }
 
 .comparison-metric {

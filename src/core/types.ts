@@ -331,6 +331,11 @@ export interface ModelBenchmarkResult {
   error?: string;
 }
 
+export interface OneClickEligibility {
+  eligible: boolean;
+  reasons: string[];
+}
+
 export interface GitHubSyncStatus {
   configured: boolean;
   repoUrl?: string;
@@ -380,6 +385,17 @@ export interface HistoryEntry {
   targetApp?: string;
   injectionMethod: 'cursor' | 'clipboard';
   postProcessorEngine?: PostProcessorEngine;
+  audioDurationSeconds?: number;
+  audioBytes?: number;
+  rawCharCount?: number;
+  outputCharCount?: number;
+  asrModelId?: string;
+  asrProviderKind?: AsrProviderKind;
+  asrDurationMs?: number;
+  postProcessDurationMs?: number;
+  injectionDurationMs?: number;
+  totalDurationMs?: number;
+  llmModel?: string;
   error?: string;
 }
 
@@ -432,6 +448,46 @@ export interface VoiceInputPipelineResult {
   injection: TextInjectionResult;
   usedLlm: boolean;
   postProcessorEngine: PostProcessorEngine;
+  metrics?: VoiceInputMetrics;
+}
+
+export interface VoiceInputMetrics {
+  audioDurationSeconds?: number;
+  audioBytes?: number;
+  rawCharCount: number;
+  outputCharCount: number;
+  asrModelId?: string;
+  asrProviderKind?: AsrProviderKind;
+  asrDurationMs: number;
+  postProcessDurationMs: number;
+  injectionDurationMs: number;
+  totalDurationMs: number;
+  llmModel?: string;
+}
+
+export interface UsageAggregate {
+  key: string;
+  label: string;
+  count: number;
+  audioDurationSeconds: number;
+  outputCharCount: number;
+  averageTotalMs?: number;
+  averageAsrMs?: number;
+  averagePostProcessMs?: number;
+  averageRealTimeFactor?: number;
+  lastUsedAt?: string;
+}
+
+export interface UsageStatistics {
+  days: number;
+  totalCount: number;
+  totalAudioSeconds: number;
+  totalOutputChars: number;
+  averageTotalMs?: number;
+  averageAsrMs?: number;
+  averagePostProcessMs?: number;
+  asrModels: UsageAggregate[];
+  postProcessors: UsageAggregate[];
 }
 
 export interface LlmProviderDetection {

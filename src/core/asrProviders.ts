@@ -17,6 +17,18 @@ interface LocalSherpaProviderOptions {
   language?: string;
   tokensPath?: string;
   recognizerFactory?: SherpaRecognizerFactory;
+  allowEmptyResult?: boolean;
+}
+
+export interface AsrErrorDiagnostic {
+  reason: 'missing-files' | 'config-mismatch' | 'runtime-error' | 'empty-or-numeric-output' | 'chunk-failed';
+  modelId?: string;
+  modelPath?: string;
+  sherpaModelType?: SherpaModelType;
+  missingFiles?: string[];
+  chunkIndex?: number;
+  chunkCount?: number;
+  runtimeError?: string;
 }
 
 type SherpaRecognizerFactory = (config: SherpaOfflineRecognizerConfig) => SherpaRecognizer;
@@ -85,6 +97,7 @@ export class LocalSherpaAsrProvider implements AsrProvider {
   private readonly sherpaModelType: SherpaModelType;
   private readonly language: string;
   private readonly recognizerFactory?: SherpaRecognizerFactory;
+  private readonly allowEmptyResult: boolean;
 
   constructor(options: LocalSherpaProviderOptions) {
     this.modelId = options.modelId;
@@ -93,21 +106,37 @@ export class LocalSherpaAsrProvider implements AsrProvider {
     this.sherpaModelType = options.sherpaModelType ?? 'senseVoice';
     this.language = options.language ?? 'zh';
     this.recognizerFactory = options.recognizerFactory;
+    this.allowEmptyResult = options.allowEmptyResult ?? false;
   }
 
   async transcribe(audio: Buffer | Uint8Array): Promise<AsrTranscription> {
-    if (!this.modelRoot || !this.hasRequiredModelFiles()) {
+    const missingFiles = this.missingRequiredModelFiles();
+    if (!this.modelRoot || missingFiles.length > 0) {
       throw new UserFacingAsrError(
-        '请先一键配置本地语音模型。当前没有可用的本地模型文件，所以无法转写。',
-        'asr-local-model-missing'
+        missingFiles.length > 0
+          ? `本地语音模型文件不完整，缺少：${missingFiles.join('、')}`
+          : '请先一键配置本地语音模型。当前没有可用的本地模型文件，所以无法转写。',
+        'asr-local-model-missing',
+        undefined,
+        this.createDiagnostic('missing-files', { missingFiles })
       );
     }
 
-    const recognizerConfig = createSherpaOfflineRecognizerConfig({
-      modelRoot: this.modelRoot,
-      sherpaModelType: this.sherpaModelType,
-      language: this.language
-    });
+    let recognizerConfig: SherpaOfflineRecognizerConfig;
+    try {
+      recognizerConfig = createSherpaOfflineRecognizerConfig({
+        modelRoot: this.modelRoot,
+        sherpaModelType: this.sherpaModelType,
+        language: this.language
+      });
+    } catch (error) {
+      throw new UserFacingAsrError(
+        `本地语音模型配置不匹配：${readableError(error)}`,
+        'asr-local-config-mismatch',
+        error,
+        this.createDiagnostic('config-mismatch', { runtimeError: readableError(error) })
+      );
+    }
     const workDir = await mkdtemp(join(tmpdir(), `v2t-${this.modelId ?? 'asr'}-`));
     const audioPath = join(workDir, 'recording.wav');
 
@@ -116,16 +145,37 @@ export class LocalSherpaAsrProvider implements AsrProvider {
       const audioPaths = await splitWavForLocalSherpa(audioPath, workDir, LOCAL_SHERPA_MAX_CHUNK_SECONDS);
       const texts: string[] = [];
 
-      for (const chunkPath of audioPaths) {
-        const recognizer = this.recognizerFactory
-          ? this.recognizerFactory(recognizerConfig)
-          : createDefaultSherpaRecognizer(recognizerConfig);
-        texts.push(stripSherpaTags(await recognizer.transcribe(chunkPath)));
+      for (const [index, chunkPath] of audioPaths.entries()) {
+        try {
+          const recognizer = this.recognizerFactory
+            ? this.recognizerFactory(recognizerConfig)
+            : createDefaultSherpaRecognizer(recognizerConfig);
+          texts.push(stripSherpaTags(await recognizer.transcribe(chunkPath)));
+        } catch (error) {
+          throw new UserFacingAsrError(
+            `本地语音模型第 ${index + 1}/${audioPaths.length} 个分片转写失败：${readableError(error)}`,
+            'asr-local-chunk-failed',
+            error,
+            this.createDiagnostic('chunk-failed', {
+              chunkIndex: index + 1,
+              chunkCount: audioPaths.length,
+              runtimeError: readableError(error)
+            })
+          );
+        }
       }
 
       const normalizedText = texts.filter(Boolean).join('\n').trim();
+      if (!normalizedText && this.allowEmptyResult) {
+        return { text: '' };
+      }
       if (!normalizedText || /^\d{6,}$/.test(normalizedText)) {
-        throw new Error(`本地模型输出异常：${normalizedText || '空结果'}`);
+        throw new UserFacingAsrError(
+          `本地模型输出异常：${normalizedText || '空结果'}`,
+          'asr-local-empty-or-numeric-output',
+          undefined,
+          this.createDiagnostic('empty-or-numeric-output', { runtimeError: normalizedText || '空结果' })
+        );
       }
       return { text: normalizedText };
     } catch (error) {
@@ -133,20 +183,31 @@ export class LocalSherpaAsrProvider implements AsrProvider {
         throw error;
       }
       throw new UserFacingAsrError(
-        '本地语音模型转写失败。请确认模型已完整下载，并重新录音再试。',
+        `本地语音模型转写失败：${readableError(error)}`,
         'asr-local-transcribe-failed',
-        error
+        error,
+        this.createDiagnostic('runtime-error', { runtimeError: readableError(error) })
       );
     } finally {
       await rm(workDir, { recursive: true, force: true });
     }
   }
 
-  private hasRequiredModelFiles(): boolean {
+  private missingRequiredModelFiles(): string[] {
     if (!this.modelRoot) {
-      return false;
+      return requiredSherpaFiles(this.sherpaModelType);
     }
-    return requiredSherpaFiles(this.sherpaModelType).every((file) => existsSync(join(this.modelRoot!, file)));
+    return requiredSherpaFiles(this.sherpaModelType).filter((file) => !existsSync(join(this.modelRoot!, file)));
+  }
+
+  private createDiagnostic(reason: AsrErrorDiagnostic['reason'], details: Partial<AsrErrorDiagnostic> = {}): AsrErrorDiagnostic {
+    return {
+      reason,
+      modelId: this.modelId,
+      modelPath: this.modelPath,
+      sherpaModelType: this.sherpaModelType,
+      ...details
+    };
   }
 }
 
@@ -159,12 +220,14 @@ export class WhisperCppAsrProvider implements AsrProvider {
 export class UserFacingAsrError extends Error {
   readonly code: string;
   readonly cause?: unknown;
+  readonly diagnostic?: AsrErrorDiagnostic;
 
-  constructor(message: string, code: string, cause?: unknown) {
+  constructor(message: string, code: string, cause?: unknown, diagnostic?: AsrErrorDiagnostic) {
     super(message);
     this.name = 'UserFacingAsrError';
     this.code = code;
     this.cause = cause;
+    this.diagnostic = diagnostic;
   }
 }
 
@@ -498,6 +561,13 @@ function encodePcm16Wav(samples: Float32Array, sampleRate: number): Buffer {
 
 function stripSherpaTags(input: string): string {
   return input.replace(/<\|[^|]+?\|>/g, '').trim();
+}
+
+function readableError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 function extractText(payload: unknown): string | null {

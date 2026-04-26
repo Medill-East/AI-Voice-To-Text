@@ -27,7 +27,13 @@ describe('ASR providers', () => {
     const provider = new LocalSherpaAsrProvider({ modelId: 'sensevoice-onnx-int8-2025' });
 
     await expect(provider.transcribe(Buffer.from('audio'))).rejects.toBeInstanceOf(UserFacingAsrError);
-    await expect(provider.transcribe(Buffer.from('audio'))).rejects.toThrow('请先一键配置本地语音模型');
+    await expect(provider.transcribe(Buffer.from('audio'))).rejects.toThrow('本地语音模型文件不完整');
+    await expect(provider.transcribe(Buffer.from('audio'))).rejects.toMatchObject({
+      diagnostic: expect.objectContaining({
+        reason: 'missing-files',
+        missingFiles: expect.arrayContaining(['model.int8.onnx', 'tokens.txt'])
+      })
+    });
   });
 
   it('builds sherpa configs for multiple local model families', () => {

@@ -5,9 +5,9 @@ describe('settings navigation structure', () => {
   it('defines the fixed app pages used by the sidebar navigation', async () => {
     const app = await readFile(new URL('../src/renderer/App.tsx', import.meta.url), 'utf8');
 
-    expect(app).toContain("type AppPage = 'voice' | 'asrModels' | 'llmModels' | 'hotkey' | 'lexicon' | 'prompts' | 'sync' | 'advanced' | 'app'");
+    expect(app).toContain("type AppPage = 'voice' | 'asrModels' | 'llmModels' | 'statistics' | 'hotkey' | 'lexicon' | 'prompts' | 'sync' | 'advanced' | 'app'");
     expect(app).not.toContain("{ id: 'models', label: '模型' }");
-    for (const label of ['语音输入', '语音识别模型', '文本整理模型', '快捷键', '词库', '提示词', 'GitHub 同步', '高级设置', '应用']) {
+    for (const label of ['语音输入', '语音识别模型', '文本整理模型', '统计', '快捷键', '词库', '提示词', 'GitHub 同步', '高级设置', '应用']) {
       expect(app).toContain(label);
     }
     expect(app).not.toContain('触发按键');
@@ -46,15 +46,21 @@ describe('settings navigation structure', () => {
     expect(app).toContain('导入已解压目录');
     expect(app).toContain('清除残留');
     expect(app).toContain('当前一键下载主要来自 GitHub/k2-fsa Release');
-    expect(app).toContain('公开高分参考');
+    expect(app).toContain('待接入 / 外部服务');
     expect(app).toContain('只有满足以下条件的模型才显示“一键安装”');
-    expect(app).toContain('ModelComparisonTable');
+    expect(app).toContain('AsrModelTable');
     expect(app).toContain('中文推荐分');
     expect(app).toContain('英文公开榜参考');
     expect(app).toContain('刷新模型榜单');
     expect(app).toContain('复制榜单诊断');
     expect(app).toContain('下载测速');
     expect(app).toContain('本机测速');
+    expect(app).toContain('批量测速已安装 ASR');
+    expect(app).toContain('ASR 模型统一管理');
+    expect(app).toContain('总录音时长');
+    expect(app).toContain('ASR 模型使用情况');
+    expect(app).toContain('getUsageStatistics');
+    expect(app).toContain('copyAsrDiagnostics');
     expect(app).toContain('打开 OpenRouter API Key');
     expect(app).toContain('打开免费模型列表');
     expect(app).toContain('测试云端整理');
@@ -110,6 +116,9 @@ describe('settings navigation structure', () => {
     expect(styles).toContain('width: 16px');
     expect(styles).toContain('.comparison-panel');
     expect(styles).toContain('overflow-x: auto');
+    expect(styles).toContain('.asr-management-table');
+    expect(styles).toContain('.usage-table');
+    expect(styles).toContain('.stat-card');
     expect(styles).toContain('.model-row-actions');
     expect(styles).toContain('.llm-engine-grid');
     expect(styles).toContain('.subpage-tabs');

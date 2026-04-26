@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join, parse } from 'node:path';
-import type { HistoryEntry, InputMode, Lexicon, PromptFiles, Settings } from './types';
+import type { HistoryEntry, InputMode, Lexicon, PromptFiles, Settings, UsageAggregate, UsageStatistics } from './types';
 import { naturalPrompt, structuredPrompt } from './postProcessor';
 
 interface StoreOptions {
@@ -179,6 +179,35 @@ export class UserDataStore {
     return entries.sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, limit);
   }
 
+  async readUsageStatistics(days = 30): Promise<UsageStatistics> {
+    const cutoff = Date.now() - Math.max(1, days) * 24 * 60 * 60 * 1000;
+    const entries = (await this.readAllDeviceHistory()).filter((entry) => Date.parse(entry.createdAt) >= cutoff);
+    const totals = createAggregate('total', '全部输入');
+    const byAsr = new Map<string, UsageAccumulator>();
+    const byPostProcessor = new Map<string, UsageAccumulator>();
+
+    for (const entry of entries) {
+      addEntry(totals, entry);
+      const asrKey = entry.asrModelId ?? entry.asrProviderKind ?? 'unknown-asr';
+      const asrLabel = entry.asrModelId ?? entry.asrProviderKind ?? '未知 ASR';
+      addEntry(getAccumulator(byAsr, asrKey, asrLabel), entry);
+      const processorKey = entry.postProcessorEngine ?? 'local-rules';
+      addEntry(getAccumulator(byPostProcessor, processorKey, postProcessorLabel(processorKey)), entry);
+    }
+
+    return {
+      days,
+      totalCount: totals.count,
+      totalAudioSeconds: round(totals.audioDurationSeconds),
+      totalOutputChars: totals.outputCharCount,
+      averageTotalMs: average(totals.totalMs, totals.totalMsCount),
+      averageAsrMs: average(totals.asrMs, totals.asrMsCount),
+      averagePostProcessMs: average(totals.postProcessMs, totals.postProcessMsCount),
+      asrModels: [...byAsr.values()].map(toUsageAggregate).sort(sortUsageAggregate),
+      postProcessors: [...byPostProcessor.values()].map(toUsageAggregate).sort(sortUsageAggregate)
+    };
+  }
+
   async listConflicts(): Promise<string[]> {
     const conflictsDir = join(this.baseDir, 'conflicts');
     if (!existsSync(conflictsDir)) {
@@ -186,6 +215,27 @@ export class UserDataStore {
     }
 
     return readdir(conflictsDir);
+  }
+
+  private async readAllDeviceHistory(): Promise<HistoryEntry[]> {
+    const historyDir = join(this.baseDir, 'history', this.deviceId);
+    if (!existsSync(historyDir)) {
+      return [];
+    }
+
+    const files = (await readdir(historyDir)).filter((file) => /^\d{4}-\d{2}\.jsonl$/.test(file)).sort();
+    const entries: HistoryEntry[] = [];
+    for (const file of files) {
+      const content = await readFile(join(historyDir, file), 'utf8');
+      entries.push(
+        ...content
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as HistoryEntry)
+      );
+    }
+    return entries;
   }
 
   getBaseDir(): string {
@@ -333,6 +383,109 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
 
 function defaultPrompt(mode: InputMode): string {
   return mode === 'natural' ? naturalPrompt() : structuredPrompt();
+}
+
+interface UsageAccumulator {
+  key: string;
+  label: string;
+  count: number;
+  audioDurationSeconds: number;
+  outputCharCount: number;
+  totalMs: number;
+  totalMsCount: number;
+  asrMs: number;
+  asrMsCount: number;
+  postProcessMs: number;
+  postProcessMsCount: number;
+  lastUsedAt?: string;
+}
+
+function createAggregate(key: string, label: string): UsageAccumulator {
+  return {
+    key,
+    label,
+    count: 0,
+    audioDurationSeconds: 0,
+    outputCharCount: 0,
+    totalMs: 0,
+    totalMsCount: 0,
+    asrMs: 0,
+    asrMsCount: 0,
+    postProcessMs: 0,
+    postProcessMsCount: 0
+  };
+}
+
+function getAccumulator(map: Map<string, UsageAccumulator>, key: string, label: string): UsageAccumulator {
+  const existing = map.get(key);
+  if (existing) {
+    return existing;
+  }
+  const next = createAggregate(key, label);
+  map.set(key, next);
+  return next;
+}
+
+function addEntry(accumulator: UsageAccumulator, entry: HistoryEntry): void {
+  accumulator.count += 1;
+  accumulator.audioDurationSeconds += entry.audioDurationSeconds ?? 0;
+  accumulator.outputCharCount += entry.outputCharCount ?? [...entry.outputText.replace(/\s+/g, '')].length;
+  if (typeof entry.totalDurationMs === 'number') {
+    accumulator.totalMs += entry.totalDurationMs;
+    accumulator.totalMsCount += 1;
+  }
+  if (typeof entry.asrDurationMs === 'number') {
+    accumulator.asrMs += entry.asrDurationMs;
+    accumulator.asrMsCount += 1;
+  }
+  if (typeof entry.postProcessDurationMs === 'number') {
+    accumulator.postProcessMs += entry.postProcessDurationMs;
+    accumulator.postProcessMsCount += 1;
+  }
+  if (!accumulator.lastUsedAt || entry.createdAt > accumulator.lastUsedAt) {
+    accumulator.lastUsedAt = entry.createdAt;
+  }
+}
+
+function toUsageAggregate(accumulator: UsageAccumulator): UsageAggregate {
+  return {
+    key: accumulator.key,
+    label: accumulator.label,
+    count: accumulator.count,
+    audioDurationSeconds: round(accumulator.audioDurationSeconds),
+    outputCharCount: accumulator.outputCharCount,
+    averageTotalMs: average(accumulator.totalMs, accumulator.totalMsCount),
+    averageAsrMs: average(accumulator.asrMs, accumulator.asrMsCount),
+    averagePostProcessMs: average(accumulator.postProcessMs, accumulator.postProcessMsCount),
+    averageRealTimeFactor:
+      accumulator.audioDurationSeconds > 0 && accumulator.asrMs > 0 ? round(accumulator.audioDurationSeconds / (accumulator.asrMs / 1000)) : undefined,
+    lastUsedAt: accumulator.lastUsedAt
+  };
+}
+
+function sortUsageAggregate(left: UsageAggregate, right: UsageAggregate): number {
+  return right.count - left.count || (right.lastUsedAt ?? '').localeCompare(left.lastUsedAt ?? '');
+}
+
+function average(total: number, count: number): number | undefined {
+  return count > 0 ? Math.round(total / count) : undefined;
+}
+
+function round(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function postProcessorLabel(engine: string): string {
+  if (engine === 'llm-local') {
+    return '本地 LLM';
+  }
+  if (engine === 'llm-cloud') {
+    return '云端 LLM';
+  }
+  if (engine === 'llm-fallback') {
+    return '云端兜底';
+  }
+  return '本地规则';
 }
 
 function normalizeLlmEngine(rawLlm: Partial<Settings['providers']['llm']>): Settings['providers']['llm']['engine'] {

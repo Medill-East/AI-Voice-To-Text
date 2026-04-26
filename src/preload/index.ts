@@ -22,6 +22,7 @@ import type {
   PromptFiles,
   Settings,
   SyncImportStrategy,
+  UsageStatistics,
   VoiceInputPipelineResult
 } from '../core/types';
 import type { HotkeyStatus, HotkeyTestResult } from '../main/hotkeyService';
@@ -40,6 +41,7 @@ export interface V2TApi {
   copyModelCatalogDiagnostics(): Promise<{ ok: true }>;
   testModelDownload(modelId: string): Promise<ModelDownloadProbeResult>;
   benchmarkAsrModel(modelId: string): Promise<ModelBenchmarkResult>;
+  benchmarkInstalledAsrModels(): Promise<ModelBenchmarkResult[]>;
   checkForUpdates(): Promise<AppUpdateState>;
   downloadUpdate(): Promise<AppUpdateState>;
   installUpdate(): Promise<AppUpdateState>;
@@ -52,6 +54,7 @@ export interface V2TApi {
   savePrompt(mode: InputMode, content: string): Promise<PromptSaveResult>;
   resetPrompt(mode: InputMode): Promise<PromptSaveResult>;
   getHistory(limit?: number): Promise<HistoryEntry[]>;
+  getUsageStatistics(days?: number): Promise<UsageStatistics>;
   updateHotkey(accelerator: string): Promise<HotkeyUpdateResult>;
   installModel(modelId: string): Promise<InstallModelResult>;
   reinstallModel(modelId: string): Promise<InstallModelResult>;
@@ -70,6 +73,7 @@ export interface V2TApi {
   syncAll(): Promise<SyncActionResult>;
   listConflictBackups(): Promise<string[]>;
   copyProcessingDiagnostics(): Promise<{ ok: true }>;
+  copyAsrDiagnostics(): Promise<{ ok: true }>;
   setRecordingOverlayState(update: RecordingOverlayUpdate): Promise<{ ok: true }>;
   showEditMenu(): void;
   openAccessibilitySettings(): Promise<{ ok: true }>;
@@ -183,6 +187,7 @@ const api: V2TApi = {
   copyModelCatalogDiagnostics: () => ipcRenderer.invoke('v2t:copy-model-catalog-diagnostics'),
   testModelDownload: (modelId) => ipcRenderer.invoke('v2t:test-model-download', modelId),
   benchmarkAsrModel: (modelId) => ipcRenderer.invoke('v2t:benchmark-asr-model', modelId),
+  benchmarkInstalledAsrModels: () => ipcRenderer.invoke('v2t:benchmark-installed-asr-models'),
   checkForUpdates: () => ipcRenderer.invoke('v2t:check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('v2t:download-update'),
   installUpdate: () => ipcRenderer.invoke('v2t:install-update'),
@@ -195,6 +200,7 @@ const api: V2TApi = {
   savePrompt: (mode, content) => ipcRenderer.invoke('v2t:save-prompt', mode, content),
   resetPrompt: (mode) => ipcRenderer.invoke('v2t:reset-prompt', mode),
   getHistory: (limit) => ipcRenderer.invoke('v2t:get-history', limit),
+  getUsageStatistics: (days) => ipcRenderer.invoke('v2t:get-usage-statistics', days),
   updateHotkey: (accelerator) => ipcRenderer.invoke('v2t:update-hotkey', accelerator),
   installModel: (modelId) => ipcRenderer.invoke('v2t:install-model', modelId),
   reinstallModel: (modelId) => ipcRenderer.invoke('v2t:reinstall-model', modelId),
@@ -213,6 +219,7 @@ const api: V2TApi = {
   syncAll: () => ipcRenderer.invoke('v2t:sync-all'),
   listConflictBackups: () => ipcRenderer.invoke('v2t:list-conflict-backups'),
   copyProcessingDiagnostics: () => ipcRenderer.invoke('v2t:copy-processing-diagnostics'),
+  copyAsrDiagnostics: () => ipcRenderer.invoke('v2t:copy-asr-diagnostics'),
   setRecordingOverlayState: (update) => ipcRenderer.invoke('v2t:set-recording-overlay-state', update),
   showEditMenu: () => ipcRenderer.send('v2t:show-edit-menu'),
   openAccessibilitySettings: () => ipcRenderer.invoke('v2t:open-accessibility-settings'),

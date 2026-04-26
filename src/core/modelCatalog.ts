@@ -1,4 +1,4 @@
-import type { HardwareProfile, ModelCatalogItem, ModelInstallStatus, ModelRecommendation } from './types';
+import type { HardwareProfile, ModelCatalogItem, ModelInstallStatus, ModelRecommendation, OneClickEligibility } from './types';
 
 export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
   {
@@ -637,6 +637,10 @@ export function referenceModels(catalog: ModelCatalogItem[]): ModelCatalogItem[]
     });
 }
 
+export function oneClickInstallableModels(catalog: ModelCatalogItem[]): ModelCatalogItem[] {
+  return catalog.filter((model) => oneClickEligibility(model).eligible).sort((left, right) => right.releasedAt.localeCompare(left.releasedAt));
+}
+
 function latestInstallableByFamily(catalog: ModelCatalogItem[]): ModelCatalogItem[] {
   const latest = new Map<string, ModelCatalogItem>();
   for (const model of catalog) {
@@ -651,7 +655,7 @@ function latestInstallableByFamily(catalog: ModelCatalogItem[]): ModelCatalogIte
   return [...latest.values()];
 }
 
-function scoreModel(model: ModelCatalogItem, hardware: HardwareProfile, status: ModelInstallStatus): ModelRecommendation {
+export function scoreModel(model: ModelCatalogItem, hardware: HardwareProfile, status: ModelInstallStatus): ModelRecommendation {
   let rawScore = 0;
   const reasons: string[] = [];
   const scoreBreakdown = [
@@ -703,16 +707,36 @@ function scoreModel(model: ModelCatalogItem, hardware: HardwareProfile, status: 
 }
 
 export function isOneClickInstallable(model: ModelCatalogItem): boolean {
+  return oneClickEligibility(model).eligible;
+}
+
+export function oneClickEligibility(model: ModelCatalogItem): OneClickEligibility {
+  const reasons: string[] = [];
   if (!model.installable || (model.availability ?? 'installable') !== 'installable') {
-    return false;
+    reasons.push('catalog 未标记为一键安装');
   }
   if (model.runtimeVerified === false) {
-    return false;
+    reasons.push('V2T 尚未完成 runtime smoke test');
   }
   if (model.runtime === 'sherpa-onnx' && !model.sherpaModelType) {
-    return false;
+    reasons.push('缺少 sherpa-onnx 模型类型配置');
   }
-  return model.requiredFiles.length > 0 && Boolean(model.sourceUrl);
+  if (!model.requiredFiles.length) {
+    reasons.push('缺少 required files 列表');
+  }
+  if (!model.primaryModelFile || !model.extractedDir) {
+    reasons.push('缺少模型入口文件或解压目录信息');
+  }
+  if (!model.sourceUrl && !model.downloadSources?.length) {
+    reasons.push('缺少可信下载源');
+  }
+  if (model.archiveType !== 'tar.bz2' && model.archiveType !== 'file') {
+    reasons.push('压缩包格式未适配');
+  }
+  if (model.runtime === 'external') {
+    reasons.push('外部/云端服务不能作为本地一键模型安装');
+  }
+  return { eligible: reasons.length === 0, reasons };
 }
 
 function scoreMandarinFit(model: ModelCatalogItem) {

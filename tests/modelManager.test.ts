@@ -153,6 +153,48 @@ describe('ModelManager', () => {
     expect(statuses['qwen3-asr-0.6b'].benchmarkCharsPerSecond).toBeGreaterThan(0);
   });
 
+  it('benchmarks old or imported models without model-packaged test wavs', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const modelRoot = join(baseDir, 'models');
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    const modelDir = join(modelRoot, 'qwen3-asr-0.6b', 'sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25');
+    await mkdir(modelDir, { recursive: true });
+    await writeFile(join(modelDir, 'encoder.int8.onnx'), 'encoder');
+    const storeSettings = await store.loadSettings();
+    await store.saveSettings({
+      ...storeSettings,
+      providers: {
+        ...storeSettings.providers,
+        asr: {
+          ...storeSettings.providers.asr,
+          modelId: 'qwen3-asr-0.6b',
+          modelPath: join(modelDir, 'encoder.int8.onnx'),
+          sherpaModelType: 'qwen3Asr'
+        }
+      }
+    });
+    let now = 0;
+    const manager = new ModelManager({
+      modelRoot,
+      store,
+      catalog: DEFAULT_MODEL_CATALOG,
+      nowMs: () => {
+        now += 500;
+        return now;
+      },
+      benchmarkTranscriber: vi.fn(async (_model, _path, audio) => {
+        expect(audio.byteLength).toBeGreaterThan(44);
+        return '内置测速';
+      })
+    });
+
+    const result = await manager.benchmarkInstalledModel('qwen3-asr-0.6b');
+
+    expect(result.ok).toBe(true);
+    expect(result.audioSeconds).toBe(10);
+    expect(result.realTimeFactor).toBeGreaterThan(0);
+  });
+
   it('probes a model source with a 1MB range request and reports speed diagnostics', async () => {
     const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
     const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
