@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join, parse, relative } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { GitHubSyncStatus, Lexicon, SyncImportStrategy } from './types';
+import type { GitHubSyncStatus, HistoryEntry, Lexicon, SyncImportStrategy, UsageAggregate, UsageStatistics } from './types';
 
 const execFileAsync = promisify(execFile);
 
@@ -157,6 +157,7 @@ export class GitHubSyncService {
   async exportSyncFiles(): Promise<void> {
     await mkdir(this.repoDir, { recursive: true });
     await this.writeRepoIgnore();
+    await writeUsageSummaryFile(this.dataDir);
 
     for (const relativePath of syncFileAllowlist(this.includeHistory)) {
       if (relativePath === 'history/') {
@@ -385,7 +386,7 @@ export class GitHubSyncService {
 }
 
 export function syncFileAllowlist(includeHistory = false): string[] {
-  const files = ['settings.json', 'lexicon.json', 'prompts/natural.md', 'prompts/structured.md'];
+  const files = ['settings.json', 'lexicon.json', 'prompts/natural.md', 'prompts/structured.md', 'stats/usage-summary.json'];
   return includeHistory ? [...files, 'history/'] : files;
 }
 
@@ -502,6 +503,166 @@ async function listFiles(root: string): Promise<string[]> {
     }
   }
   return files;
+}
+
+async function writeUsageSummaryFile(dataDir: string): Promise<void> {
+  const summary = await buildUsageSummary(dataDir);
+  const target = join(dataDir, 'stats', 'usage-summary.json');
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+}
+
+async function buildUsageSummary(dataDir: string, days = 30): Promise<UsageStatistics & { generatedAt: string; source: string }> {
+  const cutoff = Date.now() - Math.max(1, days) * 24 * 60 * 60 * 1000;
+  const entries = (await readAllHistoryEntries(join(dataDir, 'history'))).filter((entry) => Date.parse(entry.createdAt) >= cutoff);
+  const totals = createUsageAccumulator('total', '全部输入');
+  const byAsr = new Map<string, UsageAccumulator>();
+  const byPostProcessor = new Map<string, UsageAccumulator>();
+
+  for (const entry of entries) {
+    addHistoryEntry(totals, entry);
+    const asrKey = entry.asrModelId ?? entry.asrProviderKind ?? 'legacy-unrecorded-asr';
+    const asrLabel = entry.asrModelName ?? entry.asrModelId ?? entry.asrProviderKind ?? '旧记录：未记录模型';
+    addHistoryEntry(getUsageAccumulator(byAsr, asrKey, asrLabel), entry);
+
+    const processorKey = entry.postProcessorEngine ?? 'local-rules';
+    addHistoryEntry(getUsageAccumulator(byPostProcessor, processorKey, postProcessorLabel(processorKey)), entry);
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    source: 'v2t-local-history',
+    days,
+    totalCount: totals.count,
+    totalAudioSeconds: roundUsage(totals.audioDurationSeconds),
+    totalOutputChars: totals.outputCharCount,
+    averageTotalMs: averageUsage(totals.totalMs, totals.totalMsCount),
+    averageAsrMs: averageUsage(totals.asrMs, totals.asrMsCount),
+    averagePostProcessMs: averageUsage(totals.postProcessMs, totals.postProcessMsCount),
+    asrModels: [...byAsr.values()].map(toUsageAggregate).sort(sortUsageAggregate),
+    postProcessors: [...byPostProcessor.values()].map(toUsageAggregate).sort(sortUsageAggregate)
+  };
+}
+
+async function readAllHistoryEntries(historyRoot: string): Promise<HistoryEntry[]> {
+  if (!existsSync(historyRoot)) {
+    return [];
+  }
+  const entries: HistoryEntry[] = [];
+  for (const file of (await listFiles(historyRoot)).filter((item) => item.endsWith('.jsonl'))) {
+    const content = await readFile(file, 'utf8');
+    for (const line of content.split('\n').map((item) => item.trim().replace(/\\n$/, '')).filter(Boolean)) {
+      try {
+        entries.push(JSON.parse(line) as HistoryEntry);
+      } catch {
+        // Ignore malformed historical lines instead of blocking sync.
+      }
+    }
+  }
+  return entries;
+}
+
+interface UsageAccumulator {
+  key: string;
+  label: string;
+  count: number;
+  audioDurationSeconds: number;
+  outputCharCount: number;
+  totalMs: number;
+  totalMsCount: number;
+  asrMs: number;
+  asrMsCount: number;
+  postProcessMs: number;
+  postProcessMsCount: number;
+  lastUsedAt?: string;
+}
+
+function createUsageAccumulator(key: string, label: string): UsageAccumulator {
+  return {
+    key,
+    label,
+    count: 0,
+    audioDurationSeconds: 0,
+    outputCharCount: 0,
+    totalMs: 0,
+    totalMsCount: 0,
+    asrMs: 0,
+    asrMsCount: 0,
+    postProcessMs: 0,
+    postProcessMsCount: 0
+  };
+}
+
+function getUsageAccumulator(map: Map<string, UsageAccumulator>, key: string, label: string): UsageAccumulator {
+  const existing = map.get(key);
+  if (existing) {
+    return existing;
+  }
+  const next = createUsageAccumulator(key, label);
+  map.set(key, next);
+  return next;
+}
+
+function addHistoryEntry(accumulator: UsageAccumulator, entry: HistoryEntry): void {
+  accumulator.count += 1;
+  accumulator.audioDurationSeconds += entry.audioDurationSeconds ?? 0;
+  accumulator.outputCharCount += entry.outputCharCount ?? [...(entry.outputText ?? '').replace(/\s+/g, '')].length;
+  if (typeof entry.totalDurationMs === 'number') {
+    accumulator.totalMs += entry.totalDurationMs;
+    accumulator.totalMsCount += 1;
+  }
+  if (typeof entry.asrDurationMs === 'number') {
+    accumulator.asrMs += entry.asrDurationMs;
+    accumulator.asrMsCount += 1;
+  }
+  if (typeof entry.postProcessDurationMs === 'number') {
+    accumulator.postProcessMs += entry.postProcessDurationMs;
+    accumulator.postProcessMsCount += 1;
+  }
+  if (!accumulator.lastUsedAt || entry.createdAt > accumulator.lastUsedAt) {
+    accumulator.lastUsedAt = entry.createdAt;
+  }
+}
+
+function toUsageAggregate(accumulator: UsageAccumulator): UsageAggregate {
+  return {
+    key: accumulator.key,
+    label: accumulator.label,
+    count: accumulator.count,
+    audioDurationSeconds: roundUsage(accumulator.audioDurationSeconds),
+    outputCharCount: accumulator.outputCharCount,
+    averageTotalMs: averageUsage(accumulator.totalMs, accumulator.totalMsCount),
+    averageAsrMs: averageUsage(accumulator.asrMs, accumulator.asrMsCount),
+    averagePostProcessMs: averageUsage(accumulator.postProcessMs, accumulator.postProcessMsCount),
+    averageRealTimeFactor:
+      accumulator.audioDurationSeconds > 0 && accumulator.asrMs > 0 ? roundUsage(accumulator.audioDurationSeconds / (accumulator.asrMs / 1000)) : undefined,
+    lastUsedAt: accumulator.lastUsedAt
+  };
+}
+
+function sortUsageAggregate(left: UsageAggregate, right: UsageAggregate): number {
+  return right.count - left.count || (right.lastUsedAt ?? '').localeCompare(left.lastUsedAt ?? '');
+}
+
+function averageUsage(total: number, count: number): number | undefined {
+  return count > 0 ? Math.round(total / count) : undefined;
+}
+
+function roundUsage(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function postProcessorLabel(engine: string): string {
+  if (engine === 'llm-local') {
+    return '本地 LLM';
+  }
+  if (engine === 'llm-cloud') {
+    return '云端 LLM';
+  }
+  if (engine === 'llm-fallback') {
+    return '云端兜底';
+  }
+  return '本地规则';
 }
 
 async function writeConflictBackup(filePath: string, dataDir: string, content: string, kind: 'conflict' | 'remote'): Promise<void> {

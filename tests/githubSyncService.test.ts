@@ -43,7 +43,8 @@ describe('GitHubSyncService', () => {
       'settings.json',
       'lexicon.json',
       'prompts/natural.md',
-      'prompts/structured.md'
+      'prompts/structured.md',
+      'stats/usage-summary.json'
     ]);
     const exportedSettings = JSON.parse(await readFile(join(repoDir, 'settings.json'), 'utf8'));
     expect(exportedSettings.defaultMode).toBe('natural');
@@ -53,12 +54,39 @@ describe('GitHubSyncService', () => {
     expect(exportedSettings.sync.github.lastSyncAt).toBeUndefined();
     await expect(readFile(join(repoDir, 'lexicon.json'), 'utf8')).resolves.toContain('"terms"');
     await expect(readFile(join(repoDir, 'prompts', 'natural.md'), 'utf8')).resolves.toContain('保守');
+    await expect(readFile(join(repoDir, 'stats', 'usage-summary.json'), 'utf8')).resolves.toContain('"totalCount"');
     await expect(readFile(join(repoDir, 'history', 'device-a', '2026-04.jsonl'), 'utf8')).rejects.toThrow();
 
     const ignore = await readFile(join(repoDir, '.gitignore'), 'utf8');
     expect(ignore).toContain('history/');
     expect(ignore).toContain('models/');
     expect(ignore).toContain('.env');
+  });
+
+  it('exports aggregate usage stats by default without syncing raw history', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'v2t-sync-stats-'));
+    const dataDir = join(root, 'data');
+    const repoDir = join(root, 'repo');
+    await UserDataStore.create(dataDir, { deviceId: 'device-a' });
+    await writeFile(
+      join(dataDir, 'history', 'device-a', '2026-04.jsonl'),
+      '{"id":"history-a","createdAt":"2026-04-26T00:00:00.000Z","outputText":"同步统计摘要","audioDurationSeconds":12,"asrModelId":"qwen3","asrModelName":"Qwen3 ASR","postProcessorEngine":"llm-cloud","totalDurationMs":3000}\\n',
+      'utf8'
+    );
+
+    const service = new GitHubSyncService({
+      dataDir,
+      repoDir,
+      git: fakeGit()
+    });
+
+    await service.exportSyncFiles();
+
+    await expect(readFile(join(repoDir, 'history', 'device-a', '2026-04.jsonl'), 'utf8')).rejects.toThrow();
+    const summary = JSON.parse(await readFile(join(repoDir, 'stats', 'usage-summary.json'), 'utf8'));
+    expect(summary.totalCount).toBe(1);
+    expect(summary.asrModels[0].label).toBe('Qwen3 ASR');
+    expect(summary.postProcessors[0].key).toBe('llm-cloud');
   });
 
   it('can include text-only history in the sync archive when the user enables it', async () => {

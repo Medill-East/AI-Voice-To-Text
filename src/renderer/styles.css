@@ -506,7 +506,7 @@ textarea {
 }
 
 .asr-management-table {
-  min-width: 1640px;
+  min-width: 1060px;
 }
 
 .comparison-head,
@@ -535,8 +535,58 @@ textarea {
 }
 
 .asr-management-head,
+.asr-summary-row {
+  grid-template-columns: 260px 190px 112px 118px 180px 86px;
+}
+
+.asr-management-head {
+  grid-template-columns: 260px 190px 112px 118px 180px 86px minmax(130px, 1fr);
+}
+
 .asr-management-row {
-  grid-template-columns: 260px 190px 112px 118px 180px 86px minmax(620px, 1fr);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-control) 54%, transparent);
+}
+
+.asr-summary-row {
+  display: grid;
+  gap: 10px;
+  align-items: center;
+}
+
+.asr-package-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
+  gap: 10px 14px;
+  align-items: start;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+}
+
+.asr-package-title {
+  display: grid;
+  gap: 3px;
+}
+
+.asr-package-title strong {
+  font-size: 12px;
+}
+
+.asr-package-title small {
+  color: var(--color-muted-2);
+  font-size: 11px;
+}
+
+.asr-package-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  overflow: visible;
+  white-space: normal;
 }
 
 .reference-table {
@@ -577,6 +627,64 @@ textarea {
 .resource-cell {
   display: grid;
   gap: 3px;
+}
+
+.package-progress {
+  grid-column: 2;
+  display: grid;
+  gap: 5px;
+}
+
+.package-progress-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--color-muted-2);
+  font-size: 11px;
+}
+
+.package-progress-line strong {
+  color: var(--color-text);
+  font-size: 11px;
+}
+
+.progress-track.compact {
+  max-width: 360px;
+  height: 4px;
+}
+
+.doubao-comparison {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-control) 58%, transparent);
+}
+
+.doubao-comparison h3,
+.doubao-comparison p {
+  margin: 0;
+}
+
+.doubao-comparison div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.doubao-comparison span,
+.cloud-model-tags span {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  padding: 2px 7px;
+  border: 1px solid var(--color-control-border);
+  border-radius: 999px;
+  color: var(--color-text);
+  background: var(--color-control);
+  font-size: 11px;
 }
 
 .resource-cell strong {
@@ -1214,7 +1322,7 @@ textarea {
 
 .cloud-model-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 150px auto auto;
+  grid-template-columns: minmax(220px, 1fr) 150px 96px auto auto;
   gap: 10px;
   align-items: center;
 }
@@ -1226,15 +1334,14 @@ textarea {
 
 .cloud-model-table {
   display: grid;
-  min-width: 980px;
-  overflow-x: auto;
+  min-width: 1120px;
   border-top: 1px solid var(--color-border);
 }
 
 .cloud-model-head,
 .cloud-model-row {
   display: grid;
-  grid-template-columns: minmax(300px, 1fr) 72px 130px 86px 270px;
+  grid-template-columns: minmax(260px, 1fr) minmax(170px, 220px) 72px 130px 110px 86px minmax(290px, auto);
   gap: 12px;
   align-items: center;
   padding: 10px 0;
@@ -1253,6 +1360,19 @@ textarea {
   align-items: center;
 }
 
+.cloud-model-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.cloud-model-row .action-strip {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  overflow: visible;
+  white-space: normal;
+}
+
 .cloud-model-row p,
 .cloud-model-row small {
   display: block;
@@ -1261,6 +1381,20 @@ textarea {
   font-size: 11px;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.cloud-empty-state {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-soft);
+}
+
+.cloud-empty-state strong,
+.cloud-empty-state p {
+  margin: 0;
 }
 
 .pager {
@@ -1290,12 +1424,16 @@ textarea {
 .subpage-tabs button {
   min-height: 34px;
   padding: 6px 12px;
+  color: var(--color-text);
+  background: var(--color-control);
+  border-color: var(--color-control-border);
 }
 
 .subpage-tabs button.active {
   color: var(--color-bg);
   background: var(--color-text);
   border-color: var(--color-text);
+  font-weight: 750;
 }
 
 .llm-installer-card {

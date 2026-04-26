@@ -250,6 +250,7 @@ export class UserDataStore {
     await mkdir(join(this.baseDir, 'prompts'), { recursive: true });
     await mkdir(join(this.baseDir, 'history', this.deviceId), { recursive: true });
     await mkdir(join(this.baseDir, 'conflicts'), { recursive: true });
+    await mkdir(join(this.baseDir, 'stats'), { recursive: true });
 
     await this.ensureFile('settings.json', DEFAULT_SETTINGS);
     await this.ensureFile('lexicon.json', DEFAULT_LEXICON);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
-import { sortCloudLlmModels } from '../core/cloudLlmCatalogShared';
+import { cloudLlmTags, sortCloudLlmModels } from '../core/cloudLlmCatalogShared';
+import type { CloudLlmSortDirection } from '../core/cloudLlmCatalogShared';
 import { oneClickEligibility, oneClickInstallableModels, publicChineseMetrics, referenceModels, scoreModel } from '../core/modelCatalog';
 import { hotkeyLabelForPlatform } from '../core/hotkeyLabels';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
@@ -159,6 +160,7 @@ export function App() {
   const [cloudLlmCatalog, setCloudLlmCatalog] = useState<CloudLlmModelCatalogState | null>(null);
   const [cloudModelSearch, setCloudModelSearch] = useState('');
   const [cloudModelSort, setCloudModelSort] = useState<CloudLlmSortKey>('recommended');
+  const [cloudSortDirection, setCloudSortDirection] = useState<CloudLlmSortDirection>('desc');
   const [cloudModelPage, setCloudModelPage] = useState(0);
   const [cloudOnlyFree, setCloudOnlyFree] = useState(false);
   const [cloudOnlyRecommended, setCloudOnlyRecommended] = useState(true);
@@ -1479,7 +1481,18 @@ export function App() {
                 </>
               ) : null}
               {asrModelsPage === 'reference' ? (
-                <ReferenceModelTable models={referenceCatalog} />
+                <>
+                  <ReferenceModelTable models={referenceCatalog} />
+                  <section className="doubao-comparison">
+                    <h3>豆包 / 火山引擎云端 ASR 参考</h3>
+                    <p>豆包适合低延迟流式、云端高可用、热词和自学习体系；V2T 本地 ASR 更适合隐私、离线和成本可控。</p>
+                    <div>
+                      {['低延迟流式', '中文/方言覆盖', '热词/自学习', '长音频能力', '隐私', '成本', '离线可用性', '延迟稳定性'].map((item) => (
+                        <span key={item}>{item}</span>
+                      ))}
+                    </div>
+                  </section>
+                </>
               ) : null}
               {asrModelsPage === 'guide' ? (
                 <section className="advanced-group">
@@ -1687,6 +1700,7 @@ export function App() {
                       state={cloudLlmCatalog}
                       search={cloudModelSearch}
                       sortKey={cloudModelSort}
+                      sortDirection={cloudSortDirection}
                       page={cloudModelPage}
                       onlyFree={cloudOnlyFree}
                       onlyRecommended={cloudOnlyRecommended}
@@ -1696,6 +1710,10 @@ export function App() {
                       }}
                       onSort={(value) => {
                         setCloudModelSort(value);
+                        setCloudModelPage(0);
+                      }}
+                      onSortDirection={(value) => {
+                        setCloudSortDirection(value);
                         setCloudModelPage(0);
                       }}
                       onOnlyFree={(value) => {
@@ -2287,6 +2305,12 @@ export function App() {
               <p className="hint">
                 开启后，每次成功输入、保存词库或保存提示词都会排队同步；如果要同步录音历史，请同时开启“同步历史”。
               </p>
+              <section className="sync-stats-note">
+                <h3>统计摘要同步</h3>
+                <p className="hint">
+                  默认同步 stats/usage-summary.json，只包含总输入次数、总录音时长、输出字数和模型耗时聚合，不包含历史原文、ASR 原文或音频。
+                </p>
+              </section>
               <dl>
                 <div>
                   <dt>自动同步状态</dt>
@@ -2827,11 +2851,13 @@ function CloudModelTable({
   state,
   search,
   sortKey,
+  sortDirection,
   page,
   onlyFree,
   onlyRecommended,
   onSearch,
   onSort,
+  onSortDirection,
   onOnlyFree,
   onOnlyRecommended,
   onPage,
@@ -2842,11 +2868,13 @@ function CloudModelTable({
   state: CloudLlmModelCatalogState | null;
   search: string;
   sortKey: CloudLlmSortKey;
+  sortDirection: CloudLlmSortDirection;
   page: number;
   onlyFree: boolean;
   onlyRecommended: boolean;
   onSearch(value: string): void;
   onSort(value: CloudLlmSortKey): void;
+  onSortDirection(value: CloudLlmSortDirection): void;
   onOnlyFree(value: boolean): void;
   onOnlyRecommended(value: boolean): void;
   onPage(value: number): void;
@@ -2855,7 +2883,7 @@ function CloudModelTable({
   onOpen(model: CloudLlmModelView): Promise<void>;
 }) {
   const query = search.trim().toLowerCase();
-  const filtered = sortCloudLlmModels(state?.models ?? [], sortKey).filter((model) => {
+  const filtered = sortCloudLlmModels(state?.models ?? [], sortKey, sortDirection).filter((model) => {
     if (onlyFree && !model.isFree) {
       return false;
     }
@@ -2865,7 +2893,7 @@ function CloudModelTable({
     if (!query) {
       return true;
     }
-    return `${model.name} ${model.id} ${model.description ?? ''}`.toLowerCase().includes(query);
+    return `${model.name} ${model.id} ${model.description ?? ''} ${cloudLlmTags(model).join(' ')}`.toLowerCase().includes(query);
   });
   const totalPages = Math.max(1, Math.ceil(filtered.length / CLOUD_MODELS_PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
@@ -2888,6 +2916,10 @@ function CloudModelTable({
           <option value="releasedAt">发布时间</option>
           <option value="price">价格</option>
         </select>
+        <select value={sortDirection} onChange={(event) => onSortDirection(event.target.value as CloudLlmSortDirection)}>
+          <option value="desc">倒序</option>
+          <option value="asc">正序</option>
+        </select>
         <label className="setting-check">
           <input type="checkbox" checked={onlyFree} onChange={(event) => onOnlyFree(event.target.checked)} />
           只看免费
@@ -2899,29 +2931,47 @@ function CloudModelTable({
       </div>
       <p className="progress-meta">
         {state?.status === 'failed' ? `刷新失败：${state.error ?? '未知错误'}；正在显示缓存或内置推荐。` : `共 ${filtered.length} 个模型`}
+        {sortKey === 'releasedAt' ? ` · ${sortDirection === 'desc' ? '按发布时间倒序' : '按发布时间正序'}` : ''}
         {state?.updatedAt ? ` · 上次刷新 ${new Date(state.updatedAt).toLocaleString()}` : ''}
       </p>
-      <div className="cloud-model-table">
-        <div className="cloud-model-head">
-          <span>模型</span>
-          <span>适配</span>
-          <span>价格</span>
-          <span>上下文</span>
-          <span>操作</span>
+      {filtered.length === 0 ? (
+        <div className="cloud-empty-state">
+          <strong>未找到同时满足当前筛选的模型</strong>
+          <p>免费模型、推荐模型和搜索条件叠加后可能没有结果，可以先放宽其中一个条件。</p>
+          <div className="button-row three">
+            {onlyFree && onlyRecommended ? <button className="secondary compact" onClick={() => onOnlyRecommended(false)}>放宽为只看免费</button> : null}
+            {onlyFree && onlyRecommended ? <button className="secondary compact" onClick={() => onOnlyFree(false)}>放宽为只看推荐</button> : null}
+            <button className="secondary compact" onClick={() => { onOnlyFree(false); onOnlyRecommended(false); onSearch(''); }}>清除筛选</button>
+          </div>
         </div>
-        {visible.map((model) => (
+      ) : (
+        <div className="cloud-model-table">
+          <div className="cloud-model-head">
+            <span>模型</span>
+            <span>TAG</span>
+            <span>适配</span>
+            <span>价格</span>
+            <span>发布时间</span>
+            <span>上下文</span>
+            <span>操作</span>
+          </div>
+          {visible.map((model) => (
           <div className="cloud-model-row" key={model.id}>
             <div>
               <div className="cloud-model-title">
-                {model.isFree ? <span className="engine-badge">免费</span> : null}
-                {model.recommended ? <span className="engine-badge">推荐</span> : null}
                 <strong>{model.name}</strong>
               </div>
               <small>{model.id}</small>
-              {model.note || model.description ? <p>{model.note ?? model.description}</p> : null}
+              {model.note ? <p>{model.note}</p> : null}
+            </div>
+            <div className="cloud-model-tags">
+              {cloudLlmTags(model).map((tag) => (
+                <span key={tag}>{tag}</span>
+              ))}
             </div>
             <span>{model.recommendationScore}</span>
             <span>{cloudPriceLabel(model)}</span>
+            <span>{model.createdAt ? new Date(model.createdAt).toLocaleDateString() : '未知'}</span>
             <span>{model.contextLength ? `${Math.round(model.contextLength / 1000)}k` : '-'}</span>
             <div className="action-strip">
               <button className="secondary compact" onClick={() => onUse(model)}>填入</button>
@@ -2929,8 +2979,9 @@ function CloudModelTable({
               <button className="secondary compact" onClick={() => void onOpen(model)}>打开模型页</button>
             </div>
           </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
       <div className="pager">
         <button className="secondary compact" onClick={() => onPage(Math.max(0, safePage - 1))} disabled={safePage === 0}>
           上一页
@@ -3023,48 +3074,57 @@ function AsrModelTable({
           const benchmarkResult = benchmarkResultById[model.id];
           return (
             <div className="comparison-row asr-management-row" key={model.id}>
-              <div>
-                <strong>{model.name}</strong>
-                <small>{model.languages.join('/')} · {model.evaluationSources?.chineseBenchmark?.sourceLabel ?? '暂无公开中文评测来源'}</small>
+              <div className="asr-summary-row">
+                <div>
+                  <strong>{model.name}</strong>
+                  <small>{model.languages.join('/')} · {model.evaluationSources?.chineseBenchmark?.sourceLabel ?? '暂无公开中文评测来源'}</small>
+                </div>
+                <ComparisonMetric value={chineseMetric.value} label={chineseMetric.label} lowerIsBetter={chineseMetric.lowerIsBetter} max={chineseMetric.max} />
+                <ComparisonMetric value={recommendation.score} label={`${recommendation.score}`} max={100} />
+                <ComparisonMetric
+                  value={benchmarkResult?.realTimeFactor ?? statusRecord?.benchmarkRealTimeFactor}
+                  label={benchmarkResult?.realTimeFactor ?? statusRecord?.benchmarkRealTimeFactor ? `${benchmarkResult?.realTimeFactor ?? statusRecord?.benchmarkRealTimeFactor}x` : '未测速'}
+                  max={20}
+                />
+                <span className="resource-cell">
+                  <strong>{model.sizeMb}MB · 最低 {model.hardwareRequirements.minMemoryGb}GB</strong>
+                  <small>{model.runtime}{model.sherpaModelType ? ` · ${model.sherpaModelType}` : ''}</small>
+                </span>
+                <span>{isCurrent ? '当前' : statusLabel(statusRecord)}</span>
               </div>
-              <ComparisonMetric value={chineseMetric.value} label={chineseMetric.label} lowerIsBetter={chineseMetric.lowerIsBetter} max={chineseMetric.max} />
-              <ComparisonMetric value={recommendation.score} label={`${recommendation.score}`} max={100} />
-              <ComparisonMetric
-                value={benchmarkResult?.realTimeFactor ?? statusRecord?.benchmarkRealTimeFactor}
-                label={benchmarkResult?.realTimeFactor ?? statusRecord?.benchmarkRealTimeFactor ? `${benchmarkResult?.realTimeFactor ?? statusRecord?.benchmarkRealTimeFactor}x` : '未测速'}
-                max={20}
-              />
-              <span className="resource-cell">
-                <strong>{model.sizeMb}MB · 最低 {model.hardwareRequirements.minMemoryGb}GB</strong>
-                <small>{model.runtime}{model.sherpaModelType ? ` · ${model.sherpaModelType}` : ''}</small>
-              </span>
-              <span>{isCurrent ? '当前' : statusLabel(statusRecord)}</span>
-              <div className="action-strip table-action-grid">
-                <button className="secondary compact" onClick={() => void (installed ? onActivate(model.id) : onInstall(model.id))} disabled={installing || isCurrent}>
-                  {isCurrent ? '当前' : installing ? '安装中' : installed ? '启用' : statusRecord?.status === 'failed' && statusRecord.canResume ? '继续下载' : '安装'}
-                </button>
-                <button className="secondary compact" onClick={() => void onImportArchive(model.id)} disabled={installing}>导入包</button>
-                <button className="secondary compact" onClick={() => void onImportDirectory(model.id)} disabled={installing}>导入目录</button>
-                <button className="secondary compact" onClick={() => void onOpenDownloadUrl(model.id)}>外部下载</button>
-                <button className="secondary compact" onClick={() => void onCopyDownloadUrl(model.id)}>复制链接</button>
-                <button className="secondary compact" onClick={() => void onTestDownload(model.id)} disabled={probingModelId === model.id || installing}>
-                  {probingModelId === model.id ? '测速中' : probeResult ? '重测下载' : '下载测速'}
-                </button>
-                {installed ? (
-                  <button className="secondary compact" onClick={() => void onBenchmark(model.id)} disabled={benchmarkingModelId === model.id || installing}>
-                    {benchmarkingModelId === model.id ? '测速中' : '输出测速'}
+              <div className="asr-package-row">
+                <div className="asr-package-title">
+                  <strong>包体管理</strong>
+                  <small>{packageStatusSummary(statusRecord, probeResult, benchmarkResult)}</small>
+                </div>
+                <div className="action-strip table-action-grid asr-package-actions">
+                  <button className="secondary compact" onClick={() => void (installed ? onActivate(model.id) : onInstall(model.id))} disabled={installing || isCurrent}>
+                    {isCurrent ? '当前' : installing ? '安装中' : installed ? '启用' : statusRecord?.status === 'failed' && statusRecord.canResume ? '继续下载' : '安装'}
                   </button>
-                ) : null}
-                {installed || statusRecord?.status === 'failed' ? (
-                  <button className="secondary compact" onClick={() => void onReinstall(model.id)} disabled={installing}>重装</button>
-                ) : null}
-                {installing ? <button className="secondary compact" onClick={() => void onCancelInstall(model.id)}>取消</button> : null}
-                {canClearResidue ? <button className="secondary compact" onClick={() => void onClearInstall(model.id)}>清残留</button> : null}
-                {installed && !isCurrent ? (
-                  <button className="danger compact" onClick={() => void onDelete(model.id)} disabled={deleting}>
-                    {deleting ? '删除中' : '删除'}
+                  <button className="secondary compact" onClick={() => void onImportArchive(model.id)} disabled={installing}>导入包</button>
+                  <button className="secondary compact" onClick={() => void onImportDirectory(model.id)} disabled={installing}>导入目录</button>
+                  <button className="secondary compact" onClick={() => void onOpenDownloadUrl(model.id)}>外部下载</button>
+                  <button className="secondary compact" onClick={() => void onCopyDownloadUrl(model.id)}>复制链接</button>
+                  <button className="secondary compact" onClick={() => void onTestDownload(model.id)} disabled={probingModelId === model.id || installing}>
+                    {probingModelId === model.id ? '测速中' : probeResult ? '重测下载' : '下载测速'}
                   </button>
-                ) : null}
+                  {installed ? (
+                    <button className="secondary compact" onClick={() => void onBenchmark(model.id)} disabled={benchmarkingModelId === model.id || installing}>
+                      {benchmarkingModelId === model.id ? '测速中' : '输出测速'}
+                    </button>
+                  ) : null}
+                  {installed || statusRecord?.status === 'failed' ? (
+                    <button className="secondary compact" onClick={() => void onReinstall(model.id)} disabled={installing}>重装</button>
+                  ) : null}
+                  {installing ? <button className="secondary compact" onClick={() => void onCancelInstall(model.id)}>取消</button> : null}
+                  {canClearResidue ? <button className="secondary compact" onClick={() => void onClearInstall(model.id)}>清残留</button> : null}
+                  {installed && !isCurrent ? (
+                    <button className="danger compact" onClick={() => void onDelete(model.id)} disabled={deleting}>
+                      {deleting ? '删除中' : '删除'}
+                    </button>
+                  ) : null}
+                </div>
+                {statusRecord ? <PackageProgress status={statusRecord} /> : null}
               </div>
             </div>
           );
@@ -3376,6 +3436,44 @@ function InstallProgress({ status }: { status: ModelStatusRecord }) {
       {status.error ? <p className="progress-error">{status.error}</p> : null}
     </div>
   );
+}
+
+function PackageProgress({ status }: { status: ModelStatusRecord }) {
+  if (!isInstallInProgress(status.status) && status.status !== 'failed') {
+    return null;
+  }
+  const progress = status.progress;
+  return (
+    <div className="package-progress">
+      <div className="package-progress-line">
+        <strong>{installStatusLabel(status)}</strong>
+        <span>
+          {[
+            progress !== undefined ? `${progress}%` : undefined,
+            status.bytesPerSecond ? `${formatBytes(status.bytesPerSecond)}/s` : undefined,
+            status.etaSeconds ? `剩余 ${formatDuration(status.etaSeconds)}` : undefined
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </span>
+      </div>
+      <div className={progress === undefined ? 'progress-track compact indeterminate' : 'progress-track compact'}>
+        <span style={progress === undefined ? undefined : { width: `${Math.min(100, Math.max(0, progress))}%` }} />
+      </div>
+      {status.error ? <p className="progress-error">{status.error}</p> : null}
+    </div>
+  );
+}
+
+function packageStatusSummary(status?: ModelStatusRecord, probe?: ModelDownloadProbeResult, benchmark?: ModelBenchmarkResult): string {
+  const parts = [statusLabel(status)];
+  if (probe?.bytesPerSecond) {
+    parts.push(`下载源 ${formatBytes(probe.bytesPerSecond)}/s`);
+  }
+  if (benchmark?.realTimeFactor ?? status?.benchmarkRealTimeFactor) {
+    parts.push(`输出 ${benchmark?.realTimeFactor ?? status?.benchmarkRealTimeFactor}x`);
+  }
+  return parts.filter(Boolean).join(' · ');
 }
 
 function DownloadProbeSummary({ result }: { result?: ModelDownloadProbeResult }) {

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { CloudLlmCatalogService, sortCloudLlmModels } from '../src/core/cloudLlmCatalog';
+import { cloudLlmTags } from '../src/core/cloudLlmCatalogShared';
 
 describe('CloudLlmCatalogService', () => {
   it('refreshes OpenRouter models and marks free text models', async () => {
@@ -99,5 +100,48 @@ describe('sortCloudLlmModels', () => {
     expect(sortCloudLlmModels(models, 'name')[0].id).toBe('qwen/pro');
     expect(sortCloudLlmModels(models, 'releasedAt')[0].id).toBe('qwen/pro');
     expect(sortCloudLlmModels(models, 'price')[0].id).toBe('zeta/free');
+  });
+
+  it('can sort release dates in both directions', () => {
+    const models = [
+      {
+        id: 'old/free',
+        name: 'Old Free',
+        isFree: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        recommended: true,
+        performanceScore: 80,
+        recommendationScore: 80
+      },
+      {
+        id: 'new/free',
+        name: 'New Free',
+        isFree: true,
+        createdAt: '2026-04-01T00:00:00.000Z',
+        recommended: true,
+        performanceScore: 75,
+        recommendationScore: 75
+      }
+    ];
+
+    expect(sortCloudLlmModels(models, 'releasedAt', 'desc')[0].id).toBe('new/free');
+    expect(sortCloudLlmModels(models, 'releasedAt', 'asc')[0].id).toBe('old/free');
+  });
+
+  it('builds concise tags instead of depending on long descriptions', () => {
+    const tags = cloudLlmTags({
+      id: 'qwen/qwen-free',
+      name: 'Qwen Free',
+      isFree: true,
+      recommended: true,
+      createdAt: new Date().toISOString(),
+      contextLength: 131072,
+      promptPrice: 0,
+      completionPrice: 0,
+      recommendationScore: 88,
+      performanceScore: 80
+    });
+
+    expect(tags).toEqual(expect.arrayContaining(['免费', '推荐', '中文友好', '长上下文', '新模型']));
   });
 });
