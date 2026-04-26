@@ -14,7 +14,9 @@ describe('release workflow', () => {
     expect(workflow).toContain('release/*-mac-*.zip');
     expect(workflow).toContain('CSC_IDENTITY_AUTO_DISCOVERY: false');
     expect(workflow).toContain('windows-latest');
+    expect(workflow).toContain('dtolnay/rust-toolchain@stable');
     expect(workflow).toContain('npm run dist:win');
+    expect(workflow).toContain('npm run verify:win-release');
     expect(workflow).toContain('ELECTRON_BUILDER_PUBLISH: never');
     expect(workflow).toContain('release/*.exe');
     expect(workflow).toContain('release/*-win-*.zip');
@@ -37,6 +39,8 @@ describe('release workflow', () => {
     expect(packageJson.scripts['dist:mac:ci']).toContain('--mac --publish=never');
     expect(packageJson.scripts['dist:mac:ci']).toContain('-c.mac.identity=null');
     expect(packageJson.scripts['dist:win']).toContain('--win --publish=never');
+    expect(packageJson.scripts['dist:win']).toContain('npm run verify:win-release');
+    expect(packageJson.scripts['verify:win-release']).toContain('scripts/verify-windows-release.mjs');
     expect(packageJson.build.publish).toBeNull();
   });
 });

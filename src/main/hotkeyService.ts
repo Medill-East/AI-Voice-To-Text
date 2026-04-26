@@ -3,6 +3,7 @@ import * as nodeUtil from 'node:util';
 import type { IGlobalKeyDownMap, IGlobalKeyEvent, IGlobalKeyListener } from 'node-global-key-listener';
 import { HotkeyGestureDetector, type HotkeyAction } from '../core/hotkeyGesture';
 import { createShortcutMatcher, isModifierOnlyAccelerator } from '../core/hotkeyMatcher';
+import { WindowsRawInputKeyboardListener } from './windowsRawInputListener';
 
 interface HotkeyServiceOptions {
   accelerator: string;
@@ -43,7 +44,7 @@ export interface HotkeyStatus {
   helperEventTapCreated?: boolean;
   nativeActive?: boolean;
   nativeHelperPath?: string;
-  nativeHelperKind?: 'mac-key-server' | 'win-key-server';
+  nativeHelperKind?: 'mac-key-server' | 'v2t-windows-raw-input';
   helperSourcePath?: string;
   helperFileExists?: boolean;
   repairAttempted?: boolean;
@@ -679,6 +680,19 @@ class DefaultNativeKeyListenerFactory implements NativeKeyListenerFactory {
     onInfo?: (info: string) => void,
     serverPath?: string
   ): Promise<NativeKeyListenerHandle> {
+    if (process.platform === 'win32') {
+      const listener = new WindowsRawInputKeyboardListener(callback, {
+        onError,
+        onInfo,
+        serverPath
+      });
+      await listener.start();
+      return {
+        remove: () => undefined,
+        kill: () => listener.stop()
+      };
+    }
+
     patchLegacyUtil();
     const { GlobalKeyboardListener } = require('node-global-key-listener') as typeof import('node-global-key-listener');
     const listener = new GlobalKeyboardListener({
@@ -710,8 +724,8 @@ function stringifyError(error: unknown): string {
 
 function stringifyNativeListenerError(error: unknown, platform?: NodeJS.Platform, nativeHelperPath?: string): string {
   if ((platform ?? process.platform) === 'win32' && exitCodeFromError(error) === -4058) {
-    const target = nativeHelperPath ?? 'WinKeyServer.exe';
-    return `WinKeyServer.exe 未找到或无法启动：${target}`;
+    const target = nativeHelperPath ?? 'V2TKeyboardListener.exe';
+    return `V2TKeyboardListener.exe 未找到或无法启动：${target}`;
   }
   return stringifyError(error);
 }
@@ -726,7 +740,7 @@ function exitCodeFromError(error: unknown): number | null | undefined {
 function helperPermissionDiagnostic(platform?: NodeJS.Platform, nativeHelperPath?: string): string {
   const resolvedPlatform = platform ?? process.platform;
   if (resolvedPlatform === 'win32') {
-    return '未收到 Windows 系统键盘事件。请重新检测，或确认安全软件没有拦截 V2T 键盘监听。';
+    return '未收到 Windows Raw Input 键盘事件。请重新检测；如果 Defender 曾隔离 WinKeyServer.exe，不要恢复旧文件，新版不再使用它。';
   }
   if (resolvedPlatform !== 'darwin') {
     return '未收到系统键盘事件；请重新检测，或改用备用组合键。';
@@ -738,7 +752,7 @@ function helperPermissionDiagnostic(platform?: NodeJS.Platform, nativeHelperPath
 function helperPendingDiagnostic(platform?: NodeJS.Platform): string {
   const resolvedPlatform = platform ?? process.platform;
   if (resolvedPlatform === 'win32') {
-    return 'Windows 系统键盘监听已启动，按一次快捷键完成验证；备用快捷键待命。';
+    return 'Windows Raw Input 键盘监听已启动，按一次快捷键完成验证；备用快捷键待命。';
   }
   return '监听组件已启动，按一次快捷键完成验证；如果仍无反应，请完全退出 V2T 后重新打开。';
 }
@@ -747,10 +761,10 @@ function helperFailureDiagnostic(platform?: NodeJS.Platform, nativeHelperPath?: 
   const resolvedPlatform = platform ?? process.platform;
   if (resolvedPlatform === 'win32') {
     return stderr?.trim()
-      ? `Windows 系统键盘监听不可用：${stderr.trim()}`
+      ? `Windows Raw Input 键盘监听不可用：${stderr.trim()}`
       : errorMessage
-        ? `Windows 系统键盘监听不可用：${errorMessage}`
-      : `Windows 系统键盘监听不可用。${helperPermissionDiagnostic(platform, nativeHelperPath)}`;
+        ? `Windows Raw Input 键盘监听不可用：${errorMessage}`
+      : `Windows Raw Input 键盘监听不可用。${helperPermissionDiagnostic(platform, nativeHelperPath)}`;
   }
   const base = isEventTapFailure(stderr)
     ? `系统监听组件 event tap 权限失败：${stderr?.trim()}`
@@ -780,7 +794,7 @@ function nativeHelperKindFor(platform: NodeJS.Platform | undefined, nativeHelper
     return 'mac-key-server';
   }
   if (resolvedPlatform === 'win32') {
-    return 'win-key-server';
+    return 'v2t-windows-raw-input';
   }
   return undefined;
 }

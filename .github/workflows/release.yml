@@ -45,8 +45,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
       - run: npm run dist:win
+      - run: npm run verify:win-release
       - uses: actions/upload-artifact@v4
         with:
           name: v2t-windows

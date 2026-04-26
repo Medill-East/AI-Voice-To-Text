@@ -187,8 +187,8 @@ describe('HotkeyService', () => {
         permissionKind: 'windows-native-hook',
         backend: 'electron-shortcut',
         activeAccelerator: 'CommandOrControl+Alt+Space',
-        lastError: expect.stringContaining('WinKeyServer.exe 未找到或无法启动'),
-        diagnosticMessage: expect.stringContaining('Windows 系统键盘监听')
+        lastError: expect.stringContaining('V2TKeyboardListener.exe 未找到或无法启动'),
+        diagnosticMessage: expect.stringContaining('Windows Raw Input')
       })
     );
     expect(onStatus.mock.calls.at(-1)?.[0].diagnosticMessage).not.toContain('macOS');
@@ -210,7 +210,7 @@ describe('HotkeyService', () => {
       fallbackAccelerator: 'CommandOrControl+Alt+Space',
       longPressMs: 350,
       platform: 'win32',
-      nativeHelperPath: 'C:\\Users\\me\\AppData\\Roaming\\V2T\\keyboard-listener\\WinKeyServer.exe',
+      nativeHelperPath: 'C:\\Program Files\\V2T\\resources\\app.asar.unpacked\\dist\\native\\V2TKeyboardListener.exe',
       onAction: vi.fn()
     });
 
@@ -218,12 +218,12 @@ describe('HotkeyService', () => {
       expect.any(Function),
       expect.any(Function),
       expect.any(Function),
-      'C:\\Users\\me\\AppData\\Roaming\\V2T\\keyboard-listener\\WinKeyServer.exe'
+      'C:\\Program Files\\V2T\\resources\\app.asar.unpacked\\dist\\native\\V2TKeyboardListener.exe'
     );
     expect(status).toMatchObject({
       platform: 'win32',
-      nativeHelperKind: 'win-key-server',
-      nativeHelperPath: 'C:\\Users\\me\\AppData\\Roaming\\V2T\\keyboard-listener\\WinKeyServer.exe'
+      nativeHelperKind: 'v2t-windows-raw-input',
+      nativeHelperPath: 'C:\\Program Files\\V2T\\resources\\app.asar.unpacked\\dist\\native\\V2TKeyboardListener.exe'
     });
   });
 

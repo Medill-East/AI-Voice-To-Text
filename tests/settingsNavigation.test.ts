@@ -13,7 +13,7 @@ describe('settings navigation structure', () => {
     expect(app).toContain('className="page-nav"');
     expect(app).toContain('className="page-content"');
     expect(app).toContain('复制诊断信息');
-    expect(app).toContain('修复监听组件');
+    expect(app).toContain('检查监听组件');
     expect(app).toContain('清理旧监听进程');
     expect(app).toContain('单击快捷键');
     expect(app).toContain('双击快捷键');
@@ -37,7 +37,9 @@ describe('settings navigation structure', () => {
     expect(app).toContain('刷新模型榜单');
     expect(app).toContain('上次刷新');
     expect(app).toContain("permissionKind === 'macos-accessibility'");
-    expect(app).toContain('Windows 系统键盘监听');
+    expect(app).toContain('Windows Raw Input');
+    expect(app).toContain('Defender 已隔离 WinKeyServer.exe 时不要恢复');
+    expect(app).toContain('V2TKeyboardListener.exe');
     expect(app).not.toContain('className=\"mode-switch\"');
     expect(app).toContain('单独的私有仓库');
     expect(app).toContain('settings.json、lexicon.json、prompts/natural.md、prompts/structured.md');

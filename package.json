@@ -1,6 +1,6 @@
 {
   "name": "v2t",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "private": true,
   "description": "Cross-platform voice-to-text desktop app MVP.",
   "author": "Haodong",
@@ -9,14 +9,15 @@
     "dev": "vite --host 127.0.0.1",
     "dev:electron": "npm run build:main && concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "build": "npm run typecheck && npm run build:native && npm run build:main && npm run build:renderer && npm run write-build-info",
-    "build:native": "node scripts/build-mac-key-server.mjs",
+    "build:native": "node scripts/build-native.mjs",
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
     "write-build-info": "node scripts/write-build-info.mjs",
     "package": "npm run build && node scripts/patch-osx-sign-no-timestamp.mjs && electron-builder --dir",
     "dist": "npm run build && node scripts/patch-osx-sign-no-timestamp.mjs && electron-builder --publish=never",
     "dist:mac:ci": "npm run build && electron-builder --mac --publish=never -c.mac.identity=null",
-    "dist:win": "npm run build && electron-builder --win --publish=never",
+    "dist:win": "npm run build && electron-builder --win --publish=never && npm run verify:win-release",
+    "verify:win-release": "node scripts/verify-windows-release.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "postinstall": "node scripts/fix-key-listener-permissions.mjs",
     "start": "electron .",
@@ -53,11 +54,11 @@
     "publish": null,
     "files": [
       "dist/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/node-global-key-listener/bin/WinKeyServer.exe"
     ],
     "asar": true,
     "asarUnpack": [
-      "node_modules/node-global-key-listener/**/*",
       "dist/native/**/*",
       "node_modules/sherpa-onnx/**/*",
       "node_modules/sherpa-onnx-node/**/*",

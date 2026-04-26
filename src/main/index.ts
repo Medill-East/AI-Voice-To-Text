@@ -22,11 +22,13 @@ import { createCheckingHotkeyStatus } from './hotkeyDiagnostics';
 import { HotkeyDiagnosticLog } from './hotkeyDiagnosticLog';
 import { HotkeyService, type HotkeyStatus, type HotkeyTestResult } from './hotkeyService';
 import {
+  bundledWinKeyServerPath,
   cleanupStaleWinKeyServerProcesses,
+  cleanupStableWinKeyServer,
   ensureStableMacKeyServer,
-  ensureWindowsKeyServerAvailable,
+  resolveBundledV2TKeyboardListenerPath,
   resolveBundledMacKeyServerPath,
-  resolveBundledWinKeyServerPath,
+  stableV2TKeyboardListenerPath,
   stableWinKeyServerPath,
   type WindowsKeyServerCleanupResult
 } from './nativeKeyHelper';
@@ -962,34 +964,35 @@ async function prepareNativeHelperForHotkey(): Promise<string | undefined> {
     return nativeHelperPath;
   }
 
-  try {
-    nativeHelperSourcePath = await resolveBundledWinKeyServerPath();
-    nativeHelperStablePath = stableWinKeyServerPath(app.getPath('userData'));
-    const availability = await ensureWindowsKeyServerAvailable(nativeHelperSourcePath, app.getPath('userData'));
-    nativeHelperPath = availability.helperPath;
-    nativeHelperSourcePath = availability.helperSourcePath;
-    nativeHelperStablePath = availability.stablePath;
-    helperFileExists = availability.helperFileExists;
-    helperRepairAttempted = availability.repairAttempted;
-    helperRepairError = availability.repairError;
+  nativeHelperSourcePath = resolveBundledV2TKeyboardListenerPath(__dirname);
+  nativeHelperPath = nativeHelperSourcePath;
+  nativeHelperStablePath = stableV2TKeyboardListenerPath(app.getPath('userData'));
+  helperFileExists = existsSync(nativeHelperSourcePath);
+  nativeHelperSignature = undefined;
+
+  const cleanup = await cleanupStableWinKeyServer(app.getPath('userData'));
+  helperRepairAttempted = cleanup.attempted;
+  helperRepairError = cleanup.error;
+
+  if (helperFileExists) {
     nativeHelperSignature = undefined;
     void hotkeyLog?.write({
-      type: 'helper-repair',
+      type: 'helper-ready',
       helperPath: nativeHelperPath,
-      message: availability.repairError ?? (availability.repairAttempted ? 'WinKeyServer stable copy checked' : 'WinKeyServer stable fallback used')
+      message: cleanup.error
+        ? `V2TKeyboardListener.exe found; legacy WinKeyServer cleanup failed: ${cleanup.error}`
+        : 'V2TKeyboardListener.exe found; legacy WinKeyServer stable copy removed if present'
     }).catch((error) => console.warn(`Unable to write hotkey diagnostic log: ${readableError(error)}`));
     return nativeHelperPath;
-  } catch (error) {
-    helperFileExists = false;
-    helperRepairAttempted = true;
-    helperRepairError = readableError(error);
-    void hotkeyLog?.write({
-      type: 'helper-repair-error',
-      helperPath: nativeHelperPath,
-      message: helperRepairError
-    }).catch((writeError) => console.warn(`Unable to write hotkey diagnostic log: ${readableError(writeError)}`));
-    return nativeHelperPath;
   }
+
+  helperRepairError = cleanup.error ?? `V2TKeyboardListener.exe 未找到：${nativeHelperSourcePath}`;
+  void hotkeyLog?.write({
+    type: 'helper-missing',
+    helperPath: nativeHelperPath,
+    message: helperRepairError
+  }).catch((writeError) => console.warn(`Unable to write hotkey diagnostic log: ${readableError(writeError)}`));
+  return nativeHelperPath;
 }
 
 function cleanupStaleHotkeyHelpers(): WindowsKeyServerCleanupResult {
@@ -1012,11 +1015,19 @@ function cleanupStaleHotkeyHelpers(): WindowsKeyServerCleanupResult {
 function windowsKeyServerRoots(): string[] {
   return Array.from(
     new Set(
-      [nativeHelperPath, nativeHelperSourcePath, nativeHelperStablePath, stableWinKeyServerPath(app.getPath('userData'))]
+      [nativeHelperPath, nativeHelperSourcePath, nativeHelperStablePath, stableWinKeyServerPath(app.getPath('userData')), maybeBundledWinKeyServerPath()]
         .filter((value): value is string => Boolean(value))
         .map((value) => dirname(value))
     )
   );
+}
+
+function maybeBundledWinKeyServerPath(): string | undefined {
+  try {
+    return bundledWinKeyServerPath();
+  } catch {
+    return undefined;
+  }
 }
 
 function readCodeSignature(filePath: string): string | undefined {
@@ -1063,7 +1074,11 @@ function createHotkeyDiagnosticText(): string {
       'nextAction: 完全退出 V2T；在 Accessibility 中移除 V2T 和 MacKeyServer 后重新添加；再打开新版 V2T。'
     );
   } else if (process.platform === 'win32') {
-    lines.push('nextAction: 重新检测 Windows 系统键盘监听；如果被安全软件拦截，请允许 V2T 或改用备用组合键。');
+    lines.push(
+      'windowsBackend: V2T Raw Input listener',
+      'defenderNote: 如果 Defender 已隔离 WinKeyServer.exe，不要恢复；新版不再分发或启动该旧 helper。',
+      'nextAction: 重新检测 Windows Raw Input 键盘监听；如 V2TKeyboardListener.exe 缺失，请重新安装新版 V2T 或检查 release 包。'
+    );
   }
   return lines.join('\n');
 }

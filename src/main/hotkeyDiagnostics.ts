@@ -31,6 +31,7 @@ export function createCheckingHotkeyStatus(options: {
     helperVerified: false,
     nativeActive: false,
     nativeHelperPath: options.nativeHelperPath,
+    nativeHelperKind: nativeHelperKindFor(options.platform, options.nativeHelperPath),
     helperSourcePath: options.nativeHelperSourcePath,
     helperFileExists: options.helperFileExists,
     repairAttempted: options.repairAttempted,
@@ -45,6 +46,20 @@ export function createCheckingHotkeyStatus(options: {
     recommendedAction: 'none',
     message: options.diagnosticMessage ?? '正在重新检测系统键盘监听。'
   };
+}
+
+function nativeHelperKindFor(platform: NodeJS.Platform | undefined, nativeHelperPath?: string): HotkeyStatus['nativeHelperKind'] {
+  if (!nativeHelperPath) {
+    return undefined;
+  }
+  const resolvedPlatform = platform ?? process.platform;
+  if (resolvedPlatform === 'darwin') {
+    return 'mac-key-server';
+  }
+  if (resolvedPlatform === 'win32') {
+    return 'v2t-windows-raw-input';
+  }
+  return undefined;
 }
 
 function permissionKindFor(platform: NodeJS.Platform | undefined, accelerator: string): HotkeyStatus['permissionKind'] {

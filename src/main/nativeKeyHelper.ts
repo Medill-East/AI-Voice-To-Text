@@ -1,16 +1,7 @@
 import { constants } from 'node:fs';
-import { access, chmod, copyFile, mkdir, stat } from 'node:fs/promises';
+import { access, chmod, copyFile, mkdir, rm, stat } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
-import { dirname, join } from 'node:path';
-
-export interface WindowsKeyServerAvailability {
-  helperPath: string;
-  helperSourcePath: string;
-  stablePath: string;
-  helperFileExists: boolean;
-  repairAttempted: boolean;
-  repairError?: string;
-}
+import { dirname, join, win32 } from 'node:path';
 
 export interface WindowsKeyServerProcess {
   processId: number;
@@ -32,12 +23,22 @@ export function stableWinKeyServerPath(userDataPath: string): string {
   return join(userDataPath, 'keyboard-listener', 'WinKeyServer.exe');
 }
 
+export function stableV2TKeyboardListenerPath(userDataPath: string): string {
+  const joinPath = userDataPath.includes('\\') ? win32.join : join;
+  return joinPath(userDataPath, 'keyboard-listener', 'V2TKeyboardListener.exe');
+}
+
 export function unpackedAsarPath(filePath: string): string {
   return filePath.replace(/([/\\])app\.asar([/\\])/, '$1app.asar.unpacked$2');
 }
 
 export function bundledV2TMacKeyServerPath(mainDir: string): string {
   return unpackedAsarPath(join(mainDir, '..', 'native', 'MacKeyServer'));
+}
+
+export function resolveBundledV2TKeyboardListenerPath(mainDir: string): string {
+  const joinPath = mainDir.includes('\\') ? win32.join : join;
+  return unpackedAsarPath(joinPath(mainDir, '..', 'native', 'V2TKeyboardListener.exe'));
 }
 
 export function bundledMacKeyServerPath(): string {
@@ -68,49 +69,14 @@ export async function ensureStableMacKeyServer(sourcePath: string, userDataPath:
   return targetPath;
 }
 
-export async function resolveBundledWinKeyServerPath(fallbackPath = bundledWinKeyServerPath()): Promise<string> {
-  await access(fallbackPath, constants.F_OK);
-  return fallbackPath;
-}
-
-export async function ensureStableWinKeyServer(sourcePath: string, userDataPath: string): Promise<string> {
+export async function cleanupStableWinKeyServer(userDataPath: string): Promise<{ attempted: true; deleted: boolean; error?: string }> {
   const targetPath = stableWinKeyServerPath(userDataPath);
-  await mkdir(dirname(targetPath), { recursive: true });
-  if (await shouldCopy(sourcePath, targetPath)) {
-    await copyFile(sourcePath, targetPath);
+  try {
+    await rm(targetPath, { force: true });
+    return { attempted: true, deleted: true };
+  } catch (error) {
+    return { attempted: true, deleted: false, error: readableError(error) };
   }
-  return targetPath;
-}
-
-export async function ensureWindowsKeyServerAvailable(sourcePath: string, userDataPath: string): Promise<WindowsKeyServerAvailability> {
-  const stablePath = stableWinKeyServerPath(userDataPath);
-  if (await pathExists(sourcePath)) {
-    const result: WindowsKeyServerAvailability = {
-      helperPath: sourcePath,
-      helperSourcePath: sourcePath,
-      stablePath,
-      helperFileExists: true,
-      repairAttempted: true
-    };
-    try {
-      await ensureStableWinKeyServer(sourcePath, userDataPath);
-    } catch (error) {
-      result.repairError = readableError(error);
-    }
-    return result;
-  }
-
-  if (await pathExists(stablePath)) {
-    return {
-      helperPath: stablePath,
-      helperSourcePath: sourcePath,
-      stablePath,
-      helperFileExists: true,
-      repairAttempted: false
-    };
-  }
-
-  throw new Error(`WinKeyServer.exe 未找到：${sourcePath}`);
 }
 
 export function selectStaleWinKeyServerProcesses(processes: WindowsKeyServerProcess[], roots: string[]): WindowsKeyServerProcess[] {
@@ -165,15 +131,6 @@ async function shouldCopy(sourcePath: string, targetPath: string): Promise<boole
 
   const [source, target] = await Promise.all([stat(sourcePath), stat(targetPath)]);
   return source.size !== target.size || source.mtimeMs > target.mtimeMs;
-}
-
-async function pathExists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath, constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function listWinKeyServerProcesses(): WindowsKeyServerProcess[] {

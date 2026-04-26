@@ -24,4 +24,21 @@ describe('hotkey diagnostics', () => {
       recommendedAction: 'none'
     });
   });
+
+  it('describes Windows native checks without macOS permission wording', () => {
+    const status = createCheckingHotkeyStatus({
+      accelerator: 'RightControl',
+      fallbackAccelerator: 'CommandOrControl+Alt+Space',
+      platform: 'win32',
+      nativeHelperPath: 'C:\\Program Files\\V2T\\resources\\app.asar.unpacked\\dist\\native\\V2TKeyboardListener.exe'
+    });
+
+    expect(status).toMatchObject({
+      permissionKind: 'windows-native-hook',
+      nativeHelperKind: 'v2t-windows-raw-input',
+      nativeHelperPath: 'C:\\Program Files\\V2T\\resources\\app.asar.unpacked\\dist\\native\\V2TKeyboardListener.exe'
+    });
+    expect(status.diagnosticMessage).not.toContain('macOS');
+    expect(status.diagnosticMessage).not.toContain('MacKeyServer');
+  });
 });
