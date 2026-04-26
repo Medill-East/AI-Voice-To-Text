@@ -35,6 +35,14 @@ open release/mac*/V2T.app
 
 `npm run package` creates a local app you can open directly. `npm run dist` creates installer artifacts under `release/`.
 
+After a GitHub Release has been published, clean local release artifacts:
+
+```bash
+npm run release:cleanup
+```
+
+This keeps only the current macOS DMG and `release/mac-arm64/V2T.app`. Other installers, zips, blockmaps, and old packages are expected to live on the GitHub Release page, not in the local workspace.
+
 ## Checks
 
 ```bash

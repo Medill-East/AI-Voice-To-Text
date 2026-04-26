@@ -18,6 +18,7 @@
     "dist:mac:ci": "npm run build && electron-builder --mac --publish=never -c.mac.identity=null",
     "dist:win": "npm run build && electron-builder --win --publish=never && npm run verify:win-release",
     "verify:win-release": "node scripts/verify-windows-release.mjs",
+    "release:cleanup": "node scripts/clean-local-release.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "postinstall": "node scripts/fix-key-listener-permissions.mjs",
     "start": "electron .",
