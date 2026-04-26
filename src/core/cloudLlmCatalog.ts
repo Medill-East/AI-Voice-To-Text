@@ -61,7 +61,7 @@ export class CloudLlmCatalogService {
         throw new Error(`HTTP ${response.status}`);
       }
       const payload = (await response.json()) as { data?: OpenRouterModel[] };
-      const models = (payload.data ?? []).map(toCloudLlmModelView).filter((model): model is CloudLlmModelView => Boolean(model));
+      const models = mergeWithBuiltinRecommendations((payload.data ?? []).map(toCloudLlmModelView).filter((model): model is CloudLlmModelView => Boolean(model)));
       const updatedAt = new Date().toISOString();
       await this.writeCache({ updatedAt, models });
       return {
@@ -79,7 +79,7 @@ export class CloudLlmCatalogService {
         updatedAt: cached?.updatedAt,
         cacheUsed: Boolean(cached),
         error: readableError(error),
-        models: cached?.models ?? builtinCloudLlmModels()
+        models: cached ? mergeWithBuiltinRecommendations(cached.models) : builtinCloudLlmModels()
       };
     }
   }
@@ -138,6 +138,15 @@ export function builtinCloudLlmModels(): CloudLlmModelView[] {
       note: '免费多语言候选，中文效果需实际测试。'
     }
   ];
+}
+
+function mergeWithBuiltinRecommendations(models: CloudLlmModelView[]): CloudLlmModelView[] {
+  const byId = new Map(models.map((model) => [model.id, model]));
+  for (const builtin of builtinCloudLlmModels()) {
+    const remote = byId.get(builtin.id);
+    byId.set(builtin.id, remote ? { ...builtin, ...remote, recommended: true, recommendationScore: Math.max(remote.recommendationScore, builtin.recommendationScore) } : builtin);
+  }
+  return [...byId.values()];
 }
 
 function toCloudLlmModelView(model: OpenRouterModel): CloudLlmModelView | undefined {

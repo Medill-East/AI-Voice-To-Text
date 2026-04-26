@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { cloudLlmTags, sortCloudLlmModels } from '../core/cloudLlmCatalogShared';
 import type { CloudLlmSortDirection } from '../core/cloudLlmCatalogShared';
+import { analyzeLexicon } from '../core/postProcessor';
 import { oneClickEligibility, oneClickInstallableModels, publicChineseMetrics, referenceModels, scoreModel } from '../core/modelCatalog';
 import { hotkeyLabelForPlatform } from '../core/hotkeyLabels';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
@@ -107,6 +108,18 @@ interface PcmRecorder {
   inputSampleRate: number;
 }
 
+interface CloudLlmTestResultView {
+  modelId: string;
+  modelName: string;
+  ok: boolean;
+  latencyMs?: number;
+  outputChars: number;
+  finishReason?: string;
+  preview?: string;
+  error?: string;
+  testedAt: string;
+}
+
 export function App() {
   const [setup, setSetup] = useState<SetupPayload | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -116,6 +129,7 @@ export function App() {
   const [llmSettingsPage, setLlmSettingsPage] = useState<LlmSettingsPage>('local');
   const [state, setState] = useState<RecordingState>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
   const [history, setHistory] = useState<LocalHistoryItem[]>([]);
   const [activeRecordingMode, setActiveRecordingMode] = useState<InputMode | null>(null);
   const [hotkeyStatus, setHotkeyStatus] = useState<HotkeyStatus | undefined>();
@@ -147,6 +161,7 @@ export function App() {
   const [lexicon, setLexicon] = useState<Lexicon | null>(null);
   const [lexiconDirty, setLexiconDirty] = useState(false);
   const [lexiconMessage, setLexiconMessage] = useState<string | null>(null);
+  const [lexiconTrialInput, setLexiconTrialInput] = useState('');
   const [prompts, setPrompts] = useState<PromptFiles | null>(null);
   const [promptDrafts, setPromptDrafts] = useState<{ natural: string; structured: string }>({ natural: '', structured: '' });
   const [promptDirty, setPromptDirty] = useState<{ natural: boolean; structured: boolean }>({ natural: false, structured: false });
@@ -164,8 +179,14 @@ export function App() {
   const [cloudModelPage, setCloudModelPage] = useState(0);
   const [cloudOnlyFree, setCloudOnlyFree] = useState(false);
   const [cloudOnlyRecommended, setCloudOnlyRecommended] = useState(true);
+  const [cloudSelectedModelIds, setCloudSelectedModelIds] = useState<string[]>([]);
+  const [cloudTestingModelId, setCloudTestingModelId] = useState<string | null>(null);
+  const [cloudBatchTesting, setCloudBatchTesting] = useState(false);
+  const [cloudTestResultsById, setCloudTestResultsById] = useState<Record<string, CloudLlmTestResultView>>(() => loadCloudTestResults());
+  const [latestCloudTestResultId, setLatestCloudTestResultId] = useState<string | null>(null);
   const [pathMessage, setPathMessage] = useState<string | null>(null);
   const recorderRef = useRef<PcmRecorder | null>(null);
+  const systemAudioMutedRef = useRef(false);
   const modeRef = useRef<InputMode>('natural');
   const recordingStateRef = useRef<RecordingState>('idle');
   const recordingStartedAtRef = useRef<number | undefined>(undefined);
@@ -344,6 +365,10 @@ export function App() {
     const recorder = recorderRef.current;
     if (!recorder) {
       if (recordingStateRef.current === 'starting') {
+        if (systemAudioMutedRef.current) {
+          systemAudioMutedRef.current = false;
+          void window.v2t.restoreSystemAudioAfterRecording();
+        }
         recordingStateRef.current = 'idle';
         setState('idle');
         setActiveRecordingMode(null);
@@ -358,6 +383,14 @@ export function App() {
     recorderRef.current = null;
     recordingElapsedMsRef.current = recordingStartedAtRef.current ? Date.now() - recordingStartedAtRef.current : 0;
     resetInputMeter();
+    if (systemAudioMutedRef.current) {
+      systemAudioMutedRef.current = false;
+      void window.v2t.restoreSystemAudioAfterRecording().then((result) => {
+        if (!result.ok) {
+          setError(`系统声音恢复失败：${result.error ?? '未知错误'}`);
+        }
+      });
+    }
 
     const wav = encodeWav(recorder.chunks, recorder.inputSampleRate, 16000);
     void processRecording(wav, modeRef.current);
@@ -369,6 +402,7 @@ export function App() {
     }
 
     setError(null);
+    setVoiceMessage(null);
     resetInputMeter();
     modeRef.current = activeMode;
     setActiveRecordingMode(activeMode);
@@ -378,6 +412,14 @@ export function App() {
     setState('starting');
 
     try {
+      if (settings?.recording.muteSystemAudio) {
+        const muteResult = await window.v2t.muteSystemAudioForRecording();
+        if (muteResult.ok) {
+          systemAudioMutedRef.current = true;
+        } else {
+          setError(`系统声音静音失败，已继续录音：${muteResult.error ?? '未知错误'}`);
+        }
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const context = new AudioContext();
       const source = context.createMediaStreamSource(stream);
@@ -407,6 +449,10 @@ export function App() {
       }, MAX_RECORDING_MS);
     } catch (caught) {
       clearRecordingLimitTimer();
+      if (systemAudioMutedRef.current) {
+        systemAudioMutedRef.current = false;
+        void window.v2t.restoreSystemAudioAfterRecording();
+      }
       recordingStartedAtRef.current = undefined;
       recordingElapsedMsRef.current = undefined;
       recordingStateRef.current = 'error';
@@ -415,7 +461,7 @@ export function App() {
       setState('error');
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [clearRecordingLimitTimer, resetInputMeter, stopRecording, updateInputMeter]);
+  }, [clearRecordingLimitTimer, resetInputMeter, settings?.recording.muteSystemAudio, stopRecording, updateInputMeter]);
 
   const processRecording = useCallback(async (bytes: Uint8Array, activeMode: InputMode) => {
     recordingStateRef.current = 'processing';
@@ -569,6 +615,23 @@ export function App() {
       appearance: {
         ...settings.appearance,
         theme
+      }
+    });
+    setSettings(result.settings);
+    setHotkeyStatus(result.hotkeyStatus);
+    const nextSetup = await window.v2t.getSetup();
+    applySetup(nextSetup);
+  };
+
+  const updateRecordingMute = async (muteSystemAudio: boolean) => {
+    if (!settings) {
+      return;
+    }
+    const result = await window.v2t.saveSettings({
+      ...settings,
+      recording: {
+        ...settings.recording,
+        muteSystemAudio
       }
     });
     setSettings(result.settings);
@@ -904,6 +967,26 @@ export function App() {
     setPathMessage('路径已复制');
   };
 
+  const copyLatestLexiconDiagnostics = async (item?: LocalHistoryItem) => {
+    if (!item) {
+      return;
+    }
+    await window.v2t.copyText(
+      JSON.stringify(
+        {
+          rawAsrText: item.rawText,
+          afterLexiconText: item.afterLexiconText ?? item.outputText,
+          outputText: item.outputText,
+          lexiconHits: item.lexiconHits ?? [],
+          hint: '词库只在 ASR 转写后做确定性替换；如果姓名没有命中，请把 ASR 原文里的错误识别结果加入该专有名词别名。'
+        },
+        null,
+        2
+      )
+    );
+    setVoiceMessage('词库诊断已复制到剪贴板');
+  };
+
   const openPath = async (value?: string) => {
     if (!value) {
       return;
@@ -1003,6 +1086,9 @@ export function App() {
   };
 
   const testCloudLlmConnection = async (model?: CloudLlmModelView) => {
+    const modelId = model?.id ?? settings?.providers.llm.fallback.model ?? 'current-cloud-model';
+    const modelName = model?.name ?? modelId;
+    setCloudTestingModelId(modelId);
     setLlmMessage('正在用内置样例测试云端整理');
     const result = await window.v2t.testCloudLlmConnection(
       model
@@ -1018,6 +1104,47 @@ export function App() {
     } else {
       const elapsed = typeof result.elapsedMs === 'number' ? `（${Math.round(result.elapsedMs / 100) / 10}s）` : '';
       setLlmMessage(`${result.error ?? '云端模型测试失败'}${elapsed}`);
+    }
+    const view: CloudLlmTestResultView = {
+      modelId,
+      modelName,
+      ok: result.ok,
+      latencyMs: result.elapsedMs,
+      outputChars: result.output ? [...result.output.replace(/\s+/g, '')].length : 0,
+      finishReason: result.finishReason,
+      preview: result.output,
+      error: result.error,
+      testedAt: new Date().toISOString()
+    };
+    setCloudTestResultsById((current) => {
+      const next = { ...current, [modelId]: view };
+      saveCloudTestResults(next);
+      return next;
+    });
+    setLatestCloudTestResultId(modelId);
+    setCloudTestingModelId(null);
+    return view;
+  };
+
+  const testSelectedCloudModels = async () => {
+    const models = (cloudLlmCatalog?.models ?? []).filter((model) => cloudSelectedModelIds.includes(model.id));
+    if (models.length === 0) {
+      setLlmMessage('请先勾选要测试的云端模型。');
+      return;
+    }
+    setCloudBatchTesting(true);
+    try {
+      for (const model of models) {
+        const result = await testCloudLlmConnection(model);
+        if (!result.ok && /429|rate|limit|限流/i.test(result.error ?? '')) {
+          setLlmMessage(`遇到限流，已停止后续测试：${result.error}`);
+          break;
+        }
+        await delay(800);
+      }
+    } finally {
+      setCloudBatchTesting(false);
+      setCloudTestingModelId(null);
     }
   };
 
@@ -1318,6 +1445,26 @@ export function App() {
             当前 ASR：{currentAsrLabel(settings)}，负责把语音转成原始文字。当前结构化引擎：{structuredEngineLabel(settings)}。
             {llmPromptUsageHint(settings)}
           </p>
+          {settings ? (
+            <section className="voice-options">
+              <label className="setting-check">
+                <input
+                  type="checkbox"
+                  checked={settings.recording.muteSystemAudio}
+                  onChange={(event) => void updateRecordingMute(event.target.checked)}
+                />
+                录音时临时静音系统输出
+              </label>
+              <button
+                className="secondary compact"
+                onClick={() => void copyLatestLexiconDiagnostics(history[0])}
+                disabled={!history[0]?.lexiconHits}
+              >
+                复制词库诊断
+              </button>
+            </section>
+          ) : null}
+          {voiceMessage ? <p className="sync-message">{voiceMessage}</p> : null}
           <section className="gesture-settings">
             <div>
               <span>单击快捷键</span>
@@ -1692,46 +1839,55 @@ export function App() {
                       <button className="secondary compact" onClick={() => void refreshCloudLlmModels()}>
                         刷新云端模型
                       </button>
-                      <button className="secondary compact" onClick={() => void testCloudLlmConnection()}>
-                        测试云端整理
+                      <button className="secondary compact" onClick={() => void testSelectedCloudModels()} disabled={cloudBatchTesting || cloudSelectedModelIds.length === 0}>
+                        {cloudBatchTesting ? '测试中' : `测试已选模型${cloudSelectedModelIds.length ? ` (${cloudSelectedModelIds.length})` : ''}`}
                       </button>
                     </div>
-                    <CloudModelTable
-                      state={cloudLlmCatalog}
-                      search={cloudModelSearch}
-                      sortKey={cloudModelSort}
-                      sortDirection={cloudSortDirection}
-                      page={cloudModelPage}
-                      onlyFree={cloudOnlyFree}
-                      onlyRecommended={cloudOnlyRecommended}
-                      onSearch={(value) => {
-                        setCloudModelSearch(value);
-                        setCloudModelPage(0);
-                      }}
-                      onSort={(value) => {
-                        setCloudModelSort(value);
-                        setCloudModelPage(0);
-                      }}
-                      onSortDirection={(value) => {
-                        setCloudSortDirection(value);
-                        setCloudModelPage(0);
-                      }}
-                      onOnlyFree={(value) => {
-                        setCloudOnlyFree(value);
-                        setCloudModelPage(0);
-                      }}
-                      onOnlyRecommended={(value) => {
-                        setCloudOnlyRecommended(value);
-                        setCloudModelPage(0);
-                      }}
-                      onPage={setCloudModelPage}
-                      onUse={useCloudModel}
-                      onTest={async (model) => {
-                        useCloudModel(model);
-                        await testCloudLlmConnection(model);
-                      }}
-                      onOpen={openCloudModelPage}
-                    />
+                    <div className="cloud-model-workspace">
+                      <CloudModelTable
+                        state={cloudLlmCatalog}
+                        search={cloudModelSearch}
+                        sortKey={cloudModelSort}
+                        sortDirection={cloudSortDirection}
+                        page={cloudModelPage}
+                        onlyFree={cloudOnlyFree}
+                        onlyRecommended={cloudOnlyRecommended}
+                        selectedModelIds={cloudSelectedModelIds}
+                        testingModelId={cloudTestingModelId}
+                        testResultsById={cloudTestResultsById}
+                        onToggleSelected={(modelId) =>
+                          setCloudSelectedModelIds((current) => (current.includes(modelId) ? current.filter((id) => id !== modelId) : [...current, modelId]))
+                        }
+                        onSearch={(value) => {
+                          setCloudModelSearch(value);
+                          setCloudModelPage(0);
+                        }}
+                        onSort={(value) => {
+                          setCloudModelSort(value);
+                          setCloudModelPage(0);
+                        }}
+                        onSortDirection={(value) => {
+                          setCloudSortDirection(value);
+                          setCloudModelPage(0);
+                        }}
+                        onOnlyFree={(value) => {
+                          setCloudOnlyFree(value);
+                          setCloudModelPage(0);
+                        }}
+                        onOnlyRecommended={(value) => {
+                          setCloudOnlyRecommended(value);
+                          setCloudModelPage(0);
+                        }}
+                        onPage={setCloudModelPage}
+                        onUse={useCloudModel}
+                        onTest={async (model) => {
+                          useCloudModel(model);
+                          await testCloudLlmConnection(model);
+                        }}
+                        onOpen={openCloudModelPage}
+                      />
+                      <CloudTestResultPanel result={latestCloudTestResultId ? cloudTestResultsById[latestCloudTestResultId] : latestCloudResult(cloudTestResultsById)} />
+                    </div>
                   </section>
                   <section className="advanced-group llm-manual-config">
                     <h3>云端 OpenAI-compatible 配置</h3>
@@ -2047,6 +2203,18 @@ export function App() {
           <p className="hint">这些内容保存在 lexicon.json，会随 GitHub 同步推送和拉取。</p>
           {lexicon ? (
             <>
+              <section className="lexicon-group lexicon-trial">
+                <h3>词库试运行</h3>
+                <p className="hint">粘贴 ASR 原文，检查专有名词别名、固定替换和禁用词是否会命中。词库不会改变 ASR 的听写过程，只会在转写后替换文本。</p>
+                <textarea
+                  className="no-drag"
+                  value={lexiconTrialInput}
+                  placeholder="例如：今天我想聊一下被错误识别出来的人名"
+                  onContextMenu={showEditMenu}
+                  onChange={(event) => setLexiconTrialInput(event.target.value)}
+                />
+                <LexiconTrialResult input={lexiconTrialInput} lexicon={lexicon} />
+              </section>
               <section className="lexicon-group">
                 <div className="section-heading">
                   <h3>专有名词</h3>
@@ -2499,6 +2667,14 @@ export function App() {
               />
               开机自动启动 V2T
             </label>
+            <label className="setting-check">
+              <input
+                type="checkbox"
+                checked={settings.recording.muteSystemAudio}
+                onChange={(event) => void updateRecordingMute(event.target.checked)}
+              />
+              录音时临时静音系统输出
+            </label>
           </section>
         ) : null}
         {setup ? (
@@ -2863,7 +3039,11 @@ function CloudModelTable({
   onPage,
   onUse,
   onTest,
-  onOpen
+  onOpen,
+  selectedModelIds,
+  testingModelId,
+  testResultsById,
+  onToggleSelected
 }: {
   state: CloudLlmModelCatalogState | null;
   search: string;
@@ -2881,6 +3061,10 @@ function CloudModelTable({
   onUse(model: CloudLlmModelView): void;
   onTest(model: CloudLlmModelView): Promise<void>;
   onOpen(model: CloudLlmModelView): Promise<void>;
+  selectedModelIds: string[];
+  testingModelId: string | null;
+  testResultsById: Record<string, CloudLlmTestResultView>;
+  onToggleSelected(modelId: string): void;
 }) {
   const query = search.trim().toLowerCase();
   const filtered = sortCloudLlmModels(state?.models ?? [], sortKey, sortDirection).filter((model) => {
@@ -2947,16 +3131,19 @@ function CloudModelTable({
       ) : (
         <div className="cloud-model-table">
           <div className="cloud-model-head">
+            <span>选择</span>
             <span>模型</span>
             <span>TAG</span>
             <span>适配</span>
             <span>价格</span>
             <span>发布时间</span>
             <span>上下文</span>
-            <span>操作</span>
           </div>
           {visible.map((model) => (
           <div className="cloud-model-row" key={model.id}>
+            <label className="row-check" aria-label={`选择 ${model.name}`}>
+              <input type="checkbox" checked={selectedModelIds.includes(model.id)} onChange={() => onToggleSelected(model.id)} />
+            </label>
             <div>
               <div className="cloud-model-title">
                 <strong>{model.name}</strong>
@@ -2975,9 +3162,12 @@ function CloudModelTable({
             <span>{model.contextLength ? `${Math.round(model.contextLength / 1000)}k` : '-'}</span>
             <div className="action-strip">
               <button className="secondary compact" onClick={() => onUse(model)}>填入</button>
-              <button className="secondary compact" onClick={() => void onTest(model)}>测试云端整理</button>
+              <button className="secondary compact" onClick={() => void onTest(model)} disabled={testingModelId === model.id}>
+                {testingModelId === model.id ? '测试中' : testResultsById[model.id] ? '重测' : '测试'}
+              </button>
               <button className="secondary compact" onClick={() => void onOpen(model)}>打开模型页</button>
             </div>
+            {testResultsById[model.id] ? <small className="cloud-test-inline">{cloudTestInlineLabel(testResultsById[model.id])}</small> : null}
           </div>
           ))}
         </div>
@@ -2993,6 +3183,72 @@ function CloudModelTable({
           下一页
         </button>
       </div>
+    </div>
+  );
+}
+
+function CloudTestResultPanel({ result }: { result?: CloudLlmTestResultView }) {
+  return (
+    <aside className="cloud-test-panel">
+      <h3>云端测试结果</h3>
+      {result ? (
+        <>
+          <strong>{result.modelName}</strong>
+          <dl>
+            <div>
+              <dt>状态</dt>
+              <dd>{result.ok ? '可用' : '失败'}</dd>
+            </div>
+            <div>
+              <dt>耗时</dt>
+              <dd>{result.latencyMs ? `${Math.round(result.latencyMs / 100) / 10}s` : '-'}</dd>
+            </div>
+            <div>
+              <dt>输出字数</dt>
+              <dd>{result.outputChars}</dd>
+            </div>
+            <div>
+              <dt>完成原因</dt>
+              <dd>{result.finishReason ?? '-'}</dd>
+            </div>
+          </dl>
+          <pre>{result.ok ? result.preview ?? '测试通过' : result.error ?? '测试失败'}</pre>
+          <small>{new Date(result.testedAt).toLocaleString()}</small>
+        </>
+      ) : (
+        <p className="empty">还没有测试结果。选择模型后点击“测试”或“测试已选模型”。</p>
+      )}
+    </aside>
+  );
+}
+
+function LexiconTrialResult({ input, lexicon }: { input: string; lexicon: Lexicon }) {
+  if (!input.trim()) {
+    return <p className="empty">输入 ASR 原文后会显示命中情况。</p>;
+  }
+  const diagnostics = analyzeLexicon(input, lexicon);
+  return (
+    <div className="lexicon-trial-result">
+      <div>
+        <span>替换后</span>
+        <strong>{diagnostics.outputText || '空'}</strong>
+      </div>
+      <div>
+        <span>命中</span>
+        {diagnostics.hits.length ? (
+          <ul>
+            {diagnostics.hits.map((hit, index) => (
+              <li key={`${hit.kind}-${hit.from}-${index}`}>
+                {hit.kind === 'term' ? '专有名词' : hit.kind === 'replacement' ? '固定替换' : '禁用词'}：{hit.from}
+                {hit.to ? ` → ${hit.to}` : ''} · {hit.count} 次
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>没有命中。请把 ASR 原文里的错误识别结果添加为该词条别名。</p>
+        )}
+      </div>
+      {diagnostics.missedTerms.length ? <small>未命中词条：{diagnostics.missedTerms.slice(0, 8).join('、')}</small> : null}
     </div>
   );
 }
@@ -3056,7 +3312,6 @@ function AsrModelTable({
           <span>输出速度</span>
           <span>资源占用</span>
           <span>状态</span>
-          <span>操作</span>
         </div>
         {rows
           .sort((left, right) => right.score - left.score)
@@ -3065,6 +3320,7 @@ function AsrModelTable({
           const statusRecord = installProgressById[model.id] ?? modelStatuses[model.id];
           const status = statusRecord?.status;
           const isCurrent = currentModelId === model.id;
+          const displayStatusRecord = statusRecord && !isCurrent && statusRecord.status === 'current' ? { ...statusRecord, status: 'installed' as const } : statusRecord;
           const installed = isCurrent || status === 'installed' || status === 'current';
           const installing = installingModelId === model.id || isInstallInProgress(status);
           const deleting = deletingModelId === model.id;
@@ -3090,12 +3346,12 @@ function AsrModelTable({
                   <strong>{model.sizeMb}MB · 最低 {model.hardwareRequirements.minMemoryGb}GB</strong>
                   <small>{model.runtime}{model.sherpaModelType ? ` · ${model.sherpaModelType}` : ''}</small>
                 </span>
-                <span>{isCurrent ? '当前' : statusLabel(statusRecord)}</span>
+                <span>{isCurrent ? '当前' : statusLabel(displayStatusRecord)}</span>
               </div>
               <div className="asr-package-row">
                 <div className="asr-package-title">
                   <strong>包体管理</strong>
-                  <small>{packageStatusSummary(statusRecord, probeResult, benchmarkResult)}</small>
+                  <small>{packageStatusSummary(displayStatusRecord, probeResult, benchmarkResult)}</small>
                 </div>
                 <div className="action-strip table-action-grid asr-package-actions">
                   <button className="secondary compact" onClick={() => void (installed ? onActivate(model.id) : onInstall(model.id))} disabled={installing || isCurrent}>
@@ -3124,7 +3380,7 @@ function AsrModelTable({
                     </button>
                   ) : null}
                 </div>
-                {statusRecord ? <PackageProgress status={statusRecord} /> : null}
+                {displayStatusRecord ? <PackageProgress status={displayStatusRecord} /> : null}
               </div>
             </div>
           );
@@ -4028,6 +4284,34 @@ function hotkeyLabel(accelerator: string): string {
 
 function hotkeyPlatform(): NodeJS.Platform {
   return navigator.platform.toLowerCase().includes('mac') ? 'darwin' : 'win32';
+}
+
+function loadCloudTestResults(): Record<string, CloudLlmTestResultView> {
+  try {
+    return JSON.parse(localStorage.getItem('v2t.cloudLlmTestResults') ?? '{}') as Record<string, CloudLlmTestResultView>;
+  } catch {
+    return {};
+  }
+}
+
+function saveCloudTestResults(results: Record<string, CloudLlmTestResultView>): void {
+  localStorage.setItem('v2t.cloudLlmTestResults', JSON.stringify(results));
+}
+
+function latestCloudResult(results: Record<string, CloudLlmTestResultView>): CloudLlmTestResultView | undefined {
+  return Object.values(results).sort((left, right) => right.testedAt.localeCompare(left.testedAt))[0];
+}
+
+function cloudTestInlineLabel(result: CloudLlmTestResultView): string {
+  if (!result.ok) {
+    return '测试失败';
+  }
+  const elapsed = result.latencyMs ? `${Math.round(result.latencyMs / 100) / 10}s` : '未知耗时';
+  return `${elapsed} · ${result.outputChars} 字`;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function encodeWav(chunks: Float32Array[], inputSampleRate: number, outputSampleRate: number): Uint8Array {

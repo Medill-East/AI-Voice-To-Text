@@ -58,6 +58,8 @@ export function createVoiceInputPipeline(dependencies: PipelineDependencies) {
       if (!hasEffectiveText(processed.text)) {
         throw new EmptyVoiceInputError();
       }
+      const lexiconHits = processed.lexiconHits ?? [];
+      const afterLexiconText = processed.afterLexiconText ?? asrResult.text;
       const injectionStartedAt = Date.now();
       const injection = await dependencies.injector.injectText(processed.text);
       const injectionDurationMs = Date.now() - injectionStartedAt;
@@ -85,6 +87,9 @@ export function createVoiceInputPipeline(dependencies: PipelineDependencies) {
         mode: options.mode,
         rawText: asrResult.text,
         outputText: processed.text,
+        afterLexiconText,
+        lexiconHitCount: lexiconHits.length,
+        lexiconHits,
         targetApp: options.targetApp,
         injectionMethod: injection.method,
         postProcessorEngine: processed.engine,
@@ -96,6 +101,8 @@ export function createVoiceInputPipeline(dependencies: PipelineDependencies) {
         id,
         rawText: asrResult.text,
         outputText: processed.text,
+        afterLexiconText,
+        lexiconHits,
         injection,
         usedLlm: processed.usedLlm,
         postProcessorEngine: processed.engine,

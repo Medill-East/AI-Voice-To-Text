@@ -16,6 +16,9 @@ const DEFAULT_SETTINGS: Settings = {
   appearance: {
     theme: 'system'
   },
+  recording: {
+    muteSystemAudio: false
+  },
   paths: {},
   startup: {
     openAtLogin: false
@@ -373,6 +376,10 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
     appearance: {
       ...DEFAULT_SETTINGS.appearance,
       ...(raw.appearance ?? {})
+    },
+    recording: {
+      ...DEFAULT_SETTINGS.recording,
+      ...(raw.recording ?? {})
     },
     paths: {
       ...DEFAULT_SETTINGS.paths,

@@ -87,6 +87,13 @@ describe('settings navigation structure', () => {
     expect(app).toContain('只看免费');
     expect(app).toContain('只看推荐');
     expect(app).toContain('CloudModelTable');
+    expect(app).toContain('CloudTestResultPanel');
+    expect(app).toContain('测试已选模型');
+    expect(app).toContain('词库试运行');
+    expect(app).toContain('复制词库诊断');
+    expect(app).toContain('录音时临时静音系统输出');
+    expect(app).toContain('muteSystemAudioForRecording');
+    expect(app).toContain('restoreSystemAudioAfterRecording');
     expect(app).toContain('cloudSortDirection');
     expect(app).toContain('按发布时间倒序');
     expect(app).toContain('cloudLlmTags');
@@ -166,7 +173,15 @@ describe('settings navigation structure', () => {
     expect(styles).toContain('.llm-engine-grid');
     expect(styles).toContain('.subpage-tabs');
     expect(styles).toContain('.cloud-model-card');
+    expect(styles).toContain('.cloud-model-workspace');
+    expect(styles).toContain('.cloud-test-panel');
+    expect(styles).toContain('.voice-options');
+    expect(styles).toContain('.lexicon-trial-result');
     expect(styles).toContain('.engine-card.active span');
     expect(styles).toContain('.local-llm-suggestions');
+
+    const design = await readFile(new URL('../DESIGN.md', import.meta.url), 'utf8');
+    expect(design).toContain('V2T Design Guidelines');
+    expect(design).toContain('整表横向滚动');
   });
 });

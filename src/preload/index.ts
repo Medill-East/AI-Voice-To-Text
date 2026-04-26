@@ -51,6 +51,8 @@ export interface V2TApi {
   copyAppUpdateDiagnostics(): Promise<{ ok: true }>;
   openReleasePage(): Promise<{ ok: true }>;
   saveSettings(settings: Settings): Promise<{ settings: Settings; hotkeyStatus?: HotkeyStatus }>;
+  muteSystemAudioForRecording(): Promise<{ ok: boolean; error?: string }>;
+  restoreSystemAudioAfterRecording(): Promise<{ ok: boolean; error?: string }>;
   getLexicon(): Promise<Lexicon>;
   saveLexicon(lexicon: Lexicon): Promise<LexiconSaveResult>;
   getPrompts(): Promise<PromptFiles>;
@@ -204,6 +206,8 @@ const api: V2TApi = {
   copyAppUpdateDiagnostics: () => ipcRenderer.invoke('v2t:copy-app-update-diagnostics'),
   openReleasePage: () => ipcRenderer.invoke('v2t:open-release-page'),
   saveSettings: (settings) => ipcRenderer.invoke('v2t:save-settings', settings),
+  muteSystemAudioForRecording: () => ipcRenderer.invoke('v2t:mute-system-audio-for-recording'),
+  restoreSystemAudioAfterRecording: () => ipcRenderer.invoke('v2t:restore-system-audio-after-recording'),
   getLexicon: () => ipcRenderer.invoke('v2t:get-lexicon'),
   saveLexicon: (lexicon) => ipcRenderer.invoke('v2t:save-lexicon', lexicon),
   getPrompts: () => ipcRenderer.invoke('v2t:get-prompts'),

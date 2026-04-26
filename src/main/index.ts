@@ -57,6 +57,7 @@ import {
 } from './nativeKeyHelper';
 import { OsPasteKeySender } from './osPasteKeySender';
 import { SecretStore } from './secretStore';
+import { SystemAudioMuteService } from './systemAudioMuteService';
 import { createTrayImage } from './trayIcon';
 import { closeShouldHideToTray, quitMenuItemConfig, quitTrayMenuLabel } from './windowLifecycle';
 import {
@@ -88,6 +89,7 @@ let staleHelperKilled: number | undefined;
 let nativeHelperSignature: string | undefined;
 let hotkeyLog: HotkeyDiagnosticLog;
 let autoSyncService: AutoSyncService;
+let systemAudioMuteService: SystemAudioMuteService;
 let autoSyncState: AutoSyncState = { status: 'idle', updatedAt: new Date().toISOString() };
 let appUpdateService: AppUpdateService;
 let appUpdateState: AppUpdateState;
@@ -157,6 +159,7 @@ async function bootstrap(): Promise<void> {
     }
   });
   autoSyncService = createAutoSyncService();
+  systemAudioMuteService = new SystemAudioMuteService();
   createApplicationMenu();
   createWindow();
   createTray();
@@ -318,6 +321,8 @@ function registerIpc(): void {
     await store.saveSettings(settings);
     return { ok: true, settings, loginItem: app.getLoginItemSettings() };
   });
+  ipcMain.handle('v2t:mute-system-audio-for-recording', async () => systemAudioMuteService.mute());
+  ipcMain.handle('v2t:restore-system-audio-after-recording', async () => systemAudioMuteService.restore());
   ipcMain.handle('v2t:get-lexicon', async () => store.loadLexicon());
   ipcMain.handle('v2t:get-history', async (_event, limit?: number) => store.readRecentHistory(limit ?? 30));
   ipcMain.handle('v2t:get-usage-statistics', async (_event, days?: number) => enrichUsageStatistics(await store.readUsageStatistics(days ?? 30)));
@@ -1381,6 +1386,9 @@ function normalizeRuntimeSettings(nextSettings: Settings): Settings {
   return {
     ...nextSettings,
     dataDir: store.getBaseDir(),
+    recording: {
+      muteSystemAudio: nextSettings.recording?.muteSystemAudio ?? false
+    },
     startup: {
       openAtLogin: nextSettings.startup?.openAtLogin ?? false
     },
@@ -2105,6 +2113,7 @@ function quitApp(): void {
 
 function cleanupAppResources(): void {
   autoSyncService?.dispose();
+  void systemAudioMuteService?.restore();
   hotkeyService?.unregister();
   cleanupStaleHotkeyHelpers();
   if (recordingOverlayWindow && !recordingOverlayWindow.isDestroyed()) {

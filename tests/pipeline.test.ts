@@ -30,6 +30,8 @@ describe('voice input pipeline', () => {
     });
 
     expect(result.outputText).toBe('记录 V2T 的目标');
+    expect(result.afterLexiconText).toBe('记录 V2T 的目标');
+    expect(result.lexiconHits).toEqual([expect.objectContaining({ kind: 'term', from: 'v to t', to: 'V2T' })]);
     expect(result.injection.method).toBe('cursor');
     expect(result.postProcessorEngine).toBe('local-rules');
 
@@ -40,6 +42,8 @@ describe('voice input pipeline', () => {
       mode: 'natural',
       rawText: '记录 v to t 的目标',
       outputText: '记录 V2T 的目标',
+      afterLexiconText: '记录 V2T 的目标',
+      lexiconHitCount: 1,
       targetApp: 'Obsidian',
       injectionMethod: 'cursor',
       postProcessorEngine: 'local-rules',

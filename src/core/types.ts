@@ -40,11 +40,29 @@ export interface Lexicon {
   blocked: string[];
 }
 
+export interface LexiconHit {
+  kind: 'term' | 'replacement' | 'blocked';
+  from: string;
+  to?: string;
+  phrase?: string;
+  count: number;
+}
+
+export interface LexiconDiagnostics {
+  rawText: string;
+  outputText: string;
+  hits: LexiconHit[];
+  missedTerms: string[];
+}
+
 export interface Settings {
   schemaVersion: 1;
   defaultMode: InputMode;
   appearance: {
     theme: 'system' | 'light' | 'dark';
+  };
+  recording: {
+    muteSystemAudio: boolean;
   };
   hotkey: {
     accelerator: string;
@@ -390,6 +408,9 @@ export interface HistoryEntry {
   mode: InputMode;
   rawText: string;
   outputText: string;
+  afterLexiconText?: string;
+  lexiconHitCount?: number;
+  lexiconHits?: LexiconHit[];
   targetApp?: string;
   injectionMethod: 'cursor' | 'clipboard';
   postProcessorEngine?: PostProcessorEngine;
@@ -416,6 +437,9 @@ export interface ProcessTextOptions {
 
 export interface ProcessedText {
   text: string;
+  afterLexiconText: string;
+  lexiconDiagnostics: LexiconDiagnostics;
+  lexiconHits: LexiconHit[];
   usedLlm: boolean;
   engine: PostProcessorEngine;
   llmError?: string;
@@ -454,6 +478,8 @@ export interface VoiceInputPipelineResult {
   id: string;
   rawText: string;
   outputText: string;
+  afterLexiconText?: string;
+  lexiconHits?: LexiconHit[];
   injection: TextInjectionResult;
   usedLlm: boolean;
   postProcessorEngine: PostProcessorEngine;

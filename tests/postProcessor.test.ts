@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PostProcessor, structuredPrompt } from '../src/core/postProcessor';
+import { analyzeLexicon, PostProcessor, structuredPrompt } from '../src/core/postProcessor';
 import type { Lexicon, LlmClient } from '../src/core/types';
 
 const lexicon: Lexicon = {
@@ -27,7 +27,17 @@ describe('PostProcessor', () => {
 
     expect(result.text).toBe('今天我用 Play With Experiences 做张三峰的语音输入转文字');
     expect(result.usedLlm).toBe(false);
+    expect(result.afterLexiconText).toBe(result.text);
+    expect(result.lexiconHits.map((hit) => hit.from)).toEqual(expect.arrayContaining(['pwe', '张三丰', '语音转文字', '你懂我意思吧']));
     expect(llm.complete).not.toHaveBeenCalled();
+  });
+
+  it('returns lexicon diagnostics for trial runs and missed aliases', () => {
+    const diagnostics = analyzeLexicon('今天提到了 pwe 和未命中的人名', lexicon);
+
+    expect(diagnostics.outputText).toContain('Play With Experiences');
+    expect(diagnostics.hits).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'term', from: 'pwe', to: 'Play With Experiences' })]));
+    expect(diagnostics.missedTerms).toEqual(expect.arrayContaining(['V2T']));
   });
 
   it('formats ordinary structured dictation as readable paragraphs when no LLM is configured', async () => {
@@ -123,7 +133,8 @@ describe('PostProcessor', () => {
     expect(llm.complete).toHaveBeenCalledWith(
       expect.objectContaining({
         mode: 'structured',
-        input: '把内容整理一下'
+        input: '把内容整理一下',
+        systemPrompt: expect.stringContaining('专有名词和固定替换约束')
       })
     );
   });

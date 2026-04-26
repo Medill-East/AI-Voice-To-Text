@@ -1,4 +1,4 @@
-import type { Lexicon, LlmClient, ProcessTextOptions, ProcessedText } from './types';
+import type { Lexicon, LexiconDiagnostics, LexiconHit, LlmClient, ProcessTextOptions, ProcessedText } from './types';
 
 const DEFAULT_NATURAL_PROMPT =
   '你是保守的中文语音输入纠错器。只修正明显识别错误、专有名词、标点和少量口头禅，不改变语序、观点或文风。不要输出 Thinking Process、reasoning、分析步骤或解释，只输出最终正文。';
@@ -28,29 +28,48 @@ export class PostProcessor {
   }
 
   async process(input: string, options: ProcessTextOptions): Promise<ProcessedText> {
-    const corrected = normalizeWhitespace(applyLexicon(stripBlockedAndFillers(input, options.lexicon), options.lexicon));
+    const lexiconDiagnostics = analyzeLexicon(input, options.lexicon);
+    const corrected = lexiconDiagnostics.outputText;
 
     if (options.mode === 'natural') {
-      return { text: corrected, usedLlm: false, engine: 'local-rules' };
+      return { text: corrected, afterLexiconText: corrected, lexiconDiagnostics, lexiconHits: lexiconDiagnostics.hits, usedLlm: false, engine: 'local-rules' };
     }
 
     if (this.llm) {
       const request = {
         mode: 'structured' as const,
         input: corrected,
-        systemPrompt: options.prompt ?? DEFAULT_STRUCTURED_PROMPT
+        systemPrompt: appendLexiconPrompt(options.prompt ?? DEFAULT_STRUCTURED_PROMPT, options.lexicon)
       };
       try {
         const text = await this.llm.complete(request);
-        return { text: text.trim(), usedLlm: true, engine: this.primaryEngine };
+        return {
+          text: text.trim(),
+          afterLexiconText: corrected,
+          lexiconDiagnostics,
+          lexiconHits: lexiconDiagnostics.hits,
+          usedLlm: true,
+          engine: this.primaryEngine
+        };
       } catch (error) {
         if (this.fallbackLlm) {
           try {
             const text = await this.fallbackLlm.complete(request);
-            return { text: text.trim(), usedLlm: true, engine: 'llm-fallback', llmError: readableError(error) };
+            return {
+              text: text.trim(),
+              afterLexiconText: corrected,
+              lexiconDiagnostics,
+              lexiconHits: lexiconDiagnostics.hits,
+              usedLlm: true,
+              engine: 'llm-fallback',
+              llmError: readableError(error)
+            };
           } catch (fallbackError) {
             return {
               text: toReadableMarkdown(corrected),
+              afterLexiconText: corrected,
+              lexiconDiagnostics,
+              lexiconHits: lexiconDiagnostics.hits,
               usedLlm: false,
               engine: 'local-rules',
               llmError: `${readableError(error)}；云端兜底失败：${readableError(fallbackError)}`
@@ -58,11 +77,26 @@ export class PostProcessor {
           }
         }
 
-        return { text: toReadableMarkdown(corrected), usedLlm: false, engine: 'local-rules', llmError: readableError(error) };
+        return {
+          text: toReadableMarkdown(corrected),
+          afterLexiconText: corrected,
+          lexiconDiagnostics,
+          lexiconHits: lexiconDiagnostics.hits,
+          usedLlm: false,
+          engine: 'local-rules',
+          llmError: readableError(error)
+        };
       }
     }
 
-    return { text: toReadableMarkdown(corrected), usedLlm: false, engine: 'local-rules' };
+    return {
+      text: toReadableMarkdown(corrected),
+      afterLexiconText: corrected,
+      lexiconDiagnostics,
+      lexiconHits: lexiconDiagnostics.hits,
+      usedLlm: false,
+      engine: 'local-rules'
+    };
   }
 }
 
@@ -78,12 +112,52 @@ export function structuredPrompt(): string {
   return DEFAULT_STRUCTURED_PROMPT;
 }
 
-function applyLexicon(input: string, lexicon: Lexicon): string {
-  let output = input;
+export function analyzeLexicon(input: string, lexicon: Lexicon): LexiconDiagnostics {
+  const hits: LexiconHit[] = [];
+  let output = stripBlockedAndFillers(input, lexicon, hits);
+  output = applyLexicon(output, lexicon, hits);
+  output = normalizeWhitespace(output);
 
+  const missedTerms = lexicon.terms
+    .filter((term) => term.phrase && !containsText(output, term.phrase, term.caseSensitive) && !hits.some((hit) => hit.kind === 'term' && hit.phrase === term.phrase))
+    .map((term) => term.phrase);
+
+  return {
+    rawText: input,
+    outputText: output,
+    hits,
+    missedTerms
+  };
+}
+
+function appendLexiconPrompt(prompt: string, lexicon: Lexicon): string {
+  const terms = lexicon.terms.filter((term) => term.phrase || (term.aliases?.length ?? 0) > 0);
+  const replacements = lexicon.replacements.filter((rule) => rule.enabled !== false && rule.from);
+  if (terms.length === 0 && replacements.length === 0) {
+    return prompt;
+  }
+
+  const lines = ['\n\n专有名词和固定替换约束：'];
+  for (const term of terms.slice(0, 80)) {
+    const aliases = term.aliases?.length ? `（别名：${term.aliases.join('、')}）` : '';
+    lines.push(`- ${term.phrase}${aliases}`);
+  }
+  for (const replacement of replacements.slice(0, 80)) {
+    lines.push(`- 将“${replacement.from}”写作“${replacement.to}”`);
+  }
+  lines.push('如果口述内容中出现这些别名或误识别结果，请优先使用上述标准写法。');
+  return `${prompt}${lines.join('\n')}`;
+}
+
+function applyLexicon(input: string, lexicon: Lexicon, hits: LexiconHit[]): string {
+  let output = input;
   for (const term of lexicon.terms) {
     for (const alias of term.aliases ?? []) {
-      output = replaceAll(output, alias, term.phrase, term.caseSensitive);
+      const result = replaceAll(output, alias, term.phrase, term.caseSensitive);
+      if (result.count > 0) {
+        hits.push({ kind: 'term', from: alias, to: term.phrase, phrase: term.phrase, count: result.count });
+      }
+      output = result.text;
     }
   }
 
@@ -91,17 +165,25 @@ function applyLexicon(input: string, lexicon: Lexicon): string {
     if (replacement.enabled === false) {
       continue;
     }
-    output = replaceAll(output, replacement.from, replacement.to, replacement.caseSensitive);
+    const result = replaceAll(output, replacement.from, replacement.to, replacement.caseSensitive);
+    if (result.count > 0) {
+      hits.push({ kind: 'replacement', from: replacement.from, to: replacement.to, count: result.count });
+    }
+    output = result.text;
   }
 
   return output;
 }
 
-function stripBlockedAndFillers(input: string, lexicon: Lexicon): string {
+function stripBlockedAndFillers(input: string, lexicon: Lexicon, hits: LexiconHit[]): string {
   let output = input;
 
   for (const blocked of lexicon.blocked) {
-    output = replaceAll(output, blocked, '', true);
+    const result = replaceAll(output, blocked, '', true);
+    if (result.count > 0) {
+      hits.push({ kind: 'blocked', from: blocked, to: '', count: result.count });
+    }
+    output = result.text;
   }
 
   return output
@@ -196,13 +278,18 @@ function normalizeComparableText(input: string): string {
   return input.replace(/[\s，,。.!！?？；;、]/g, '');
 }
 
-function replaceAll(input: string, from: string, to: string, caseSensitive = false): string {
+function replaceAll(input: string, from: string, to: string, caseSensitive = false): { text: string; count: number } {
   if (!from) {
-    return input;
+    return { text: input, count: 0 };
   }
 
   const flags = caseSensitive ? 'g' : 'gi';
-  return input.replace(new RegExp(escapeRegExp(from), flags), to);
+  let count = 0;
+  const text = input.replace(new RegExp(escapeRegExp(from), flags), () => {
+    count += 1;
+    return to;
+  });
+  return { text, count };
 }
 
 function normalizeWhitespace(input: string): string {
@@ -216,4 +303,11 @@ function normalizeWhitespace(input: string): string {
 
 function escapeRegExp(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function containsText(input: string, needle: string, caseSensitive = false): boolean {
+  if (!needle) {
+    return false;
+  }
+  return caseSensitive ? input.includes(needle) : input.toLowerCase().includes(needle.toLowerCase());
 }
