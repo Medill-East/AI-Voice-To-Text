@@ -79,6 +79,7 @@ export interface V2TApi {
   cleanupStaleHotkeyHelpers(): Promise<{ ok: boolean; setup: SetupPayload; error?: string }>;
   quitApp(): Promise<{ ok: true }>;
   setOpenAIKey(value: string): Promise<{ ok: true }>;
+  setFallbackOpenAIKey(value: string): Promise<{ ok: true }>;
   chooseModelRootPath(): Promise<PathActionResult>;
   chooseDataDir(): Promise<PathActionResult>;
   openPath(path: string): Promise<{ ok: boolean; error?: string }>;
@@ -217,6 +218,7 @@ const api: V2TApi = {
   cleanupStaleHotkeyHelpers: () => ipcRenderer.invoke('v2t:cleanup-stale-hotkey-helpers'),
   quitApp: () => ipcRenderer.invoke('v2t:quit-app'),
   setOpenAIKey: (value) => ipcRenderer.invoke('v2t:set-openai-key', value),
+  setFallbackOpenAIKey: (value) => ipcRenderer.invoke('v2t:set-fallback-openai-key', value),
   chooseModelRootPath: () => ipcRenderer.invoke('v2t:choose-model-root-path'),
   chooseDataDir: () => ipcRenderer.invoke('v2t:choose-data-dir'),
   openPath: (path) => ipcRenderer.invoke('v2t:open-path', path),

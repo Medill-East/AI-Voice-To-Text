@@ -98,6 +98,7 @@ export function App() {
   const [llmInstallerBusy, setLlmInstallerBusy] = useState<string | null>(null);
   const [llmMessage, setLlmMessage] = useState<string | null>(null);
   const [llmApiKeyDraft, setLlmApiKeyDraft] = useState('');
+  const [llmFallbackApiKeyDraft, setLlmFallbackApiKeyDraft] = useState('');
   const [pathMessage, setPathMessage] = useState<string | null>(null);
   const recorderRef = useRef<PcmRecorder | null>(null);
   const modeRef = useRef<InputMode>('natural');
@@ -845,9 +846,11 @@ export function App() {
     setLlmMessage('正在测试结构化整理');
     const result = await window.v2t.testLlmConnection();
     if (result.ok) {
-      setLlmMessage(`LLM 已生效：${result.output ?? '测试通过'}`);
+      const elapsed = typeof result.elapsedMs === 'number' ? ` · ${Math.round(result.elapsedMs / 100) / 10}s` : '';
+      setLlmMessage(`LLM 已生效${elapsed}：${result.output ?? '测试通过'}`);
     } else {
-      setLlmMessage(result.error ?? 'LLM 测试失败');
+      const elapsed = typeof result.elapsedMs === 'number' ? `（${Math.round(result.elapsedMs / 100) / 10}s）` : '';
+      setLlmMessage(`${result.error ?? 'LLM 测试失败'}${elapsed}${result.reasoningOnly ? '；这是 reasoning-only 响应，建议关闭 Thinking 或启用云端兜底。' : ''}`);
     }
   };
 
@@ -855,6 +858,12 @@ export function App() {
     await window.v2t.setOpenAIKey(llmApiKeyDraft);
     setLlmApiKeyDraft('');
     setLlmMessage('API Key 已保存到系统钥匙串，不会写入同步目录。');
+  };
+
+  const saveFallbackLlmApiKey = async () => {
+    await window.v2t.setFallbackOpenAIKey(llmFallbackApiKeyDraft);
+    setLlmFallbackApiKeyDraft('');
+    setLlmMessage('云端兜底 API Key 已保存到系统钥匙串，不会写入同步目录。');
   };
 
   const connectSyncRepo = async () => {
@@ -1273,6 +1282,22 @@ export function App() {
               <section className="advanced-group llm-manual-config">
                 <h3>OpenAI-compatible 手动配置</h3>
                 <p className="hint">适合 OpenAI-compatible API、Ollama、LM Studio 或其它兼容服务；API Key 只保存到系统钥匙串，不写入同步目录。</p>
+                <label className="check setting-check">
+                  <input
+                    type="checkbox"
+                    checked={settings.providers.llm.fastMode}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        providers: {
+                          ...settings.providers,
+                          llm: { ...settings.providers.llm, fastMode: event.target.checked }
+                        }
+                      })
+                    }
+                  />
+                  快速模式：限制输出长度、尝试关闭 Thinking、30 秒超时
+                </label>
                 <label>
                   LLM Base URL
                   <input
@@ -1338,6 +1363,87 @@ export function App() {
                     />
                     启用 LLM 后处理
                   </label>
+                </div>
+              </section>
+              <section className="advanced-group llm-manual-config">
+                <h3>云端兜底</h3>
+                <p className="hint">默认关闭。开启后，只有本地 LLM 超时、输出被截断或只生成 reasoning 内容时，才会把同一段文本发送给这里配置的 OpenAI-compatible 服务。</p>
+                <label className="check setting-check">
+                  <input
+                    type="checkbox"
+                    checked={settings.providers.llm.fallback.enabled}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        providers: {
+                          ...settings.providers,
+                          llm: {
+                            ...settings.providers.llm,
+                            fallback: { ...settings.providers.llm.fallback, enabled: event.target.checked }
+                          }
+                        }
+                      })
+                    }
+                  />
+                  启用云端兜底
+                </label>
+                <label>
+                  Fallback Base URL
+                  <input
+                    className="no-drag"
+                    value={settings.providers.llm.fallback.baseUrl}
+                    placeholder="例如 https://api.openai.com/v1"
+                    onContextMenu={showEditMenu}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        providers: {
+                          ...settings.providers,
+                          llm: {
+                            ...settings.providers.llm,
+                            fallback: { ...settings.providers.llm.fallback, baseUrl: event.target.value }
+                          }
+                        }
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Fallback Model
+                  <input
+                    className="no-drag"
+                    value={settings.providers.llm.fallback.model}
+                    placeholder="例如 gpt-4.1-mini / qwen-plus"
+                    onContextMenu={showEditMenu}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        providers: {
+                          ...settings.providers,
+                          llm: {
+                            ...settings.providers.llm,
+                            fallback: { ...settings.providers.llm.fallback, model: event.target.value }
+                          }
+                        }
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Fallback API Key
+                  <input
+                    className="no-drag"
+                    type="password"
+                    value={llmFallbackApiKeyDraft}
+                    placeholder="只保存到系统钥匙串，不写入同步目录"
+                    onContextMenu={showEditMenu}
+                    onChange={(event) => setLlmFallbackApiKeyDraft(event.target.value)}
+                  />
+                </label>
+                <div className="button-row">
+                  <button className="secondary" onClick={() => void saveFallbackLlmApiKey()} disabled={!llmFallbackApiKeyDraft}>
+                    保存兜底 API Key
+                  </button>
                 </div>
               </section>
               <button className="save" onClick={() => void saveSettings()}>
@@ -2629,7 +2735,7 @@ function historyEntryToLocalItem(entry: HistoryEntry): LocalHistoryItem {
       method: entry.injectionMethod,
       error: entry.error
     },
-    usedLlm: entry.postProcessorEngine === 'llm',
+    usedLlm: entry.postProcessorEngine === 'llm' || entry.postProcessorEngine === 'llm-local' || entry.postProcessorEngine === 'llm-fallback',
     postProcessorEngine: entry.postProcessorEngine ?? 'local-rules'
   };
 }

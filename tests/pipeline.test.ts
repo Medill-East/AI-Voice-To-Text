@@ -67,7 +67,7 @@ describe('voice input pipeline', () => {
   it('passes the mode prompt into post-processing', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'v2t-pipeline-'));
     const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
-    const process = vi.fn().mockResolvedValue({ text: '整理后文本', usedLlm: true, engine: 'llm' });
+    const process = vi.fn().mockResolvedValue({ text: '整理后文本', usedLlm: true, engine: 'llm-local' });
     const pipeline = createVoiceInputPipeline({
       store,
       asr: { transcribe: vi.fn().mockResolvedValue({ text: '原文' }) },
@@ -83,6 +83,6 @@ describe('voice input pipeline', () => {
     });
 
     expect(process).toHaveBeenCalledWith('原文', expect.objectContaining({ mode: 'structured', prompt: '自定义结构输入 Prompt' }));
-    expect(result.postProcessorEngine).toBe('llm');
+    expect(result.postProcessorEngine).toBe('llm-local');
   });
 });

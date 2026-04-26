@@ -1,7 +1,7 @@
 import type { Lexicon, LlmClient, ProcessTextOptions, ProcessedText } from './types';
 
 const DEFAULT_NATURAL_PROMPT =
-  '你是保守的中文语音输入纠错器。只修正明显识别错误、专有名词、标点和少量口头禅，不改变语序、观点或文风。';
+  '你是保守的中文语音输入纠错器。只修正明显识别错误、专有名词、标点和少量口头禅，不改变语序、观点或文风。不要输出 Thinking Process、reasoning、分析步骤或解释，只输出最终正文。';
 
 const DEFAULT_STRUCTURED_PROMPT = `你是中文语音输入的结构化整理器。
 
@@ -13,13 +13,16 @@ const DEFAULT_STRUCTURED_PROMPT = `你是中文语音输入的结构化整理器
 3. 只有出现明确的新话题、问题编号、步骤、任务清单或并列观点时，才使用空行、编号或列表。
 4. 不默认每句加项目符号，不要默认把每一句都变成列表，不强行添加“背景/目标/约束/总结”等模板标题。
 5. 保留中文、英文、产品名、模型名和代码词；中英混排不要翻译专有名词。
-6. 只输出整理后的正文，不解释你做了什么。`;
+6. 不要进行长篇推理，不要输出 Thinking Process、reasoning、分析步骤或解释；如果需要整理，直接给最终正文。
+7. 只输出整理后的正文，不解释你做了什么。`;
 
 export class PostProcessor {
   private readonly llm?: LlmClient;
+  private readonly fallbackLlm?: LlmClient;
 
-  constructor(options: { llm?: LlmClient } = {}) {
+  constructor(options: { llm?: LlmClient; fallbackLlm?: LlmClient } = {}) {
     this.llm = options.llm;
+    this.fallbackLlm = options.fallbackLlm;
   }
 
   async process(input: string, options: ProcessTextOptions): Promise<ProcessedText> {
@@ -30,17 +33,39 @@ export class PostProcessor {
     }
 
     if (this.llm) {
-      const text = await this.llm.complete({
-        mode: 'structured',
+      const request = {
+        mode: 'structured' as const,
         input: corrected,
         systemPrompt: options.prompt ?? DEFAULT_STRUCTURED_PROMPT
-      });
+      };
+      try {
+        const text = await this.llm.complete(request);
+        return { text: text.trim(), usedLlm: true, engine: 'llm-local' };
+      } catch (error) {
+        if (this.fallbackLlm) {
+          try {
+            const text = await this.fallbackLlm.complete(request);
+            return { text: text.trim(), usedLlm: true, engine: 'llm-fallback', llmError: readableError(error) };
+          } catch (fallbackError) {
+            return {
+              text: toReadableMarkdown(corrected),
+              usedLlm: false,
+              engine: 'local-rules',
+              llmError: `${readableError(error)}；云端兜底失败：${readableError(fallbackError)}`
+            };
+          }
+        }
 
-      return { text: text.trim(), usedLlm: true, engine: 'llm' };
+        return { text: toReadableMarkdown(corrected), usedLlm: false, engine: 'local-rules', llmError: readableError(error) };
+      }
     }
 
     return { text: toReadableMarkdown(corrected), usedLlm: false, engine: 'local-rules' };
   }
+}
+
+function readableError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function naturalPrompt(): string {

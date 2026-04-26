@@ -57,6 +57,7 @@ describe('lexicon IPC surface', () => {
     expect(preload).toContain("ipcRenderer.invoke('v2t:clear-model-install', modelId)");
     expect(preload).toContain("ipcRenderer.invoke('v2t:choose-model-root-path')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:choose-data-dir')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:set-fallback-openai-key', value)");
     expect(preload).toContain("ipcRenderer.invoke('v2t:get-llm-installers')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:open-llm-installer', kind)");
     expect(preload).toContain("ipcRenderer.invoke('v2t:open-llm-installer-docs', kind)");
@@ -90,6 +91,7 @@ describe('lexicon IPC surface', () => {
     expect(main).toContain("ipcMain.handle('v2t:clear-model-install'");
     expect(main).toContain("ipcMain.handle('v2t:choose-model-root-path'");
     expect(main).toContain("ipcMain.handle('v2t:choose-data-dir'");
+    expect(main).toContain("ipcMain.handle('v2t:set-fallback-openai-key'");
     expect(main).toContain("ipcMain.handle('v2t:open-path'");
     expect(main).toContain("ipcMain.handle('v2t:copy-text'");
     expect(main).toContain("ipcMain.handle('v2t:get-llm-installers'");

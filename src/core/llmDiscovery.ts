@@ -80,22 +80,29 @@ export async function testLlmClient(options: {
   baseUrl: string;
   model: string;
   apiKey?: string;
+  timeoutMs?: number;
+  fastMode?: boolean;
 }): Promise<LlmTestResult> {
+  const startedAt = Date.now();
   try {
     const client = new OpenAICompatibleClient({
       baseUrl: options.baseUrl,
       model: options.model,
-      apiKey: options.apiKey
+      apiKey: options.apiKey,
+      timeoutMs: options.timeoutMs,
+      fastMode: options.fastMode
     });
     const output = await client.complete({
       mode: 'structured',
-      input: '嗯我想测试一下结构化整理就是把语音输入变得更清楚',
+      input: '嗯我想测试一下结构化整理，比如第一个问题是模型下载太慢，第二个问题是结构化输出不够自然，第三个问题是 GitHub 同步要避免覆盖本地提示词。',
       systemPrompt: structuredPrompt()
     });
     return {
       ok: true,
       provider: options.kind,
       model: options.model,
+      elapsedMs: Date.now() - startedAt,
+      engine: 'llm-local',
       output
     };
   } catch (error) {
@@ -103,6 +110,8 @@ export async function testLlmClient(options: {
       ok: false,
       provider: options.kind,
       model: options.model,
+      elapsedMs: Date.now() - startedAt,
+      reasoningOnly: error instanceof Error && error.message.includes('只生成了推理内容'),
       error: error instanceof Error ? error.message : String(error)
     };
   }

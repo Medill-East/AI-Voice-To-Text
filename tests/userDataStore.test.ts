@@ -21,6 +21,13 @@ describe('UserDataStore', () => {
     expect(settings.updates.autoDownload).toBe(true);
     expect(settings.appearance.theme).toBe('system');
     expect(settings.providers.llm.apiKeyRef).toBe('system-keychain:v2t/openai-compatible');
+    expect(settings.providers.llm.fastMode).toBe(true);
+    expect(settings.providers.llm.timeoutMs).toBe(30000);
+    expect(settings.providers.llm.fallback).toMatchObject({
+      enabled: false,
+      apiKeyRef: 'system-keychain:v2t/openai-compatible-fallback',
+      timeoutMs: 30000
+    });
     expect(settings.providers.llm).not.toHaveProperty('apiKey');
     expect(lexicon.terms).toEqual([]);
   });

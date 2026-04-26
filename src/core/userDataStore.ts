@@ -34,7 +34,16 @@ const DEFAULT_SETTINGS: Settings = {
       kind: 'openai-compatible',
       baseUrl: 'http://127.0.0.1:11434/v1',
       model: 'qwen2.5:7b',
-      apiKeyRef: 'system-keychain:v2t/openai-compatible'
+      apiKeyRef: 'system-keychain:v2t/openai-compatible',
+      fastMode: true,
+      timeoutMs: 30000,
+      fallback: {
+        enabled: false,
+        baseUrl: '',
+        model: '',
+        apiKeyRef: 'system-keychain:v2t/openai-compatible-fallback',
+        timeoutMs: 30000
+      }
     }
   },
   sync: {
@@ -290,7 +299,11 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
       },
       llm: {
         ...DEFAULT_SETTINGS.providers.llm,
-        ...rawLlm
+        ...rawLlm,
+        fallback: {
+          ...DEFAULT_SETTINGS.providers.llm.fallback,
+          ...(rawLlm.fallback ?? {})
+        }
       }
     },
     sync: {

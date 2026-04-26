@@ -64,6 +64,9 @@ describe('settings navigation structure', () => {
     expect(app).toContain('LLM 负责自然输入纠错和结构输入整理');
     expect(app).toContain('本地 LLM 安装向导');
     expect(app).toContain('OpenAI-compatible 手动配置');
+    expect(app).toContain('快速模式：限制输出长度');
+    expect(app).toContain('云端兜底');
+    expect(app).toContain('Fallback Base URL');
     expect(app).toContain('官方文档');
     expect(app).toContain('路径管理');
     expect(app).toContain('模型目录');

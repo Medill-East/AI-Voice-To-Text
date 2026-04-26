@@ -14,7 +14,7 @@ export type ModelInstallStatus =
 	  | 'failed';
 export type RecommendedTier = 'low' | 'medium' | 'high';
 export type AppUpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'installing' | 'error';
-export type PostProcessorEngine = 'local-rules' | 'llm';
+export type PostProcessorEngine = 'local-rules' | 'llm' | 'llm-local' | 'llm-fallback';
 export type LlmProviderKind = 'openai-compatible' | 'ollama' | 'lm-studio';
 export type LlmInstallStatus = 'not-installed' | 'installed-not-running' | 'service-available' | 'checking' | 'error';
 
@@ -71,6 +71,15 @@ export interface Settings {
       baseUrl: string;
       model: string;
       apiKeyRef: string;
+      fastMode: boolean;
+      timeoutMs: number;
+      fallback: {
+        enabled: boolean;
+        baseUrl: string;
+        model: string;
+        apiKeyRef: string;
+        timeoutMs: number;
+      };
     };
   };
   sync: {
@@ -365,6 +374,7 @@ export interface ProcessedText {
   text: string;
   usedLlm: boolean;
   engine: PostProcessorEngine;
+  llmError?: string;
 }
 
 export interface LlmCompletionRequest {
@@ -438,5 +448,9 @@ export interface LlmTestResult {
   provider?: LlmProviderKind;
   model?: string;
   output?: string;
+  elapsedMs?: number;
+  engine?: PostProcessorEngine;
+  finishReason?: string;
+  reasoningOnly?: boolean;
   error?: string;
 }

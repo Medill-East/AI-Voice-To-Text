@@ -312,6 +312,10 @@ function registerIpc(): void {
     await new SecretStore().setOpenAICompatibleKey(value);
     return { ok: true };
   });
+  ipcMain.handle('v2t:set-fallback-openai-key', async (_event, value: string) => {
+    await new SecretStore('v2t-llm-fallback').setOpenAICompatibleKey(value);
+    return { ok: true };
+  });
   ipcMain.handle('v2t:choose-model-root-path', async () => chooseModelRootPath());
   ipcMain.handle('v2t:choose-data-dir', async () => chooseDataDir());
   ipcMain.handle('v2t:open-path', async (_event, targetPath: string) => {
@@ -519,13 +523,26 @@ function registerIpc(): void {
 }
 
 async function createPipeline() {
-  const apiKey = await new SecretStore().getOpenAICompatibleKey();
+  const primaryKey = await new SecretStore().getOpenAICompatibleKey();
+  const fallbackKey = await new SecretStore('v2t-llm-fallback').getOpenAICompatibleKey();
   const llm =
     settings.providers.llm.enabled
       ? new OpenAICompatibleClient({
           baseUrl: settings.providers.llm.baseUrl,
           model: settings.providers.llm.model,
-          apiKey
+          apiKey: primaryKey,
+          timeoutMs: settings.providers.llm.timeoutMs,
+          fastMode: settings.providers.llm.fastMode
+        })
+      : undefined;
+  const fallbackLlm =
+    settings.providers.llm.fallback.enabled && settings.providers.llm.fallback.baseUrl && settings.providers.llm.fallback.model
+      ? new OpenAICompatibleClient({
+          baseUrl: settings.providers.llm.fallback.baseUrl,
+          model: settings.providers.llm.fallback.model,
+          apiKey: fallbackKey,
+          timeoutMs: settings.providers.llm.fallback.timeoutMs,
+          fastMode: true
         })
       : undefined;
 
@@ -536,7 +553,7 @@ async function createPipeline() {
       clipboard,
       keySender: new OsPasteKeySender()
     }),
-    postProcessor: new PostProcessor({ llm })
+    postProcessor: new PostProcessor({ llm, fallbackLlm })
   });
 }
 
@@ -600,7 +617,9 @@ async function testCurrentLlmConnection() {
     kind: settings.providers.llm.kind,
     baseUrl: settings.providers.llm.baseUrl,
     model: settings.providers.llm.model,
-    apiKey: await new SecretStore().getOpenAICompatibleKey()
+    apiKey: await new SecretStore().getOpenAICompatibleKey(),
+    timeoutMs: settings.providers.llm.timeoutMs,
+    fastMode: settings.providers.llm.fastMode
   });
 }
 

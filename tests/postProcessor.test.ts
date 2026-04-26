@@ -102,6 +102,7 @@ describe('PostProcessor', () => {
     expect(structuredPrompt()).toContain('不要默认把每一句都变成列表');
     expect(structuredPrompt()).toContain('/sil');
     expect(structuredPrompt()).toContain('同一主题内不要因为停顿');
+    expect(structuredPrompt()).toContain('不要输出 Thinking Process');
     expect(structuredPrompt()).toContain('只输出整理后的正文');
   });
 
@@ -118,11 +119,51 @@ describe('PostProcessor', () => {
 
     expect(result.text).toBe('- 已整理的 Markdown');
     expect(result.usedLlm).toBe(true);
+    expect(result.engine).toBe('llm-local');
     expect(llm.complete).toHaveBeenCalledWith(
       expect.objectContaining({
         mode: 'structured',
         input: '把内容整理一下'
       })
     );
+  });
+
+  it('uses fallback LLM when the local LLM only produces reasoning or times out', async () => {
+    const local: LlmClient = {
+      complete: vi.fn().mockRejectedValue(new Error('本地 LLM 只生成了推理内容，请关闭 Thinking 或启用云端兜底。'))
+    };
+    const fallback: LlmClient = {
+      complete: vi.fn().mockResolvedValue('云端整理结果')
+    };
+    const processor = new PostProcessor({ llm: local, fallbackLlm: fallback });
+
+    const result = await processor.process('嗯 结构化输出不够自然', {
+      mode: 'structured',
+      lexicon
+    });
+
+    expect(result).toMatchObject({
+      text: '云端整理结果',
+      usedLlm: true,
+      engine: 'llm-fallback'
+    });
+    expect(fallback.complete).toHaveBeenCalledOnce();
+  });
+
+  it('falls back to local rules when both local and fallback LLM fail', async () => {
+    const local: LlmClient = { complete: vi.fn().mockRejectedValue(new Error('本地超时')) };
+    const fallback: LlmClient = { complete: vi.fn().mockRejectedValue(new Error('云端失败')) };
+    const processor = new PostProcessor({ llm: local, fallbackLlm: fallback });
+
+    const result = await processor.process('嗯 我想整理一下模型下载太慢这个问题', {
+      mode: 'structured',
+      lexicon
+    });
+
+    expect(result.usedLlm).toBe(false);
+    expect(result.engine).toBe('local-rules');
+    expect(result.text).toBe('我想整理一下模型下载太慢问题。');
+    expect(result.llmError).toContain('本地超时');
+    expect(result.llmError).toContain('云端兜底失败');
   });
 });
