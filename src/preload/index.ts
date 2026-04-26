@@ -50,6 +50,8 @@ export interface V2TApi {
   testHotkey(accelerator?: string): Promise<HotkeyTestResult>;
   copyHotkeyDiagnostics(): Promise<{ ok: true }>;
   showNativeHelper(): Promise<{ ok: boolean }>;
+  repairHotkeyHelper(): Promise<{ ok: boolean; setup: SetupPayload; error?: string }>;
+  cleanupStaleHotkeyHelpers(): Promise<{ ok: boolean; setup: SetupPayload; error?: string }>;
   quitApp(): Promise<{ ok: true }>;
   setOpenAIKey(value: string): Promise<{ ok: true }>;
   processAudio(payload: { bytes: Uint8Array; mode: InputMode }): Promise<VoiceInputPipelineResult>;
@@ -142,6 +144,8 @@ const api: V2TApi = {
   testHotkey: (accelerator) => ipcRenderer.invoke('v2t:test-hotkey', accelerator),
   copyHotkeyDiagnostics: () => ipcRenderer.invoke('v2t:copy-hotkey-diagnostics'),
   showNativeHelper: () => ipcRenderer.invoke('v2t:show-native-helper'),
+  repairHotkeyHelper: () => ipcRenderer.invoke('v2t:repair-hotkey-helper'),
+  cleanupStaleHotkeyHelpers: () => ipcRenderer.invoke('v2t:cleanup-stale-hotkey-helpers'),
   quitApp: () => ipcRenderer.invoke('v2t:quit-app'),
   setOpenAIKey: (value) => ipcRenderer.invoke('v2t:set-openai-key', value),
   processAudio: async (payload) => {

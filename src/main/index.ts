@@ -1,5 +1,5 @@
 import { app, BrowserWindow, Menu, Tray, clipboard, ipcMain, nativeImage, screen, shell, systemPreferences } from 'electron';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { hostname } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
@@ -21,7 +21,15 @@ import { getFocusedAppName } from './focusedApp';
 import { createCheckingHotkeyStatus } from './hotkeyDiagnostics';
 import { HotkeyDiagnosticLog } from './hotkeyDiagnosticLog';
 import { HotkeyService, type HotkeyStatus, type HotkeyTestResult } from './hotkeyService';
-import { ensureStableMacKeyServer, ensureStableWinKeyServer, resolveBundledMacKeyServerPath, resolveBundledWinKeyServerPath } from './nativeKeyHelper';
+import {
+  cleanupStaleWinKeyServerProcesses,
+  ensureStableMacKeyServer,
+  ensureWindowsKeyServerAvailable,
+  resolveBundledMacKeyServerPath,
+  resolveBundledWinKeyServerPath,
+  stableWinKeyServerPath,
+  type WindowsKeyServerCleanupResult
+} from './nativeKeyHelper';
 import { OsPasteKeySender } from './osPasteKeySender';
 import { SecretStore } from './secretStore';
 import { createTrayImage } from './trayIcon';
@@ -45,6 +53,13 @@ let hotkeyStatus: HotkeyStatus | undefined;
 let isQuitting = false;
 let modelRoot: string;
 let nativeHelperPath: string | undefined;
+let nativeHelperSourcePath: string | undefined;
+let nativeHelperStablePath: string | undefined;
+let helperFileExists: boolean | undefined;
+let helperRepairAttempted: boolean | undefined;
+let helperRepairError: string | undefined;
+let staleHelperCount: number | undefined;
+let staleHelperKilled: number | undefined;
 let nativeHelperSignature: string | undefined;
 let hotkeyLog: HotkeyDiagnosticLog;
 let autoSyncService: AutoSyncService;
@@ -88,6 +103,7 @@ async function bootstrap(): Promise<void> {
   createWindow();
   createTray();
   registerIpc();
+  cleanupStaleHotkeyHelpers();
   await registerHotkey();
   void refreshModelCatalog('startup');
 }
@@ -252,7 +268,7 @@ function registerIpc(): void {
     return { ok: true };
   });
   ipcMain.handle('v2t:refresh-hotkey-permissions', async () => {
-    refreshHotkeyPermissions();
+    await refreshHotkeyPermissions();
     return getSetupPayload();
   });
   ipcMain.handle('v2t:test-hotkey', async (_event, accelerator?: string) => testHotkey(accelerator ?? settings.hotkey.accelerator));
@@ -268,6 +284,8 @@ function registerIpc(): void {
     }
     return { ok: false };
   });
+  ipcMain.handle('v2t:repair-hotkey-helper', async () => repairHotkeyHelper());
+  ipcMain.handle('v2t:cleanup-stale-hotkey-helpers', async () => cleanupStaleHotkeyHelpersAndRestart());
   ipcMain.handle('v2t:quit-app', async () => {
     quitApp();
     return { ok: true };
@@ -444,6 +462,9 @@ async function ensureRecordingOverlayWindow(): Promise<BrowserWindow> {
 }
 
 async function registerHotkey(): Promise<void> {
+  hotkeyService.unregister();
+  await prepareNativeHelperForHotkey();
+  cleanupStaleHotkeyHelpers();
   hotkeyStatus = await hotkeyService.register({
     accelerator: settings.hotkey.accelerator,
     fallbackAccelerator: settings.hotkey.fallbackAccelerator,
@@ -453,8 +474,14 @@ async function registerHotkey(): Promise<void> {
     platform: process.platform,
     accessibilityTrusted: getAccessibilityTrusted(),
     nativeHelperPath,
+    nativeHelperSourcePath,
     nativeHelperSignature,
     hotkeyLogPath: hotkeyLog.getPath(),
+    helperFileExists,
+    repairAttempted: helperRepairAttempted,
+    repairError: helperRepairError,
+    staleHelperCount,
+    staleHelperKilled,
     onAction: sendHotkeyAction,
     onStatus: (status) => {
       setHotkeyStatus(status);
@@ -462,7 +489,10 @@ async function registerHotkey(): Promise<void> {
   });
 }
 
-function refreshHotkeyPermissions(): void {
+async function refreshHotkeyPermissions(): Promise<void> {
+  hotkeyService.unregister();
+  await prepareNativeHelperForHotkey();
+  cleanupStaleHotkeyHelpers();
   setHotkeyStatus(
     createCheckingHotkeyStatus({
       accelerator: settings.hotkey.accelerator,
@@ -470,8 +500,14 @@ function refreshHotkeyPermissions(): void {
       platform: process.platform,
       accessibilityTrusted: getAccessibilityTrusted(),
       nativeHelperPath,
+      nativeHelperSourcePath,
       nativeHelperSignature,
-      hotkeyLogPath: hotkeyLog.getPath()
+      hotkeyLogPath: hotkeyLog.getPath(),
+      helperFileExists,
+      repairAttempted: helperRepairAttempted,
+      repairError: helperRepairError,
+      staleHelperCount,
+      staleHelperKilled
     })
   );
   void registerHotkey().catch((error) => {
@@ -489,6 +525,12 @@ function refreshHotkeyPermissions(): void {
       helperVerified: false,
       nativeActive: false,
       nativeHelperPath,
+      helperSourcePath: nativeHelperSourcePath,
+      helperFileExists,
+      repairAttempted: helperRepairAttempted,
+      repairError: helperRepairError,
+      staleHelperCount,
+      staleHelperKilled,
       nativeHelperSignature,
       hotkeyLogPath: hotkeyLog.getPath(),
       appAccessibilityTrusted: getAccessibilityTrusted(),
@@ -502,6 +544,7 @@ function refreshHotkeyPermissions(): void {
 }
 
 async function testHotkey(accelerator: string): Promise<HotkeyTestResult> {
+  await prepareNativeHelperForHotkey();
   setHotkeyStatus(
     createCheckingHotkeyStatus({
       accelerator,
@@ -509,8 +552,14 @@ async function testHotkey(accelerator: string): Promise<HotkeyTestResult> {
       platform: process.platform,
       accessibilityTrusted: getAccessibilityTrusted(),
       nativeHelperPath,
+      nativeHelperSourcePath,
       nativeHelperSignature,
       hotkeyLogPath: hotkeyLog.getPath(),
+      helperFileExists,
+      repairAttempted: helperRepairAttempted,
+      repairError: helperRepairError,
+      staleHelperCount,
+      staleHelperKilled,
       diagnosticMessage: `请在 5 秒内按下 ${accelerator}。`
     })
   );
@@ -544,6 +593,12 @@ function hotkeyStatusFromTestResult(result: HotkeyTestResult): HotkeyStatus {
       helperLastStderr: result.helperLastStderr,
       nativeActive: true,
       nativeHelperPath,
+      helperSourcePath: nativeHelperSourcePath,
+      helperFileExists,
+      repairAttempted: helperRepairAttempted,
+      repairError: helperRepairError,
+      staleHelperCount,
+      staleHelperKilled,
       nativeHelperSignature,
       hotkeyLogPath: hotkeyLog.getPath(),
       nativeLastInfo: result.nativeLastInfo,
@@ -571,6 +626,12 @@ function hotkeyStatusFromTestResult(result: HotkeyTestResult): HotkeyStatus {
     helperLastStderr: result.helperLastStderr,
     nativeActive: false,
     nativeHelperPath,
+    helperSourcePath: nativeHelperSourcePath,
+    helperFileExists,
+    repairAttempted: helperRepairAttempted,
+    repairError: helperRepairError,
+    staleHelperCount,
+    staleHelperKilled,
     nativeHelperSignature,
     hotkeyLogPath: hotkeyLog.getPath(),
     nativeLastInfo: result.nativeLastInfo,
@@ -801,6 +862,9 @@ async function updateHotkey(accelerator: string) {
     }
   };
   await store.saveSettings(settings);
+  hotkeyService.unregister();
+  await prepareNativeHelperForHotkey();
+  cleanupStaleHotkeyHelpers();
   const status = await hotkeyService.register({
     accelerator: settings.hotkey.accelerator,
     fallbackAccelerator: settings.hotkey.fallbackAccelerator,
@@ -810,8 +874,14 @@ async function updateHotkey(accelerator: string) {
     platform: process.platform,
     accessibilityTrusted: getAccessibilityTrusted(),
     nativeHelperPath,
+    nativeHelperSourcePath,
     nativeHelperSignature,
     hotkeyLogPath: hotkeyLog.getPath(),
+    helperFileExists,
+    repairAttempted: helperRepairAttempted,
+    repairError: helperRepairError,
+    staleHelperCount,
+    staleHelperKilled,
     onAction: sendHotkeyAction,
     onStatus: (nextStatus) => {
       setHotkeyStatus(nextStatus);
@@ -827,6 +897,28 @@ async function updateHotkey(accelerator: string) {
   }
 
   return { ok: true, settings, hotkeyStatus };
+}
+
+async function repairHotkeyHelper() {
+  try {
+    await prepareNativeHelperForHotkey();
+    await registerHotkey();
+    return { ok: !helperRepairError, setup: await getSetupPayload(), error: helperRepairError };
+  } catch (error) {
+    helperRepairError = readableError(error);
+    return { ok: false, setup: await getSetupPayload(), error: helperRepairError };
+  }
+}
+
+async function cleanupStaleHotkeyHelpersAndRestart() {
+  try {
+    hotkeyService.unregister();
+    const cleanup = cleanupStaleHotkeyHelpers();
+    await registerHotkey();
+    return { ok: cleanup.errors.length === 0, setup: await getSetupPayload(), cleanup, error: cleanup.errors.at(0) };
+  } catch (error) {
+    return { ok: false, setup: await getSetupPayload(), error: readableError(error) };
+  }
 }
 
 function getAccessibilityTrusted(): boolean {
@@ -849,13 +941,7 @@ function requiresNativeHotkey(accelerator: string): boolean {
 
 async function setupNativeKeyHelper(): Promise<string | undefined> {
   if (process.platform === 'win32') {
-    const bundledPath = await resolveBundledWinKeyServerPath();
-    try {
-      return await ensureStableWinKeyServer(bundledPath, app.getPath('userData'));
-    } catch (error) {
-      console.warn(`Unable to install stable WinKeyServer helper: ${readableError(error)}`);
-      return bundledPath;
-    }
+    return prepareNativeHelperForHotkey();
   }
 
   if (process.platform !== 'darwin') {
@@ -869,6 +955,68 @@ async function setupNativeKeyHelper(): Promise<string | undefined> {
     console.warn(`Unable to install stable MacKeyServer helper: ${readableError(error)}`);
     return bundledPath;
   }
+}
+
+async function prepareNativeHelperForHotkey(): Promise<string | undefined> {
+  if (process.platform !== 'win32') {
+    return nativeHelperPath;
+  }
+
+  try {
+    nativeHelperSourcePath = await resolveBundledWinKeyServerPath();
+    nativeHelperStablePath = stableWinKeyServerPath(app.getPath('userData'));
+    const availability = await ensureWindowsKeyServerAvailable(nativeHelperSourcePath, app.getPath('userData'));
+    nativeHelperPath = availability.helperPath;
+    nativeHelperSourcePath = availability.helperSourcePath;
+    nativeHelperStablePath = availability.stablePath;
+    helperFileExists = availability.helperFileExists;
+    helperRepairAttempted = availability.repairAttempted;
+    helperRepairError = availability.repairError;
+    nativeHelperSignature = undefined;
+    void hotkeyLog?.write({
+      type: 'helper-repair',
+      helperPath: nativeHelperPath,
+      message: availability.repairError ?? (availability.repairAttempted ? 'WinKeyServer stable copy checked' : 'WinKeyServer stable fallback used')
+    }).catch((error) => console.warn(`Unable to write hotkey diagnostic log: ${readableError(error)}`));
+    return nativeHelperPath;
+  } catch (error) {
+    helperFileExists = false;
+    helperRepairAttempted = true;
+    helperRepairError = readableError(error);
+    void hotkeyLog?.write({
+      type: 'helper-repair-error',
+      helperPath: nativeHelperPath,
+      message: helperRepairError
+    }).catch((writeError) => console.warn(`Unable to write hotkey diagnostic log: ${readableError(writeError)}`));
+    return nativeHelperPath;
+  }
+}
+
+function cleanupStaleHotkeyHelpers(): WindowsKeyServerCleanupResult {
+  if (process.platform !== 'win32') {
+    return { staleHelperCount: 0, staleHelperKilled: 0, errors: [] };
+  }
+
+  const roots = windowsKeyServerRoots();
+  const result = cleanupStaleWinKeyServerProcesses({ roots });
+  staleHelperCount = result.staleHelperCount;
+  staleHelperKilled = result.staleHelperKilled;
+  void hotkeyLog?.write({
+    type: 'helper-cleanup',
+    helperPath: nativeHelperPath,
+    message: `found=${result.staleHelperCount}; killed=${result.staleHelperKilled}; errors=${result.errors.join('; ')}`
+  }).catch((error) => console.warn(`Unable to write hotkey diagnostic log: ${readableError(error)}`));
+  return result;
+}
+
+function windowsKeyServerRoots(): string[] {
+  return Array.from(
+    new Set(
+      [nativeHelperPath, nativeHelperSourcePath, nativeHelperStablePath, stableWinKeyServerPath(app.getPath('userData'))]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => dirname(value))
+    )
+  );
 }
 
 function readCodeSignature(filePath: string): string | undefined {
@@ -893,6 +1041,12 @@ function createHotkeyDiagnosticText(): string {
     `active: ${status?.activeAccelerator ?? 'unknown'}`,
     `fallback: ${status?.fallbackAccelerator ?? settings.hotkey.fallbackAccelerator ?? 'none'}`,
     `helperPath: ${nativeHelperPath ?? 'none'}`,
+    `helperSourcePath: ${nativeHelperSourcePath ?? 'none'}`,
+    `helperFileExists: ${String(status?.helperFileExists ?? helperFileExists ?? 'unknown')}`,
+    `repairAttempted: ${String(status?.repairAttempted ?? helperRepairAttempted ?? 'unknown')}`,
+    `repairError: ${status?.repairError ?? helperRepairError ?? 'none'}`,
+    `staleHelperCount: ${String(status?.staleHelperCount ?? staleHelperCount ?? 0)}`,
+    `staleHelperKilled: ${String(status?.staleHelperKilled ?? staleHelperKilled ?? 0)}`,
     `helperSignature: ${nativeHelperSignature ?? 'unknown'}`,
     `helperStarted: ${String(status?.helperStarted ?? false)}`,
     `helperVerified: ${String(status?.helperVerified ?? false)}`,
@@ -977,6 +1131,7 @@ function quitApp(): void {
 function cleanupAppResources(): void {
   autoSyncService?.dispose();
   hotkeyService?.unregister();
+  cleanupStaleHotkeyHelpers();
   if (recordingOverlayWindow && !recordingOverlayWindow.isDestroyed()) {
     recordingOverlayWindow.destroy();
   }

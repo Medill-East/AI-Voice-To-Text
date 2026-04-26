@@ -11,6 +11,8 @@ describe('lexicon IPC surface', () => {
     expect(preload).toContain("ipcRenderer.invoke('v2t:get-lexicon')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:save-lexicon', lexicon)");
     expect(preload).toContain("ipcRenderer.invoke('v2t:copy-hotkey-diagnostics')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:repair-hotkey-helper')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:cleanup-stale-hotkey-helpers')");
     expect(preload).toContain('getPrompts(): Promise<PromptFiles>');
     expect(preload).toContain('savePrompt(mode: InputMode, content: string)');
     expect(preload).toContain('onAutoSyncStatus');
@@ -21,6 +23,8 @@ describe('lexicon IPC surface', () => {
     expect(main).toContain("ipcMain.handle('v2t:get-lexicon'");
     expect(main).toContain("ipcMain.handle('v2t:save-lexicon'");
     expect(main).toContain("ipcMain.handle('v2t:copy-hotkey-diagnostics'");
+    expect(main).toContain("ipcMain.handle('v2t:repair-hotkey-helper'");
+    expect(main).toContain("ipcMain.handle('v2t:cleanup-stale-hotkey-helpers'");
     expect(main).toContain("ipcMain.handle('v2t:get-prompts'");
     expect(main).toContain("ipcMain.handle('v2t:save-prompt'");
     expect(main).toContain("ipcMain.handle('v2t:sync-all'");

@@ -13,8 +13,14 @@ interface HotkeyServiceOptions {
   platform?: NodeJS.Platform;
   accessibilityTrusted?: boolean;
   nativeHelperPath?: string;
+  nativeHelperSourcePath?: string;
   nativeHelperSignature?: string;
   hotkeyLogPath?: string;
+  helperFileExists?: boolean;
+  repairAttempted?: boolean;
+  repairError?: string;
+  staleHelperCount?: number;
+  staleHelperKilled?: number;
   onAction(action: HotkeyAction): void;
   onStatus?(status: HotkeyStatus): void;
 }
@@ -38,6 +44,12 @@ export interface HotkeyStatus {
   nativeActive?: boolean;
   nativeHelperPath?: string;
   nativeHelperKind?: 'mac-key-server' | 'win-key-server';
+  helperSourcePath?: string;
+  helperFileExists?: boolean;
+  repairAttempted?: boolean;
+  repairError?: string;
+  staleHelperCount?: number;
+  staleHelperKilled?: number;
   nativeHelperSignature?: string;
   hotkeyLogPath?: string;
   nativeLastInfo?: string;
@@ -473,6 +485,12 @@ export class HotkeyService {
       nativeActive: this.nativeActive,
       nativeHelperPath: this.nativeHelperPath ?? options.nativeHelperPath,
       nativeHelperKind: nativeHelperKindFor(options.platform, this.nativeHelperPath ?? options.nativeHelperPath),
+      helperSourcePath: options.nativeHelperSourcePath,
+      helperFileExists: options.helperFileExists,
+      repairAttempted: options.repairAttempted,
+      repairError: options.repairError,
+      staleHelperCount: options.staleHelperCount,
+      staleHelperKilled: options.staleHelperKilled,
       nativeHelperSignature: options.nativeHelperSignature,
       hotkeyLogPath: options.hotkeyLogPath,
       nativeLastInfo: this.nativeLastInfo,
@@ -518,6 +536,12 @@ export class HotkeyService {
       nativeActive: this.nativeActive,
       nativeHelperPath: this.nativeHelperPath ?? options.nativeHelperPath,
       nativeHelperKind: nativeHelperKindFor(options.platform, this.nativeHelperPath ?? options.nativeHelperPath),
+      helperSourcePath: options.nativeHelperSourcePath,
+      helperFileExists: options.helperFileExists,
+      repairAttempted: options.repairAttempted,
+      repairError: options.repairError,
+      staleHelperCount: options.staleHelperCount,
+      staleHelperKilled: options.staleHelperKilled,
       nativeHelperSignature: options.nativeHelperSignature,
       hotkeyLogPath: options.hotkeyLogPath,
       nativeLastInfo: this.nativeLastInfo,

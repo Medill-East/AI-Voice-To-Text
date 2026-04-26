@@ -566,6 +566,20 @@ export function App() {
     await window.v2t.showNativeHelper();
   };
 
+  const repairHotkeyHelper = async () => {
+    setHotkeyTestMessage('正在修复监听组件');
+    const result = await window.v2t.repairHotkeyHelper();
+    applySetup(result.setup);
+    setHotkeyTestMessage(result.ok ? '监听组件已修复并重新检测' : result.error ?? '监听组件修复失败');
+  };
+
+  const cleanupStaleHotkeyHelpers = async () => {
+    setHotkeyTestMessage('正在清理旧监听进程');
+    const result = await window.v2t.cleanupStaleHotkeyHelpers();
+    applySetup(result.setup);
+    setHotkeyTestMessage(result.ok ? '旧监听进程已清理并重新检测' : result.error ?? '旧监听进程清理失败');
+  };
+
   const copyHotkeyDiagnostics = async () => {
     await window.v2t.copyHotkeyDiagnostics();
     setHotkeyTestMessage('快捷键诊断信息已复制到剪贴板');
@@ -928,6 +942,32 @@ export function App() {
                 <dd>{hotkeyStatus.helperLastStderr}</dd>
               </div>
             ) : null}
+            {hotkeyStatus?.helperSourcePath ? (
+              <div>
+                <dt>组件来源</dt>
+                <dd>{hotkeyStatus.helperSourcePath}</dd>
+              </div>
+            ) : null}
+            {hotkeyStatus?.helperFileExists !== undefined ? (
+              <div>
+                <dt>组件文件</dt>
+                <dd>{hotkeyStatus.helperFileExists ? '存在' : '缺失，请修复或检查安全软件隔离记录'}</dd>
+              </div>
+            ) : null}
+            {hotkeyStatus?.repairAttempted !== undefined ? (
+              <div>
+                <dt>自动修复</dt>
+                <dd>{hotkeyStatus.repairError ? `失败：${hotkeyStatus.repairError}` : hotkeyStatus.repairAttempted ? '已检查并尝试修复' : '未执行'}</dd>
+              </div>
+            ) : null}
+            {hotkeyStatus?.staleHelperCount !== undefined ? (
+              <div>
+                <dt>旧监听进程</dt>
+                <dd>
+                  发现 {hotkeyStatus.staleHelperCount} 个，已清理 {hotkeyStatus.staleHelperKilled ?? 0} 个
+                </dd>
+              </div>
+            ) : null}
             {settings?.hotkey.fallbackAccelerator ? (
               <div>
                 <dt>备用</dt>
@@ -968,6 +1008,16 @@ export function App() {
               重新检测
             </button>
           </div>
+          {hotkeyStatus?.permissionKind === 'windows-native-hook' ? (
+            <div className="button-row">
+              <button className="secondary" onClick={() => void repairHotkeyHelper()}>
+                修复监听组件
+              </button>
+              <button className="secondary" onClick={() => void cleanupStaleHotkeyHelpers()}>
+                清理旧监听进程
+              </button>
+            </div>
+          ) : null}
           <div className="button-row">
             <button
               className={`secondary ${capturingHotkey ? 'listening' : ''}`}
@@ -1999,7 +2049,7 @@ function hotkeyHelperStateLabel(status: HotkeyStatus): string {
 
 function hotkeyPermissionHint(status?: HotkeyStatus): string {
   if (status?.permissionKind === 'windows-native-hook') {
-    return 'Windows 系统键盘监听无需额外系统授权；如果检测失败，请重新检测，或确认安全软件没有拦截 V2T。';
+    return 'Windows 系统键盘监听无需额外系统授权；如果组件文件缺失，请点击“修复监听组件”，并检查 Windows 安全中心/Defender 是否隔离了 WinKeyServer.exe。';
   }
   if (status?.permissionKind === 'none') {
     return '当前快捷键使用系统组合键注册，不需要额外权限。';

@@ -6,8 +6,14 @@ export function createCheckingHotkeyStatus(options: {
   platform?: NodeJS.Platform;
   accessibilityTrusted?: boolean;
   nativeHelperPath?: string;
+  nativeHelperSourcePath?: string;
   nativeHelperSignature?: string;
   hotkeyLogPath?: string;
+  helperFileExists?: boolean;
+  repairAttempted?: boolean;
+  repairError?: string;
+  staleHelperCount?: number;
+  staleHelperKilled?: number;
   diagnosticMessage?: string;
 }): HotkeyStatus {
   return {
@@ -25,6 +31,12 @@ export function createCheckingHotkeyStatus(options: {
     helperVerified: false,
     nativeActive: false,
     nativeHelperPath: options.nativeHelperPath,
+    helperSourcePath: options.nativeHelperSourcePath,
+    helperFileExists: options.helperFileExists,
+    repairAttempted: options.repairAttempted,
+    repairError: options.repairError,
+    staleHelperCount: options.staleHelperCount,
+    staleHelperKilled: options.staleHelperKilled,
     nativeHelperSignature: options.nativeHelperSignature,
     hotkeyLogPath: options.hotkeyLogPath,
     appAccessibilityTrusted: options.accessibilityTrusted,

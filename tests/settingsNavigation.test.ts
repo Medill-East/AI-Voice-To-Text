@@ -13,6 +13,8 @@ describe('settings navigation structure', () => {
     expect(app).toContain('className="page-nav"');
     expect(app).toContain('className="page-content"');
     expect(app).toContain('复制诊断信息');
+    expect(app).toContain('修复监听组件');
+    expect(app).toContain('清理旧监听进程');
     expect(app).toContain('单击快捷键');
     expect(app).toContain('双击快捷键');
     expect(app).toContain('推荐分');
