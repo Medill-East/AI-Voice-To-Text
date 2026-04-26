@@ -1,6 +1,6 @@
 {
-  "version": "2026-04-26.zh",
-  "updatedAt": "2026-04-26T00:00:00.000Z",
+  "version": "2026-04-27.zh",
+  "updatedAt": "2026-04-27T00:00:00.000Z",
   "sourceUrl": "https://raw.githubusercontent.com/Medill-East/AI-Voice-To-Text/main/catalog/v2t-model-catalog.json",
   "models": [
     {
@@ -83,6 +83,59 @@
               "value": 1,
               "lowerIsBetter": false,
               "dataset": "dialect coverage"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "stepaudio-2-5-asr",
+      "name": "StepAudio 2.5 ASR",
+      "family": "stepaudio-asr",
+      "releasedAt": "2026-04-24",
+      "installable": false,
+      "availability": "reference",
+      "unavailableReason": "StepAudio 2.5 ASR 当前公开入口是阶跃星辰开放平台云端 API，不是可下载的本地开源模型包；V2T 还没有 StepFun 云端 ASR Provider。",
+      "manualSetup": "需要 StepFun 开放平台 API Key，并适配其 /v1/audio/asr/sse 接口；后续应作为云端 ASR Provider 接入，而不是本地一键安装。",
+      "runtime": "external",
+      "sourceUrl": "https://platform.stepfun.com/docs/zh/guides/models/stepaudio-2.5-asr",
+      "license": "Proprietary API",
+      "sizeMb": 0,
+      "languages": ["中文", "英文", "中英混输", "长音频", "云端服务"],
+      "qualityTags": ["中文优先", "中英混输", "长音频", "云端 ASR", "待接入"],
+      "hardwareRequirements": {
+        "minMemoryGb": 0,
+        "recommendedTier": "low"
+      },
+      "archiveType": "file",
+      "extractedDir": "",
+      "primaryModelFile": "",
+      "requiredFiles": [],
+      "evaluationSources": {
+        "chineseBenchmark": {
+          "sourceLabel": "StepAudio 2.5 ASR official model card",
+          "sourceUrl": "https://stepaudiollm.github.io/step-audio-2.5-asr/model-card/",
+          "note": "官方发布称覆盖中英文权威测试集并面向输入法、会议转写和长音频场景；V2T 尚未完成云端 Provider 适配。",
+          "metrics": []
+        },
+        "openAsrLeaderboard": {
+          "sourceLabel": "Open ASR Leaderboard",
+          "sourceUrl": "https://github.com/huggingface/open_asr_leaderboard",
+          "track": "通用 ASR",
+          "exactModelMatch": false,
+          "note": "未找到 StepAudio 2.5 ASR 的 Open ASR exact match；不把英文榜单排名硬套到该云端模型。"
+        },
+        "officialBenchmark": {
+          "sourceLabel": "StepFun Open Platform / StepAudio 2.5 ASR",
+          "sourceUrl": "https://platform.stepfun.com/docs/zh/guides/models/stepaudio-2.5-asr",
+          "note": "官方披露 ASR+MTP-5 架构、推理峰值约 500 tokens/s、最长 30 分钟端到端输入和 0.15 元/小时定价；需通过云端 API 调用。",
+          "metrics": [
+            {
+              "label": "官方峰值推理吞吐",
+              "metric": "RTFx",
+              "value": 500,
+              "lowerIsBetter": false,
+              "dataset": "tokens/s official claim"
             }
           ]
         }

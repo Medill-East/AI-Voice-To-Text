@@ -117,13 +117,14 @@ describe('model catalog recommendation', () => {
   it('separates one-click installable models from public high-score reference models', () => {
     const references = referenceModels(DEFAULT_MODEL_CATALOG);
 
-    expect(references.map((model) => model.id)).toEqual(expect.arrayContaining(['qwen3-asr-1.7b', 'cohere-transcribe-03-2026']));
+    expect(references.map((model) => model.id)).toEqual(expect.arrayContaining(['qwen3-asr-1.7b', 'cohere-transcribe-03-2026', 'stepaudio-2-5-asr']));
     expect(references).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: 'qwen3-asr-0.6b' })]));
     expect(references.every((model) => model.availability !== 'installable')).toBe(true);
     expect(references.every((model) => model.unavailableReason)).toBe(true);
     expect(references.some((model) => model.manualSetup)).toBe(true);
     expect(references[0].evaluationSources?.chineseBenchmark?.sourceLabel).toContain('Qwen3-ASR');
     expect(references.find((model) => model.id === 'zoom-scribe-v1')?.license).toBe('Proprietary');
+    expect(references.find((model) => model.id === 'stepaudio-2-5-asr')?.manualSetup).toContain('StepFun');
   });
 
   it('opens one-click access for every model that satisfies the V2T install contract', () => {
@@ -134,5 +135,6 @@ describe('model catalog recommendation', () => {
     );
     expect(installable.every((model) => oneClickEligibility(model).eligible)).toBe(true);
     expect(oneClickEligibility(DEFAULT_MODEL_CATALOG.find((model) => model.id === 'cohere-transcribe-03-2026')!).reasons.join(' ')).toContain('不能作为本地一键模型');
+    expect(oneClickEligibility(DEFAULT_MODEL_CATALOG.find((model) => model.id === 'stepaudio-2-5-asr')!).reasons.join(' ')).toContain('外部/云端服务');
   });
 });

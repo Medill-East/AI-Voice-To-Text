@@ -13,6 +13,7 @@ describe('local release cleanup workflow', () => {
     expect(packageJson.scripts['release:cleanup']).toBe('node scripts/clean-local-release.mjs');
     expect(readme).toContain('npm run release:cleanup');
     expect(agents).toContain('After pushing a change that publishes a GitHub Release');
+    expect(agents).toContain('Every user-visible release must bump');
     expect(script).toContain('release/mac-arm64/V2T.app');
     expect(script).toContain('currentMacDmg');
   });
