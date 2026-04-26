@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_MODEL_CATALOG, oneClickEligibility, oneClickInstallableModels, referenceModels, recommendModels } from '../src/core/modelCatalog';
+import {
+  DEFAULT_MODEL_CATALOG,
+  oneClickEligibility,
+  oneClickInstallableModels,
+  publicChineseMetrics,
+  referenceModels,
+  recommendModels
+} from '../src/core/modelCatalog';
 import type { HardwareProfile } from '../src/core/types';
 
 describe('model catalog recommendation', () => {
@@ -96,6 +103,15 @@ describe('model catalog recommendation', () => {
     expect(senseVoice?.evaluationSources?.officialBenchmark?.sourceLabel).toContain('SenseVoice');
     expect(senseVoice?.evaluationSources?.openAsrLeaderboard?.note).toContain('未找到 exact match');
     expect(senseVoice?.evaluationSources?.localRecommendation?.note).toContain('V2T');
+  });
+
+  it('does not treat size or language coverage as public Chinese accuracy metrics', () => {
+    const senseVoice = DEFAULT_MODEL_CATALOG.find((model) => model.id === 'sensevoice-onnx-int8-2025-09-09')!;
+    const fireRed = DEFAULT_MODEL_CATALOG.find((model) => model.id === 'firered-asr2-zh-en-int8-2026-02-26')!;
+
+    expect(publicChineseMetrics(senseVoice)).toEqual([]);
+    expect(publicChineseMetrics(fireRed).map((metric) => metric.metric)).toEqual(['CER', 'CER']);
+    expect(publicChineseMetrics(fireRed).map((metric) => metric.label)).toContain('Mandarin public avg');
   });
 
   it('separates one-click installable models from public high-score reference models', () => {

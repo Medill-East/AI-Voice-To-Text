@@ -188,8 +188,8 @@ export class UserDataStore {
 
     for (const entry of entries) {
       addEntry(totals, entry);
-      const asrKey = entry.asrModelId ?? entry.asrProviderKind ?? 'unknown-asr';
-      const asrLabel = entry.asrModelId ?? entry.asrProviderKind ?? '未知 ASR';
+      const asrKey = entry.asrModelId ?? entry.asrProviderKind ?? 'legacy-unrecorded-asr';
+      const asrLabel = entry.asrModelName ?? entry.asrModelId ?? entry.asrProviderKind ?? '旧记录：未记录模型';
       addEntry(getAccumulator(byAsr, asrKey, asrLabel), entry);
       const processorKey = entry.postProcessorEngine ?? 'local-rules';
       addEntry(getAccumulator(byPostProcessor, processorKey, postProcessorLabel(processorKey)), entry);

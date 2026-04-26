@@ -23,6 +23,7 @@ import { TextInjectionService } from '../core/textInjection';
 import { UserDataStore } from '../core/userDataStore';
 import type {
   AppUpdateState,
+  AsrBenchmarkBatchState,
   AutoSyncState,
   InputMode,
   ModelCatalogItem,
@@ -35,6 +36,7 @@ import type {
   LlmProviderKind,
   Settings
 } from '../core/types';
+import { AsrBenchmarkRunner } from './asrBenchmarkRunner';
 import { getFocusedAppName } from './focusedApp';
 import { createCheckingHotkeyStatus } from './hotkeyDiagnostics';
 import { HotkeyDiagnosticLog } from './hotkeyDiagnosticLog';
@@ -95,6 +97,16 @@ let modelCatalogRefreshState: ModelCatalogRefreshState = {
 };
 let lastProcessingDiagnostic: ProcessingDiagnostic | undefined;
 let lastAsrDiagnostic: { error: string; diagnostic?: AsrErrorDiagnostic; processing?: ProcessingDiagnostic; at: string } | undefined;
+let activeAsrBenchmarkRunner: AsrBenchmarkRunner | undefined;
+let cancelAsrBenchmarkRequested = false;
+let asrBenchmarkBatchState: AsrBenchmarkBatchState = {
+  status: 'idle',
+  total: 0,
+  completed: 0,
+  failed: 0,
+  results: [],
+  updatedAt: new Date().toISOString()
+};
 const RELEASE_PAGE_URL = 'https://github.com/Medill-East/AI-Voice-To-Text/releases/latest';
 const LATEST_RELEASE_API_URL = 'https://api.github.com/repos/Medill-East/AI-Voice-To-Text/releases/latest';
 
@@ -281,7 +293,7 @@ function registerIpc(): void {
   });
   ipcMain.handle('v2t:get-lexicon', async () => store.loadLexicon());
   ipcMain.handle('v2t:get-history', async (_event, limit?: number) => store.readRecentHistory(limit ?? 30));
-  ipcMain.handle('v2t:get-usage-statistics', async (_event, days?: number) => store.readUsageStatistics(days ?? 30));
+  ipcMain.handle('v2t:get-usage-statistics', async (_event, days?: number) => enrichUsageStatistics(await store.readUsageStatistics(days ?? 30)));
   ipcMain.handle('v2t:get-prompts', async () => store.loadPrompts());
   ipcMain.handle('v2t:save-prompt', async (_event, mode: InputMode, content: string) => {
     try {
@@ -498,7 +510,7 @@ function registerIpc(): void {
   });
   ipcMain.handle('v2t:test-model-download', async (_event, modelId: string) => createModelManager().probeModelDownload(modelId));
   ipcMain.handle('v2t:benchmark-asr-model', async (_event, modelId: string) => {
-    const result = await createModelManager().benchmarkInstalledModel(modelId);
+    const result = await createAsrBenchmarkRunner().runModel(modelId);
     if (result.ok) {
       const status = (await createModelManager().getStatuses())[modelId];
       if (status) {
@@ -510,16 +522,57 @@ function registerIpc(): void {
   ipcMain.handle('v2t:benchmark-installed-asr-models', async () => {
     const manager = createModelManager();
     const installed = await manager.listInstalledModelViews(settings);
+    const targets = installed.filter((item) => item.canActivate || item.current);
     const results = [];
-    for (const model of installed.filter((item) => item.canActivate || item.current)) {
-      const result = await manager.benchmarkInstalledModel(model.modelId);
+    cancelAsrBenchmarkRequested = false;
+    updateAsrBenchmarkBatchState({
+      status: 'running',
+      total: targets.length,
+      completed: 0,
+      failed: 0,
+      currentModelId: undefined,
+      currentModelName: undefined,
+      results: []
+    });
+    for (const model of targets) {
+      if (cancelAsrBenchmarkRequested) {
+        break;
+      }
+      updateAsrBenchmarkBatchState({
+        status: 'running',
+        currentModelId: model.modelId,
+        currentModelName: model.name
+      });
+      activeAsrBenchmarkRunner = createAsrBenchmarkRunner();
+      const result = await activeAsrBenchmarkRunner.runModel(model.modelId);
+      activeAsrBenchmarkRunner = undefined;
       results.push(result);
       const status = (await manager.getStatuses())[model.modelId];
       if (status) {
         mainWindow?.webContents.send('v2t:model-install-progress', status);
       }
+      updateAsrBenchmarkBatchState({
+        status: 'running',
+        completed: results.length,
+        failed: results.filter((item) => !item.ok).length,
+        results
+      });
     }
+    updateAsrBenchmarkBatchState({
+      status: cancelAsrBenchmarkRequested ? 'cancelled' : 'completed',
+      currentModelId: undefined,
+      currentModelName: undefined,
+      completed: results.length,
+      failed: results.filter((item) => !item.ok).length,
+      results
+    });
     return results;
+  });
+  ipcMain.handle('v2t:cancel-asr-benchmark', async () => {
+    cancelAsrBenchmarkRequested = true;
+    activeAsrBenchmarkRunner?.cancel();
+    updateAsrBenchmarkBatchState({ status: 'cancelled' });
+    return asrBenchmarkBatchState;
   });
   ipcMain.handle('v2t:activate-model', async (_event, modelId: string) => {
     const manager = createModelManager();
@@ -552,6 +605,7 @@ function registerIpc(): void {
         prompt: await store.readPrompt(payload.mode),
         audioDurationSeconds: diagnostic.audioDurationSeconds,
         asrModelId: settings.providers.asr.modelId,
+        asrModelName: activeAsrModelName(),
         asrProviderKind: settings.providers.asr.kind,
         llmModel: activeLlmModelLabel()
       });
@@ -1096,6 +1150,46 @@ function createModelManager(): ModelManager {
     store,
     catalog: modelCatalog
   });
+}
+
+function createAsrBenchmarkRunner(): AsrBenchmarkRunner {
+  return new AsrBenchmarkRunner({
+    workerPath: join(__dirname, 'asrBenchmarkWorker.js'),
+    modelRoot,
+    dataDir: store.getBaseDir(),
+    deviceId: deviceId(),
+    catalog: modelCatalog
+  });
+}
+
+function updateAsrBenchmarkBatchState(patch: Partial<AsrBenchmarkBatchState>): void {
+  asrBenchmarkBatchState = {
+    ...asrBenchmarkBatchState,
+    ...patch,
+    updatedAt: new Date().toISOString()
+  };
+  mainWindow?.webContents.send('v2t:asr-benchmark-progress', asrBenchmarkBatchState);
+}
+
+function enrichUsageStatistics<T extends { asrModels: Array<{ key: string; label: string }> }>(stats: T): T {
+  return {
+    ...stats,
+    asrModels: stats.asrModels.map((row) => {
+      if (row.key === 'legacy-unrecorded-asr') {
+        return row;
+      }
+      const modelName = modelCatalog.find((model) => model.id === row.key)?.name;
+      return modelName ? { ...row, label: modelName } : row;
+    })
+  };
+}
+
+function activeAsrModelName(): string | undefined {
+  const modelId = settings.providers.asr.modelId;
+  if (!modelId) {
+    return undefined;
+  }
+  return modelCatalog.find((model) => model.id === modelId)?.name ?? modelId;
 }
 
 async function chooseModelRootPath() {

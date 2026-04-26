@@ -151,6 +151,27 @@ describe('UserDataStore', () => {
     expect(stats.postProcessors[0]).toMatchObject({ key: 'llm-cloud', label: '云端 LLM' });
   });
 
+  it('labels legacy history without ASR metadata explicitly instead of unknown ASR', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-store-'));
+    const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
+
+    await store.appendHistory({
+      id: 'legacy-entry',
+      createdAt: new Date().toISOString(),
+      mode: 'natural',
+      rawText: '旧记录',
+      outputText: '旧记录',
+      injectionMethod: 'cursor',
+      outputCharCount: 3,
+      totalDurationMs: 500
+    });
+
+    const stats = await store.readUsageStatistics(30);
+
+    expect(stats.asrModels[0]).toMatchObject({ key: 'legacy-unrecorded-asr', label: '旧记录：未记录模型' });
+    expect(stats.asrModels[0].label).not.toContain('未知');
+  });
+
   it('loads recent history for the current device in reverse chronological order', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'v2t-store-'));
     const store = await UserDataStore.create(dir, { deviceId: 'device-a' });

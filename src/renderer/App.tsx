@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
-import { oneClickEligibility, oneClickInstallableModels, referenceModels, scoreModel } from '../core/modelCatalog';
+import { oneClickEligibility, oneClickInstallableModels, publicChineseMetrics, referenceModels, scoreModel } from '../core/modelCatalog';
 import { hotkeyLabelForPlatform } from '../core/hotkeyLabels';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
 import type {
   AppUpdateState,
+  AsrBenchmarkBatchState,
   AutoSyncState,
   GitHubSyncStatus,
   HistoryEntry,
@@ -121,6 +122,7 @@ export function App() {
   const [probingModelId, setProbingModelId] = useState<string | null>(null);
   const [benchmarkingModelId, setBenchmarkingModelId] = useState<string | null>(null);
   const [batchBenchmarking, setBatchBenchmarking] = useState(false);
+  const [asrBenchmarkBatch, setAsrBenchmarkBatch] = useState<AsrBenchmarkBatchState | null>(null);
   const [benchmarkResultById, setBenchmarkResultById] = useState<Record<string, ModelBenchmarkResult>>({});
   const [statisticsDays, setStatisticsDays] = useState(30);
   const [usageStatistics, setUsageStatistics] = useState<UsageStatistics | null>(null);
@@ -292,6 +294,20 @@ export function App() {
             }
           : current
       );
+    });
+  }, []);
+
+  useEffect(() => {
+    return window.v2t.onAsrBenchmarkProgress((status) => {
+      setAsrBenchmarkBatch(status);
+      setBatchBenchmarking(status.status === 'running');
+      setBenchmarkResultById((current) => {
+        const next = { ...current };
+        for (const result of status.results) {
+          next[result.modelId] = result;
+        }
+        return next;
+      });
     });
   }, []);
 
@@ -796,6 +812,12 @@ export function App() {
     }
   };
 
+  const cancelAsrBenchmark = async () => {
+    const state = await window.v2t.cancelAsrBenchmark();
+    setAsrBenchmarkBatch(state);
+    setBatchBenchmarking(false);
+  };
+
   const testHotkey = async () => {
     if (!settings?.hotkey.accelerator) {
       return;
@@ -1284,7 +1306,7 @@ export function App() {
                  {setup.hardware.cpuName} · {setup.hardware.memoryGb}GB · {tierLabel(setup.hardware.recommendedTier)}
                </p>
                <p className="hint">ASR 负责把语音转成原始文字；FireRed、SenseVoice、Fun-ASR-Nano 都属于语音识别模型，不负责提示词驱动的结构化整理。</p>
-               <p className="hint">中文推荐分优先看普通话、方言/粤语、中英混输和本机可运行性；Open ASR 英文榜只作参考。V2T 本机适配分只表示这台设备上的推荐优先级。WER/CER 越低越好，RTFx 越高越快。</p>
+               <p className="hint">公开中文指标只显示 CER / WER；V2T 适配分表示这台设备上的安装、运行和资源匹配优先级。WER/CER 越低越好，RTFx 越高越快。</p>
                <p className="hint">导入模型可以使用浏览器或下载器先下载官方压缩包，再从这里导入。当前一键下载主要来自 GitHub/k2-fsa Release，速度受 GitHub CDN、地区网络、代理和安全软件扫描影响。</p>
                <p className="hint">只有满足以下条件的模型才显示“一键安装”：V2T 已接入 runtime、知道 required files、下载源可信、checksum 或 smoke test 可验证，并且打包后能在 macOS/Windows 跑通。其他高分模型会放在“公开高分参考 / 待接入”。</p>
               <section className="catalog-refresh">
@@ -1333,9 +1355,21 @@ export function App() {
                 <>
                   <div className="inline-actions model-table-actions">
                     <button className="secondary compact" onClick={() => void benchmarkInstalledAsrModels()} disabled={batchBenchmarking}>
-                      {batchBenchmarking ? '批量测速中' : '批量测速已安装 ASR'}
+                      {batchBenchmarking ? '批量输出测速中' : '批量输出测速'}
                     </button>
+                    {batchBenchmarking ? (
+                      <button className="secondary compact" onClick={() => void cancelAsrBenchmark()}>
+                        取消测速
+                      </button>
+                    ) : null}
                   </div>
+                  {asrBenchmarkBatch && asrBenchmarkBatch.status !== 'idle' ? (
+                    <p className="hint">
+                      {asrBenchmarkBatch.status === 'running' ? `正在测速 ${asrBenchmarkBatch.currentModelName ?? asrBenchmarkBatch.currentModelId ?? ''}` : '输出测速已结束'}
+                      {' · '}
+                      {asrBenchmarkBatch.completed}/{asrBenchmarkBatch.total} 完成 · {asrBenchmarkBatch.failed} 失败
+                    </p>
+                  ) : null}
                   <AsrModelTable
                     rows={oneClickInstallableModels(setup.catalog).map((model) =>
                       scoreModel(model, setup.hardware, setup.modelStatuses[model.id]?.status ?? (settings?.providers.asr.modelId === model.id ? 'current' : 'not-installed'))
@@ -1370,7 +1404,8 @@ export function App() {
                   <h3>一键安装条件</h3>
                   <p>一键安装只开放给 V2T 已接入 runtime、文件结构明确、下载源可信、可以校验并能 smoke test 的模型。</p>
                   <p>云 API、专有服务、缺少本地 runtime、缺少 required files 或未通过打包验证的模型会留在“待接入 / 外部服务”。</p>
-                  <p>本机测速使用 V2T 固定样例或模型包样例，表示你的设备上的实际处理速度；公开榜单 RTFx 只是外部参考，二者不混用。</p>
+                  <p>输出测速使用 V2T 固定样例或模型包样例，表示你的设备上的实际转写处理速度；公开榜单 RTFx 只是外部参考，二者不混用。</p>
+                  <p>Qwen3-ASR 1.7B 偏准确率；Qwen3-ASR 0.6B 偏效率、吞吐和资源占用。1.7B 只有完成 V2T runtime、文件结构、校验和打包 smoke test 后才会进入可一键安装。</p>
                 </section>
               ) : null}
             </>
@@ -1661,7 +1696,7 @@ export function App() {
       return (
         <section className="page-section statistics-page">
           <h2>统计</h2>
-          <p className="hint">只统计文本和性能元数据，不保存音频。旧历史没有耗时字段时会自动跳过对应均值。</p>
+          <p className="hint">只统计文本和性能元数据，不保存音频。旧历史没有模型字段时会显示“旧记录：未记录模型”；后续记录会自动统计到具体模型。</p>
           <div className="subpage-tabs">
             {[7, 30].map((days) => (
               <button key={days} className={statisticsDays === days ? 'active' : ''} onClick={() => setStatisticsDays(days)}>
@@ -2629,7 +2664,7 @@ function InstalledModelRow({
           </button>
         ) : null}
         <button className="secondary" onClick={() => void onBenchmark(model.modelId)} disabled={benchmarking}>
-          {benchmarking ? '测速中' : '本机测速'}
+          {benchmarking ? '测速中' : '输出测速'}
         </button>
         {model.canDelete ? (
           <button className="danger" onClick={() => void onDelete(model.modelId)} disabled={deleting}>
@@ -2728,9 +2763,10 @@ function AsrModelTable({
       <div className="comparison-table asr-management-table">
         <div className="comparison-head asr-management-head">
           <span>模型</span>
-          <span>中文推荐分</span>
-          <span>中文/方言指标</span>
-          <span>本机速度</span>
+          <span>公开中文指标</span>
+          <span>V2T 适配分</span>
+          <span>输出速度</span>
+          <span>资源占用</span>
           <span>状态</span>
           <span>操作</span>
         </div>
@@ -2745,24 +2781,25 @@ function AsrModelTable({
           const installing = installingModelId === model.id || isInstallInProgress(status);
           const deleting = deletingModelId === model.id;
           const canClearResidue = !isCurrent && Boolean(statusRecord?.isInterrupted || statusRecord?.status === 'failed');
-          const chineseMetric = bestChineseMetricLabel(model);
+          const chineseMetric = publicChineseMetricLabel(model);
           const probeResult = probeResultById[model.id];
           const benchmarkResult = benchmarkResultById[model.id];
           return (
             <div className="comparison-row asr-management-row" key={model.id}>
               <div>
                 <strong>{model.name}</strong>
-                <small>{model.sizeMb}MB · {model.runtime} · {model.languages.join('/')}</small>
+                <small>{model.languages.join('/')} · {model.evaluationSources?.chineseBenchmark?.sourceLabel ?? '暂无公开中文评测来源'}</small>
               </div>
-              <ComparisonMetric value={recommendation.score} label={`${recommendation.score}`} max={100} />
               <ComparisonMetric value={chineseMetric.value} label={chineseMetric.label} lowerIsBetter={chineseMetric.lowerIsBetter} max={chineseMetric.max} />
+              <ComparisonMetric value={recommendation.score} label={`${recommendation.score}`} max={100} />
               <ComparisonMetric
                 value={benchmarkResult?.realTimeFactor ?? statusRecord?.benchmarkRealTimeFactor}
                 label={benchmarkResult?.realTimeFactor ?? statusRecord?.benchmarkRealTimeFactor ? `${benchmarkResult?.realTimeFactor ?? statusRecord?.benchmarkRealTimeFactor}x` : '未测速'}
                 max={20}
               />
+              <span>{model.sizeMb}MB · 最低 {model.hardwareRequirements.minMemoryGb}GB · {model.runtime}</span>
               <span>{isCurrent ? '当前' : statusLabel(statusRecord)}</span>
-              <div className="table-action-grid">
+              <div className="action-strip table-action-grid">
                 <button onClick={() => void (installed ? onActivate(model.id) : onInstall(model.id))} disabled={installing || isCurrent}>
                   {isCurrent ? '当前' : installing ? '安装中' : installed ? '启用' : statusRecord?.status === 'failed' && statusRecord.canResume ? '继续下载' : '安装'}
                 </button>
@@ -2773,7 +2810,7 @@ function AsrModelTable({
                 </button>
                 {installed ? (
                   <button className="secondary compact" onClick={() => void onBenchmark(model.id)} disabled={benchmarkingModelId === model.id || installing}>
-                    {benchmarkingModelId === model.id ? '测速中' : '本机测速'}
+                    {benchmarkingModelId === model.id ? '测速中' : '输出测速'}
                   </button>
                 ) : null}
                 {installed || statusRecord?.status === 'failed' ? (
@@ -2967,7 +3004,7 @@ function ModelRow({
         </button>
         {installed ? (
           <button className="secondary" onClick={() => void onBenchmark(recommendation.model.id)} disabled={benchmarking || installing}>
-            {benchmarking ? '测速中' : '本机测速'}
+            {benchmarking ? '测速中' : '输出测速'}
           </button>
         ) : null}
         {installing ? (
@@ -3134,12 +3171,12 @@ function BenchmarkSummary({ status, result }: { status?: ModelStatusRecord; resu
   }
 
   if (!realTimeFactor && !charsPerSecond) {
-    return <p className="progress-meta">本机测速会优先用模型自带样例，没有样例时使用 V2T 内置标准音频，显示你的设备真实转写速度。</p>;
+    return <p className="progress-meta">输出测速会优先用模型自带样例，没有样例时使用 V2T 内置标准音频，显示你的设备真实转写速度。</p>;
   }
 
   return (
     <p className="progress-meta">
-      本机速度 {realTimeFactor ? `${realTimeFactor}x 实时` : '未知'}
+      输出速度 {realTimeFactor ? `${realTimeFactor}x 实时` : '未知'}
       {charsPerSecond ? ` · ${charsPerSecond} 字/秒` : ''}
       {benchmarkedAt ? ` · ${new Date(benchmarkedAt).toLocaleString()}` : ''}
     </p>
@@ -3441,9 +3478,8 @@ function statusLabel(status?: ModelStatusRecord): string {
   return '未安装';
 }
 
-function bestChineseMetricLabel(model: ModelCatalogItem): { value?: number; label: string; max: number; lowerIsBetter: boolean } {
-  const metrics = model.evaluationSources?.chineseBenchmark?.metrics ?? [];
-  const cerOrWer = metrics.find((metric) => metric.metric === 'CER' || metric.metric === 'WER');
+function publicChineseMetricLabel(model: ModelCatalogItem): { value?: number; label: string; max: number; lowerIsBetter: boolean } {
+  const cerOrWer = publicChineseMetrics(model)[0];
   if (cerOrWer) {
     return {
       value: cerOrWer.value,
@@ -3452,11 +3488,7 @@ function bestChineseMetricLabel(model: ModelCatalogItem): { value?: number; labe
       lowerIsBetter: true
     };
   }
-  const rank = metrics.find((metric) => metric.metric === 'Rank');
-  if (rank) {
-    return { value: rank.value, label: `${rank.label} ${formatMetric(rank)}`, max: 5, lowerIsBetter: false };
-  }
-  return { label: '暂无中文指标', max: 1, lowerIsBetter: false };
+  return { label: '暂无公开中文评测', max: 1, lowerIsBetter: false };
 }
 
 function catalogRefreshLabel(state: ModelCatalogRefreshState): string {

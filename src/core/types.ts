@@ -390,6 +390,7 @@ export interface HistoryEntry {
   rawCharCount?: number;
   outputCharCount?: number;
   asrModelId?: string;
+  asrModelName?: string;
   asrProviderKind?: AsrProviderKind;
   asrDurationMs?: number;
   postProcessDurationMs?: number;
@@ -457,6 +458,7 @@ export interface VoiceInputMetrics {
   rawCharCount: number;
   outputCharCount: number;
   asrModelId?: string;
+  asrModelName?: string;
   asrProviderKind?: AsrProviderKind;
   asrDurationMs: number;
   postProcessDurationMs: number;
@@ -488,6 +490,17 @@ export interface UsageStatistics {
   averagePostProcessMs?: number;
   asrModels: UsageAggregate[];
   postProcessors: UsageAggregate[];
+}
+
+export interface AsrBenchmarkBatchState {
+  status: 'idle' | 'running' | 'completed' | 'cancelled';
+  total: number;
+  completed: number;
+  failed: number;
+  currentModelId?: string;
+  currentModelName?: string;
+  results: ModelBenchmarkResult[];
+  updatedAt: string;
 }
 
 export interface LlmProviderDetection {

@@ -39,7 +39,7 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     benchmarks: {
       sourceLabel: 'sherpa-onnx / Fun-ASR-Nano',
       sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/funasr-nano/pretrained.html',
-      note: '官方评测同源模型参考；V2T 先按中文适配、本机速度和硬件匹配推荐。'
+      note: '官方评测同源模型参考；V2T 先按中文适配、输出速度和硬件匹配推荐。'
     },
     evaluationSources: {
       chineseBenchmark: {
@@ -107,7 +107,7 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     benchmarks: {
       sourceLabel: 'sherpa-onnx / FireRed ASR2',
       sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/FireRedAsr/pretrained.html',
-      note: '官方评测同源模型参考；V2T 先按中文适配、本机速度和硬件匹配推荐。'
+      note: '官方评测同源模型参考；V2T 先按中文适配、输出速度和硬件匹配推荐。'
     },
     evaluationSources: {
       chineseBenchmark: {
@@ -171,7 +171,7 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     benchmarks: {
       sourceLabel: 'sherpa-onnx / SenseVoice',
       sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/sense-voice/pretrained.html',
-      note: '官方评测同源模型参考；V2T 先按中文适配、本机速度和硬件匹配推荐。'
+      note: '官方评测同源模型参考；V2T 先按中文适配、输出速度和硬件匹配推荐。'
     },
     evaluationSources: {
       chineseBenchmark: {
@@ -484,7 +484,7 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     benchmarks: {
       sourceLabel: 'sherpa-onnx / Qwen3-ASR',
       sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/qwen3-asr/pretrained.html',
-      note: '官方 ONNX int8 模型参考；本机速度以 V2T 测速为准。'
+      note: '官方 ONNX int8 模型参考；输出速度以 V2T 测速为准。'
     },
     evaluationSources: {
       chineseBenchmark: {
@@ -708,6 +708,18 @@ export function scoreModel(model: ModelCatalogItem, hardware: HardwareProfile, s
 
 export function isOneClickInstallable(model: ModelCatalogItem): boolean {
   return oneClickEligibility(model).eligible;
+}
+
+export function publicChineseMetrics(model: ModelCatalogItem) {
+  return [
+    ...(model.evaluationSources?.chineseBenchmark?.metrics ?? []),
+    ...(model.evaluationSources?.officialBenchmark?.metrics ?? [])
+  ].filter(
+    (metric, index, metrics) =>
+      (metric.metric === 'CER' || metric.metric === 'WER') &&
+      /mandarin|aishell|fleurs-zh|wenetspeech|普通话|中文|dialect|方言|粤语|cantonese|yue/i.test(`${metric.label} ${metric.dataset}`) &&
+      metrics.findIndex((candidate) => candidate.label === metric.label && candidate.metric === metric.metric && candidate.value === metric.value) === index
+  );
 }
 
 export function oneClickEligibility(model: ModelCatalogItem): OneClickEligibility {

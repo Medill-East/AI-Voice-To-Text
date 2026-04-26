@@ -496,7 +496,7 @@ textarea {
 }
 
 .asr-management-table {
-  min-width: 1120px;
+  min-width: 1450px;
 }
 
 .comparison-head,
@@ -526,7 +526,7 @@ textarea {
 
 .asr-management-head,
 .asr-management-row {
-  grid-template-columns: 250px 124px 170px 120px 92px minmax(260px, 1fr);
+  grid-template-columns: 260px 190px 112px 118px 170px 86px minmax(440px, 1fr);
 }
 
 .reference-table {
@@ -550,6 +550,18 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.action-strip {
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.action-strip button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .model-table-actions {

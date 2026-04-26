@@ -396,7 +396,7 @@ export class ModelManager {
     const settings = await this.store.loadSettings();
     const modelPath = statuses[modelId]?.modelPath ?? (settings.providers.asr.modelId === modelId ? settings.providers.asr.modelPath : undefined);
     if (!modelPath) {
-      return { modelId, ok: false, error: '这个模型尚未安装，不能进行本机测速。' };
+      return { modelId, ok: false, error: '这个模型尚未安装，不能进行输出测速。' };
     }
 
     try {
@@ -431,7 +431,7 @@ export class ModelManager {
       });
       return benchmark;
     } catch (error) {
-      return { modelId, ok: false, error: `本机测速失败：${readableError(error)}` };
+      return { modelId, ok: false, error: `输出测速失败：${readableError(error)}` };
     }
   }
 

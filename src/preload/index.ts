@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   GitHubSyncStatus,
   AppUpdateState,
+  AsrBenchmarkBatchState,
   AutoSyncState,
   HardwareProfile,
   InputMode,
@@ -42,6 +43,7 @@ export interface V2TApi {
   testModelDownload(modelId: string): Promise<ModelDownloadProbeResult>;
   benchmarkAsrModel(modelId: string): Promise<ModelBenchmarkResult>;
   benchmarkInstalledAsrModels(): Promise<ModelBenchmarkResult[]>;
+  cancelAsrBenchmark(): Promise<AsrBenchmarkBatchState>;
   checkForUpdates(): Promise<AppUpdateState>;
   downloadUpdate(): Promise<AppUpdateState>;
   installUpdate(): Promise<AppUpdateState>;
@@ -103,6 +105,7 @@ export interface V2TApi {
   onRecordingCommand(callback: (command: RecordingCommand) => void): () => void;
   onHotkeyStatus(callback: (status: HotkeyStatus) => void): () => void;
   onModelInstallProgress(callback: (status: ModelStatusRecord) => void): () => void;
+  onAsrBenchmarkProgress(callback: (status: AsrBenchmarkBatchState) => void): () => void;
   onModelCatalogRefresh(callback: (setup: SetupPayload) => void): () => void;
   onAutoSyncStatus(callback: (status: AutoSyncState) => void): () => void;
   onAppUpdateStatus(callback: (status: AppUpdateState) => void): () => void;
@@ -188,6 +191,7 @@ const api: V2TApi = {
   testModelDownload: (modelId) => ipcRenderer.invoke('v2t:test-model-download', modelId),
   benchmarkAsrModel: (modelId) => ipcRenderer.invoke('v2t:benchmark-asr-model', modelId),
   benchmarkInstalledAsrModels: () => ipcRenderer.invoke('v2t:benchmark-installed-asr-models'),
+  cancelAsrBenchmark: () => ipcRenderer.invoke('v2t:cancel-asr-benchmark'),
   checkForUpdates: () => ipcRenderer.invoke('v2t:check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('v2t:download-update'),
   installUpdate: () => ipcRenderer.invoke('v2t:install-update'),
@@ -266,6 +270,11 @@ const api: V2TApi = {
     const listener = (_event: Electron.IpcRendererEvent, status: ModelStatusRecord) => callback(status);
     ipcRenderer.on('v2t:model-install-progress', listener);
     return () => ipcRenderer.off('v2t:model-install-progress', listener);
+  },
+  onAsrBenchmarkProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: AsrBenchmarkBatchState) => callback(status);
+    ipcRenderer.on('v2t:asr-benchmark-progress', listener);
+    return () => ipcRenderer.off('v2t:asr-benchmark-progress', listener);
   },
   onModelCatalogRefresh: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, setup: SetupPayload) => callback(setup);

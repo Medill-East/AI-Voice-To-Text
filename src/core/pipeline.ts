@@ -21,6 +21,7 @@ interface HandleAudioOptions {
   prompt?: string;
   audioDurationSeconds?: number;
   asrModelId?: string;
+  asrModelName?: string;
   asrProviderKind?: AsrProviderKind;
   llmModel?: string;
 }
@@ -69,6 +70,7 @@ export function createVoiceInputPipeline(dependencies: PipelineDependencies) {
         rawCharCount: countTextChars(asrResult.text),
         outputCharCount: countTextChars(processed.text),
         asrModelId: options.asrModelId,
+        asrModelName: options.asrModelName,
         asrProviderKind: options.asrProviderKind,
         asrDurationMs,
         postProcessDurationMs,
