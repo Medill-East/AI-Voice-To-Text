@@ -305,6 +305,27 @@ export interface GitHubSyncStatus {
   dirty: boolean;
   lastSyncAt?: string;
   message?: string;
+  needsImportDecision?: boolean;
+  remoteFiles?: string[];
+  conflictFiles?: string[];
+  defaultRepoPath?: string;
+  usingDefaultRepoPath?: boolean;
+}
+
+export type SyncImportStrategy = 'none' | 'remote-over-local' | 'local-over-remote' | 'smart-merge';
+
+export interface ProcessingDiagnostic {
+  id: string;
+  createdAt: string;
+  stage: 'queued' | 'processing' | 'asr' | 'post-processing' | 'injecting' | 'done' | 'failed';
+  mode: InputMode;
+  modelId?: string;
+  modelKind?: string;
+  sherpaModelType?: SherpaModelType;
+  audioBytes: number;
+  audioDurationSeconds?: number;
+  chunkCount?: number;
+  error?: string;
 }
 
 export interface PromptFiles {

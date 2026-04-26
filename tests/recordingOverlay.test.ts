@@ -69,11 +69,18 @@ describe('recording overlay helpers', () => {
 
   it('places the overlay at the bottom center of the visible display area', () => {
     expect(recordingOverlayBounds({ x: 0, y: 0, width: 1440, height: 900 })).toEqual({
-      x: 580,
-      y: 806,
-      width: 280,
-      height: 60
+      x: 610,
+      y: 814,
+      width: 220,
+      height: 52
     });
+  });
+
+  it('uses compact overlay markup without the old 280px width', async () => {
+    const source = await import('node:fs/promises').then(({ readFile }) => readFile(new URL('../src/main/index.ts', import.meta.url), 'utf8'));
+
+    expect(source).toContain('width: 220px');
+    expect(source).not.toContain('width: 280px');
   });
 
   it('shows a macOS tray title while recording', () => {

@@ -28,6 +28,10 @@ describe('lexicon IPC surface', () => {
     expect(preload).toContain('importModelArchive(modelId: string, filePath: string): Promise<InstallModelResult>');
     expect(preload).toContain('importModelDirectory(modelId: string, directoryPath: string): Promise<InstallModelResult>');
     expect(preload).toContain('clearModelInstall(modelId: string): Promise<InstallModelResult>');
+    expect(preload).toContain('chooseSyncRepoPath(): Promise');
+    expect(preload).toContain('resolveSyncImport(strategy: SyncImportStrategy): Promise<SyncActionResult>');
+    expect(preload).toContain('listConflictBackups(): Promise<string[]>');
+    expect(preload).toContain('copyProcessingDiagnostics(): Promise<{ ok: true }>');
     expect(preload).toContain('onAppUpdateStatus');
     expect(preload).toContain("ipcRenderer.invoke('v2t:sync-all')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:refresh-model-catalog')");
@@ -41,6 +45,10 @@ describe('lexicon IPC surface', () => {
     expect(preload).toContain("ipcRenderer.invoke('v2t:import-model-archive', modelId, filePath)");
     expect(preload).toContain("ipcRenderer.invoke('v2t:import-model-directory', modelId, directoryPath)");
     expect(preload).toContain("ipcRenderer.invoke('v2t:clear-model-install', modelId)");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:choose-sync-repo-path')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:resolve-sync-import', strategy)");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:list-conflict-backups')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:copy-processing-diagnostics')");
     expect(main).toContain("ipcMain.handle('v2t:get-lexicon'");
     expect(main).toContain("ipcMain.handle('v2t:save-lexicon'");
     expect(main).toContain("ipcMain.handle('v2t:copy-hotkey-diagnostics'");
@@ -62,6 +70,10 @@ describe('lexicon IPC surface', () => {
     expect(main).toContain("ipcMain.handle('v2t:import-model-archive'");
     expect(main).toContain("ipcMain.handle('v2t:import-model-directory'");
     expect(main).toContain("ipcMain.handle('v2t:clear-model-install'");
+    expect(main).toContain("ipcMain.handle('v2t:choose-sync-repo-path'");
+    expect(main).toContain("ipcMain.handle('v2t:resolve-sync-import'");
+    expect(main).toContain("ipcMain.handle('v2t:list-conflict-backups'");
+    expect(main).toContain("ipcMain.handle('v2t:copy-processing-diagnostics'");
     expect(main).toContain("scheduleAutoSync('voice-input')");
     expect(main).toContain('store.saveLexicon');
   });

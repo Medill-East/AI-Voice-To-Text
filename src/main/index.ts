@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, Tray, clipboard, dialog, ipcMain, nativeImage
 import { dirname, join } from 'node:path';
 import { hostname } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { autoUpdater } from 'electron-updater';
 import { FunAsrHttpProvider, LocalSherpaAsrProvider, UserFacingAsrError, WhisperCppAsrProvider } from '../core/asrProviders';
@@ -27,6 +27,8 @@ import type {
   ModelCatalogRefreshState,
   ModelInstallStatus,
   ModelStatusRecord,
+  ProcessingDiagnostic,
+  SyncImportStrategy,
   Settings
 } from '../core/types';
 import { getFocusedAppName } from './focusedApp';
@@ -87,6 +89,7 @@ let modelCatalogRefreshState: ModelCatalogRefreshState = {
   sourceUrl: DEFAULT_REMOTE_MODEL_CATALOG_URL,
   message: '使用内置模型榜单'
 };
+let lastProcessingDiagnostic: ProcessingDiagnostic | undefined;
 const RELEASE_PAGE_URL = 'https://github.com/Medill-East/AI-Voice-To-Text/releases/latest';
 const LATEST_RELEASE_API_URL = 'https://api.github.com/repos/Medill-East/AI-Voice-To-Text/releases/latest';
 
@@ -102,6 +105,7 @@ async function bootstrap(): Promise<void> {
   settings = await store.loadSettings();
   settings.dataDir = settings.dataDir ?? defaultDataDir;
   await store.saveSettings(settings);
+  lastProcessingDiagnostic = await readProcessingMarker();
 
   nativeHelperPath = await setupNativeKeyHelper();
   nativeHelperSignature = nativeHelperPath ? readCodeSignature(nativeHelperPath) : undefined;
@@ -241,6 +245,24 @@ function createApplicationMenu(): void {
 }
 
 function registerIpc(): void {
+  ipcMain.on('v2t:show-edit-menu', (event) => {
+    const targetWindow = BrowserWindow.fromWebContents(event.sender);
+    const menu = Menu.buildFromTemplate([
+      { role: 'undo' },
+      { role: 'redo' },
+      { type: 'separator' },
+      { role: 'cut' },
+      { role: 'copy' },
+      { role: 'paste' },
+      { type: 'separator' },
+      { role: 'selectAll' }
+    ]);
+    if (targetWindow) {
+      menu.popup({ window: targetWindow });
+    } else {
+      menu.popup();
+    }
+  });
   ipcMain.handle('v2t:get-settings', async () => ({ settings, hotkeyStatus }));
   ipcMain.handle('v2t:get-setup', async () => getSetupPayload());
   ipcMain.handle('v2t:save-settings', async (_event, nextSettings: Settings) => {
@@ -339,10 +361,17 @@ function registerIpc(): void {
     return { ok: true };
   });
   ipcMain.handle('v2t:get-sync-status', async () => createSyncService().status());
+  ipcMain.handle('v2t:choose-sync-repo-path', async () => chooseSyncRepoPath());
   ipcMain.handle('v2t:connect-sync-repo', async (_event, repoUrl: string) => connectSyncRepo(repoUrl));
+  ipcMain.handle('v2t:resolve-sync-import', async (_event, strategy: SyncImportStrategy) => resolveSyncImport(strategy));
   ipcMain.handle('v2t:pull-sync', async () => pullSync());
   ipcMain.handle('v2t:push-sync', async () => pushSync());
   ipcMain.handle('v2t:sync-all', async () => syncAll());
+  ipcMain.handle('v2t:list-conflict-backups', async () => store.listConflicts());
+  ipcMain.handle('v2t:copy-processing-diagnostics', async () => {
+    clipboard.writeText(JSON.stringify(lastProcessingDiagnostic ?? (await readProcessingMarker()) ?? {}, null, 2));
+    return { ok: true };
+  });
   ipcMain.handle('v2t:install-model', async (event, modelId: string) => {
     const manager = createModelManager();
     const sendProgress = (status: ModelStatusRecord) => {
@@ -448,16 +477,21 @@ function registerIpc(): void {
     }
   });
   ipcMain.handle('v2t:process-audio', async (_event, payload: { bytes: Uint8Array; mode: InputMode }) => {
+    const diagnostic = createProcessingDiagnostic(payload);
     try {
+      await writeProcessingMarker(diagnostic);
       const pipeline = await createPipeline();
       const result = await pipeline.handleAudio(Buffer.from(payload.bytes), {
         mode: payload.mode,
         targetApp: await getFocusedAppName(),
         prompt: await store.readPrompt(payload.mode)
       });
+      await clearProcessingMarker();
       scheduleAutoSync('voice-input');
       return { ok: true, result };
     } catch (error) {
+      await writeProcessingMarker({ ...diagnostic, stage: 'failed', error: readableError(error) }).catch(() => undefined);
+      await clearProcessingMarker().catch(() => undefined);
       return { ok: false, error: readableError(error) };
     }
   });
@@ -529,8 +563,8 @@ async function ensureRecordingOverlayWindow(): Promise<BrowserWindow> {
   }
 
   recordingOverlayWindow = new BrowserWindow({
-    width: 280,
-    height: 60,
+    width: 220,
+    height: 52,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -781,8 +815,72 @@ async function getSetupPayload() {
     modelCatalogRefresh: modelCatalogRefreshState,
     modelStatuses: rawStatuses,
     recommendations: recommendModels(modelCatalog, hardware, statusMap),
-    installedModels: await manager.listInstalledModelViews(settings)
+    installedModels: await manager.listInstalledModelViews(settings),
+    processingDiagnostic: lastProcessingDiagnostic
   };
+}
+
+function processingMarkerPath(): string {
+  return join(app.getPath('userData'), 'processing', 'last-processing.json');
+}
+
+async function readProcessingMarker(): Promise<ProcessingDiagnostic | undefined> {
+  const markerPath = processingMarkerPath();
+  if (!existsSync(markerPath)) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(await readFile(markerPath, 'utf8')) as ProcessingDiagnostic;
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeProcessingMarker(diagnostic: ProcessingDiagnostic): Promise<void> {
+  lastProcessingDiagnostic = diagnostic;
+  await mkdir(dirname(processingMarkerPath()), { recursive: true });
+  await writeFile(processingMarkerPath(), `${JSON.stringify(diagnostic, null, 2)}\n`, 'utf8');
+}
+
+async function clearProcessingMarker(): Promise<void> {
+  await rm(processingMarkerPath(), { force: true });
+  lastProcessingDiagnostic = undefined;
+}
+
+function createProcessingDiagnostic(payload: { bytes: Uint8Array; mode: InputMode }): ProcessingDiagnostic {
+  const audioDurationSeconds = estimatePcm16WavDurationSeconds(payload.bytes);
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt: new Date().toISOString(),
+    stage: 'processing',
+    mode: payload.mode,
+    modelId: settings.providers.asr.modelId,
+    modelKind: settings.providers.asr.kind,
+    sherpaModelType: settings.providers.asr.sherpaModelType,
+    audioBytes: payload.bytes.byteLength,
+    audioDurationSeconds,
+    chunkCount: audioDurationSeconds ? Math.max(1, Math.ceil(audioDurationSeconds / 20)) : undefined
+  };
+}
+
+function estimatePcm16WavDurationSeconds(bytes: Uint8Array): number | undefined {
+  if (bytes.byteLength < 44) {
+    return undefined;
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  try {
+    if (String.fromCharCode(...bytes.slice(0, 4)) !== 'RIFF' || String.fromCharCode(...bytes.slice(8, 12)) !== 'WAVE') {
+      return undefined;
+    }
+    const channels = view.getUint16(22, true);
+    const sampleRate = view.getUint32(24, true);
+    const bitsPerSample = view.getUint16(34, true);
+    const dataBytes = view.getUint32(40, true);
+    const bytesPerSample = Math.max(1, (bitsPerSample / 8) * channels);
+    return dataBytes / bytesPerSample / sampleRate;
+  } catch {
+    return undefined;
+  }
 }
 
 function createModelManager(): ModelManager {
@@ -920,13 +1018,19 @@ async function emitModelCatalogRefresh() {
 }
 
 function createSyncService(repoUrl = settings.sync.github.repoUrl): GitHubSyncService {
+  const defaultRepoPath = defaultSyncRepoPath();
   return new GitHubSyncService({
     dataDir: store.getBaseDir(),
-    repoDir: settings.sync.github.localPath ?? join(app.getPath('userData'), 'sync-repo'),
+    repoDir: settings.sync.github.localPath ?? defaultRepoPath,
     repoUrl,
     branch: settings.sync.github.branch,
-    includeHistory: settings.sync.github.includeHistory ?? false
+    includeHistory: settings.sync.github.includeHistory ?? false,
+    defaultRepoPath
   });
+}
+
+function defaultSyncRepoPath(): string {
+  return join(app.getPath('userData'), 'sync-repo');
 }
 
 function createAutoSyncService(): AutoSyncService {
@@ -934,7 +1038,7 @@ function createAutoSyncService(): AutoSyncService {
     delayMs: 10_000,
     isEnabled: () => Boolean(settings.sync.github.autoSync),
     sync: async () => {
-      if (!settings.sync.github.repoUrl && !settings.sync.github.localPath) {
+      if (!settings.sync.github.repoUrl || !settings.sync.github.localPath) {
         throw new Error('尚未连接 GitHub 同步仓库');
       }
       const status = await createSyncService().smartSync('sync: auto update v2t archive');
@@ -980,6 +1084,7 @@ function scheduleAutoSync(reason: string): void {
 
 async function connectSyncRepo(repoUrl: string) {
   try {
+    ensureSyncRepoPathSelected();
     const status = await createSyncService(repoUrl).connect(repoUrl);
     settings = {
       ...settings,
@@ -990,7 +1095,7 @@ async function connectSyncRepo(repoUrl: string) {
           repoUrl,
           localPath: status.localPath,
           branch: status.branch,
-          lastSyncAt: new Date().toISOString()
+          lastSyncAt: status.needsImportDecision ? settings.sync.github.lastSyncAt : new Date().toISOString()
         }
       }
     };
@@ -1001,8 +1106,57 @@ async function connectSyncRepo(repoUrl: string) {
   }
 }
 
+async function chooseSyncRepoPath() {
+  try {
+    const options: Electron.OpenDialogOptions = {
+      title: '选择本地同步仓库位置',
+      properties: ['openDirectory', 'createDirectory']
+    };
+    const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+    if (result.canceled || !result.filePaths[0]) {
+      return { ok: false, error: '已取消选择本地同步仓库位置', status: await createSyncService().status(), setup: await getSetupPayload() };
+    }
+    settings = {
+      ...settings,
+      sync: {
+        kind: 'github',
+        github: {
+          ...settings.sync.github,
+          localPath: result.filePaths[0]
+        }
+      }
+    };
+    await store.saveSettings(settings);
+    return { ok: true, status: await createSyncService().status('已选择本地同步仓库位置'), setup: await getSetupPayload() };
+  } catch (error) {
+    return { ok: false, error: readableError(error), status: await createSyncService().status(), setup: await getSetupPayload() };
+  }
+}
+
+async function resolveSyncImport(strategy: SyncImportStrategy) {
+  try {
+    ensureSyncRepoPathSelected();
+    const status = await createSyncService().resolveImport(strategy);
+    settings = {
+      ...settings,
+      sync: {
+        kind: 'github',
+        github: {
+          ...settings.sync.github,
+          lastSyncAt: new Date().toISOString()
+        }
+      }
+    };
+    await store.saveSettings(settings);
+    return { ok: true, status, setup: await getSetupPayload() };
+  } catch (error) {
+    return { ok: false, error: readableError(error), status: await createSyncService().status(), setup: await getSetupPayload() };
+  }
+}
+
 async function pullSync() {
   try {
+    ensureSyncRepoPathSelected();
     const status = await createSyncService().pull();
     settings = {
       ...(await store.loadSettings()),
@@ -1023,6 +1177,7 @@ async function pullSync() {
 
 async function pushSync() {
   try {
+    ensureSyncRepoPathSelected();
     const status = await createSyncService().push('sync: update v2t settings');
     settings = {
       ...settings,
@@ -1043,6 +1198,7 @@ async function pushSync() {
 
 async function syncAll() {
   try {
+    ensureSyncRepoPathSelected();
     const status = await createSyncService().smartSync('sync: update v2t archive');
     settings = {
       ...settings,
@@ -1058,6 +1214,12 @@ async function syncAll() {
     return { ok: true, status, setup: await getSetupPayload() };
   } catch (error) {
     return { ok: false, error: readableError(error), status: await createSyncService().status() };
+  }
+}
+
+function ensureSyncRepoPathSelected(): void {
+  if (!settings.sync.github.localPath) {
+    throw new Error('请先选择本地同步仓库位置，避免 V2T 自动在系统目录创建同步仓库。');
   }
 }
 
@@ -1422,17 +1584,17 @@ function recordingOverlayHtmlUrl(): string {
   <style>
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; margin: 0; background: transparent; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .overlay { width: 280px; height: 60px; display: flex; align-items: center; gap: 11px; padding: 10px 14px; border: 1px solid rgba(255, 250, 240, 0.1); border-radius: 15px; background: rgba(31, 39, 36, 0.92); color: #fffaf0; box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22); cursor: pointer; user-select: none; }
+    .overlay { width: 220px; height: 52px; display: flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid rgba(255, 250, 240, 0.1); border-radius: 13px; background: rgba(31, 39, 36, 0.92); color: #fffaf0; box-shadow: 0 12px 24px rgba(0, 0, 0, 0.22); cursor: pointer; user-select: none; }
     .overlay:active { transform: translateY(1px); }
-    .status-dot { width: 8px; height: 8px; border-radius: 999px; background: #d84d3f; box-shadow: 0 0 0 5px rgba(216, 77, 63, 0.16); flex: 0 0 auto; }
-    .processing .status-dot { background: #2e6f95; box-shadow: 0 0 0 5px rgba(46, 111, 149, 0.14); }
-    .waves { width: 42px; height: 26px; display: flex; align-items: center; justify-content: center; gap: 3px; flex: 0 0 auto; }
-    .bar { width: 3px; min-height: 4px; border-radius: 999px; background: rgba(255, 250, 240, 0.78); transition: height 90ms ease, opacity 120ms ease; }
+    .status-dot { width: 6px; height: 6px; border-radius: 999px; background: #d84d3f; box-shadow: 0 0 0 4px rgba(216, 77, 63, 0.15); flex: 0 0 auto; }
+    .processing .status-dot { background: #2e6f95; box-shadow: 0 0 0 4px rgba(46, 111, 149, 0.14); }
+    .waves { width: 32px; height: 22px; display: flex; align-items: center; justify-content: center; gap: 2px; flex: 0 0 auto; }
+    .bar { width: 2px; min-height: 4px; border-radius: 999px; background: rgba(255, 250, 240, 0.78); transition: height 90ms ease, opacity 120ms ease; }
     .no-input .bar { opacity: 0.32; }
     .processing .bar { height: 11px !important; opacity: 0.45; }
     .text { min-width: 0; display: grid; gap: 2px; flex: 1; }
-    .title { font-weight: 720; font-size: 13px; letter-spacing: 0; line-height: 1.2; }
-    .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255, 250, 240, 0.68); font-size: 11px; line-height: 1.3; }
+    .title { font-weight: 720; font-size: 12px; letter-spacing: 0; line-height: 1.2; }
+    .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255, 250, 240, 0.68); font-size: 10.5px; line-height: 1.25; }
   </style>
 </head>
 <body>
@@ -1477,7 +1639,7 @@ function recordingOverlayHtmlUrl(): string {
       }
       const weights = [0.45, 0.86, 0.58, 1, 0.68];
       bars.forEach(function(bar, index) {
-        const height = 5 + Math.round(level * 18 * weights[index]);
+        const height = 4 + Math.round(level * 16 * weights[index]);
         bar.style.height = height + 'px';
       });
     };

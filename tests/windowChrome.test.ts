@@ -23,5 +23,15 @@ describe('window chrome styles', () => {
     for (const role of ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll']) {
       expect(main).toContain(`role: '${role}'`);
     }
+    expect(main).toContain("ipcMain.on('v2t:show-edit-menu'");
+  });
+
+  it('marks advanced settings inputs as no-drag and opens the edit context menu', async () => {
+    const app = await readFile(new URL('../src/renderer/App.tsx', import.meta.url), 'utf8');
+
+    expect(app).toContain('onContextMenu={showEditMenu}');
+    expect(app).toContain('className="no-drag"');
+    expect(app).toContain('LLM Base URL');
+    expect(app).toContain('LLM Model');
   });
 });

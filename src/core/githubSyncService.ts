@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join, parse, relative } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { GitHubSyncStatus, Lexicon } from './types';
+import type { GitHubSyncStatus, Lexicon, SyncImportStrategy } from './types';
 
 const execFileAsync = promisify(execFile);
 
@@ -15,6 +15,7 @@ interface GitHubSyncServiceOptions {
   branch?: string;
   repoUrl?: string;
   includeHistory?: boolean;
+  defaultRepoPath?: string;
   git?: GitRunner;
 }
 
@@ -24,6 +25,7 @@ export class GitHubSyncService {
   private readonly branch: string;
   private repoUrl?: string;
   private readonly includeHistory: boolean;
+  private readonly defaultRepoPath?: string;
   private readonly git: GitRunner;
 
   constructor(options: GitHubSyncServiceOptions) {
@@ -32,10 +34,11 @@ export class GitHubSyncService {
     this.branch = options.branch ?? 'main';
     this.repoUrl = options.repoUrl;
     this.includeHistory = options.includeHistory ?? false;
+    this.defaultRepoPath = options.defaultRepoPath;
     this.git = options.git ?? runGit;
   }
 
-  async connect(repoUrl: string): Promise<GitHubSyncStatus> {
+  async connect(repoUrl: string, importPolicy: SyncImportStrategy = 'none'): Promise<GitHubSyncStatus> {
     validateGitRepoUrl(repoUrl);
     this.repoUrl = repoUrl;
 
@@ -48,12 +51,56 @@ export class GitHubSyncService {
       await this.git(['remote', 'set-url', 'origin', repoUrl], this.repoDir);
     }
 
-    if (await this.repoHasSyncFiles()) {
-      await this.importSyncFiles();
-    } else {
-      await this.exportSyncFiles();
+    const remoteFiles = await this.listRepoSyncFiles();
+    if (remoteFiles.length > 0) {
+      if (importPolicy === 'none') {
+        return this.status('远端已有同步文件，请选择导入方式', {
+          needsImportDecision: true,
+          remoteFiles
+        });
+      }
+      return this.resolveImport(importPolicy);
     }
+
+    await this.exportSyncFiles();
     return this.status();
+  }
+
+  async resolveImport(strategy: SyncImportStrategy): Promise<GitHubSyncStatus> {
+    await this.ensureRepo();
+    if (strategy === 'none') {
+      return this.status('远端已有同步文件，请选择导入方式', {
+        needsImportDecision: true,
+        remoteFiles: await this.listRepoSyncFiles()
+      });
+    }
+
+    if (strategy === 'remote-over-local') {
+      await this.importSyncFiles();
+      return this.status('已导入远端同步文件', {
+        conflictFiles: await this.listConflictBackups()
+      });
+    }
+
+    if (strategy === 'local-over-remote') {
+      await this.exportSyncFiles();
+      await this.git(['add', ...syncFileAllowlist(this.includeHistory), '.gitignore'], this.repoDir);
+      if (await this.isDirty()) {
+        await this.git(['commit', '-m', 'sync: initialize v2t settings'], this.repoDir);
+      }
+      try {
+        await this.git(['push', '-u', 'origin', this.branch], this.repoDir);
+      } catch {
+        // Local path and test repos may not have a real remote. Exporting files is still the key action.
+      }
+      return this.status('已使用本机覆盖远端');
+    }
+
+    await this.mergeRepoFilesIntoDataKeepingLocalPrompts();
+    await this.exportSyncFiles();
+    return this.status('已智能合并同步文件', {
+      conflictFiles: await this.listConflictBackups()
+    });
   }
 
   async pull(): Promise<GitHubSyncStatus> {
@@ -92,7 +139,7 @@ export class GitHubSyncService {
     return this.status('已完成一键同步');
   }
 
-  async status(message?: string): Promise<GitHubSyncStatus> {
+  async status(message?: string, patch: Partial<GitHubSyncStatus> = {}): Promise<GitHubSyncStatus> {
     const dirty = existsSync(join(this.repoDir, '.git')) ? await this.isDirty() : false;
     return {
       configured: Boolean(this.repoUrl || existsSync(join(this.repoDir, '.git'))),
@@ -100,7 +147,10 @@ export class GitHubSyncService {
       localPath: this.repoDir,
       branch: this.branch,
       dirty,
-      message
+      message,
+      defaultRepoPath: this.defaultRepoPath,
+      usingDefaultRepoPath: this.defaultRepoPath ? this.repoDir === this.defaultRepoPath : undefined,
+      ...patch
     };
   }
 
@@ -185,7 +235,23 @@ export class GitHubSyncService {
   }
 
   private async repoHasSyncFiles(): Promise<boolean> {
-    return syncFileAllowlist(this.includeHistory).some((relativePath) => existsSync(join(this.repoDir, relativePath)));
+    return (await this.listRepoSyncFiles()).length > 0;
+  }
+
+  private async listRepoSyncFiles(): Promise<string[]> {
+    const files: string[] = [];
+    for (const relativePath of syncFileAllowlist(this.includeHistory)) {
+      if (relativePath === 'history/') {
+        if (existsSync(join(this.repoDir, 'history'))) {
+          files.push(relativePath);
+        }
+        continue;
+      }
+      if (existsSync(join(this.repoDir, relativePath))) {
+        files.push(relativePath);
+      }
+    }
+    return files;
   }
 
   private async exportHistoryFiles(): Promise<void> {
@@ -268,6 +334,53 @@ export class GitHubSyncService {
         await writeConflictBackup(relativePath, this.dataDir, incoming, 'remote');
       }
     }
+  }
+
+  private async mergeRepoFilesIntoDataKeepingLocalPrompts(): Promise<void> {
+    const files = await this.readRepoSyncFiles();
+    for (const [relativePath, incoming] of files) {
+      if (relativePath.startsWith('prompts/')) {
+        const target = join(this.dataDir, relativePath);
+        if (!existsSync(target) || (await readFile(target, 'utf8')) !== incoming) {
+          await writeConflictBackup(relativePath, this.dataDir, incoming, 'remote');
+        }
+        continue;
+      }
+
+      if (relativePath === 'lexicon.json') {
+        await mergeLexiconFile(join(this.dataDir, relativePath), incoming);
+        continue;
+      }
+
+      if (relativePath.startsWith('history/')) {
+        await mergeHistoryFile(join(this.dataDir, relativePath), incoming);
+        continue;
+      }
+
+      const target = join(this.dataDir, relativePath);
+      if (!existsSync(target)) {
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, incoming, 'utf8');
+      }
+    }
+  }
+
+  private async readRepoSyncFiles(): Promise<Map<string, string>> {
+    const files = new Map<string, string>();
+    for (const relativePath of syncFileAllowlist(false)) {
+      const source = join(this.repoDir, relativePath);
+      if (existsSync(source)) {
+        files.set(relativePath, await readFile(source, 'utf8'));
+      }
+    }
+    if (this.includeHistory && existsSync(join(this.repoDir, 'history'))) {
+      for (const file of await listFiles(join(this.repoDir, 'history'))) {
+        if (file.endsWith('.jsonl')) {
+          files.set(relative(this.repoDir, file), await readFile(file, 'utf8'));
+        }
+      }
+    }
+    return files;
   }
 }
 

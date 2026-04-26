@@ -107,11 +107,70 @@ describe('GitHubSyncService', () => {
     await syncA.push('sync: update v2t settings');
 
     const syncB = new GitHubSyncService({ dataDir: deviceB, repoDir: repoB });
-    await syncB.connect(remote);
+    const connected = await syncB.connect(remote);
+    expect(connected.needsImportDecision).toBe(true);
+    await syncB.resolveImport('remote-over-local');
     await syncB.pull();
 
     const imported = JSON.parse(await readFile(join(deviceB, 'lexicon.json'), 'utf8'));
     expect(imported.terms[0].phrase).toBe('V2T');
+  });
+
+  it('connects to an existing sync repo without importing remote prompts until a strategy is chosen', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'v2t-sync-connect-safe-'));
+    const dataDir = join(root, 'data');
+    const repoDir = join(root, 'repo');
+    await UserDataStore.create(dataDir, { deviceId: 'device-a' });
+    await mkdir(join(repoDir, '.git'), { recursive: true });
+    await mkdir(join(repoDir, 'prompts'), { recursive: true });
+    await writeFile(join(dataDir, 'prompts', 'structured.md'), 'local structured\n', 'utf8');
+    await writeFile(join(repoDir, 'prompts', 'structured.md'), 'remote structured\n', 'utf8');
+
+    const service = new GitHubSyncService({
+      dataDir,
+      repoDir,
+      git: fakeGit()
+    });
+
+    const status = await service.connect('git@github.com:example/v2t-sync.git');
+
+    expect(status.needsImportDecision).toBe(true);
+    expect(status.remoteFiles).toContain('prompts/structured.md');
+    await expect(readFile(join(dataDir, 'prompts', 'structured.md'), 'utf8')).resolves.toBe('local structured\n');
+  });
+
+  it('can resolve a sync import by importing remote files with local backups', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'v2t-sync-remote-import-'));
+    const dataDir = join(root, 'data');
+    const repoDir = join(root, 'repo');
+    await UserDataStore.create(dataDir, { deviceId: 'device-a' });
+    await mkdir(join(repoDir, '.git'), { recursive: true });
+    await mkdir(join(repoDir, 'prompts'), { recursive: true });
+    await writeFile(join(dataDir, 'prompts', 'structured.md'), 'local structured\n', 'utf8');
+    await writeFile(join(repoDir, 'prompts', 'structured.md'), 'remote structured\n', 'utf8');
+    const service = new GitHubSyncService({ dataDir, repoDir, git: fakeGit() });
+
+    await service.resolveImport('remote-over-local');
+
+    await expect(readFile(join(dataDir, 'prompts', 'structured.md'), 'utf8')).resolves.toBe('remote structured\n');
+    expect((await service.listConflictBackups()).some((file) => file.includes('structured'))).toBe(true);
+  });
+
+  it('can resolve a sync import by keeping local prompts and backing up remote prompts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'v2t-sync-smart-prompts-'));
+    const dataDir = join(root, 'data');
+    const repoDir = join(root, 'repo');
+    await UserDataStore.create(dataDir, { deviceId: 'device-a' });
+    await mkdir(join(repoDir, '.git'), { recursive: true });
+    await mkdir(join(repoDir, 'prompts'), { recursive: true });
+    await writeFile(join(dataDir, 'prompts', 'structured.md'), 'local structured\n', 'utf8');
+    await writeFile(join(repoDir, 'prompts', 'structured.md'), 'remote structured\n', 'utf8');
+    const service = new GitHubSyncService({ dataDir, repoDir, git: fakeGit() });
+
+    await service.resolveImport('smart-merge');
+
+    await expect(readFile(join(dataDir, 'prompts', 'structured.md'), 'utf8')).resolves.toBe('local structured\n');
+    expect((await service.listConflictBackups()).some((file) => file.includes('structured') && file.includes('remote'))).toBe(true);
   });
 
   it('creates a conflict backup before importing pulled files over local changes', async () => {

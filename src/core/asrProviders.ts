@@ -21,7 +21,7 @@ interface LocalSherpaProviderOptions {
 
 type SherpaRecognizerFactory = (config: SherpaOfflineRecognizerConfig) => SherpaRecognizer;
 
-const FUNASR_NANO_MAX_CHUNK_SECONDS = 20;
+const LOCAL_SHERPA_MAX_CHUNK_SECONDS = 20;
 
 export interface SherpaOfflineRecognizerConfig {
   featConfig?: Record<string, unknown>;
@@ -113,10 +113,7 @@ export class LocalSherpaAsrProvider implements AsrProvider {
 
     try {
       await writeFile(audioPath, audio);
-      const audioPaths =
-        this.sherpaModelType === 'funasrNano'
-          ? await splitWavForFunAsrNano(audioPath, workDir, FUNASR_NANO_MAX_CHUNK_SECONDS)
-          : [audioPath];
+      const audioPaths = await splitWavForLocalSherpa(audioPath, workDir, LOCAL_SHERPA_MAX_CHUNK_SECONDS);
       const texts: string[] = [];
 
       for (const chunkPath of audioPaths) {
@@ -431,7 +428,7 @@ export function readWavAsFloat32(audioPath: string): { sampleRate: number; sampl
   return { sampleRate, samples };
 }
 
-async function splitWavForFunAsrNano(audioPath: string, workDir: string, maxChunkSeconds: number): Promise<string[]> {
+async function splitWavForLocalSherpa(audioPath: string, workDir: string, maxChunkSeconds: number): Promise<string[]> {
   const wave = readWavAsFloat32(audioPath);
   const maxSamples = Math.max(1, Math.floor(wave.sampleRate * maxChunkSeconds));
   if (wave.samples.length <= maxSamples) {

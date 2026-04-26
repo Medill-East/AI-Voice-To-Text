@@ -24,6 +24,12 @@ describe('settings navigation structure', () => {
     expect(app).toContain('同步历史');
     expect(app).toContain('自动同步');
     expect(app).toContain('一键同步');
+    expect(app).toContain('选择本地同步仓库位置');
+    expect(app).toContain('使用本机覆盖远端');
+    expect(app).toContain('导入远端到本机');
+    expect(app).toContain('智能合并');
+    expect(app).toContain('查看冲突备份');
+    expect(app).toContain('上次长语音处理异常退出');
     expect(app).toContain('自然输入 Prompt');
     expect(app).toContain('结构输入 Prompt');
     expect(app).toContain('外观');

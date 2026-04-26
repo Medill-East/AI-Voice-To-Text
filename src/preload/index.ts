@@ -13,8 +13,10 @@ import type {
   ModelDownloadProbeResult,
   ModelRecommendation,
   ModelStatusRecord,
+  ProcessingDiagnostic,
   PromptFiles,
   Settings,
+  SyncImportStrategy,
   VoiceInputPipelineResult
 } from '../core/types';
 import type { HotkeyStatus, HotkeyTestResult } from '../main/hotkeyService';
@@ -54,11 +56,16 @@ export interface V2TApi {
   activateModel(modelId: string): Promise<InstallModelResult>;
   deleteModel(modelId: string): Promise<InstallModelResult>;
   getSyncStatus(): Promise<GitHubSyncStatus>;
+  chooseSyncRepoPath(): Promise<SyncActionResult>;
   connectSyncRepo(repoUrl: string): Promise<SyncActionResult>;
+  resolveSyncImport(strategy: SyncImportStrategy): Promise<SyncActionResult>;
   pullSync(): Promise<SyncActionResult>;
   pushSync(): Promise<SyncActionResult>;
   syncAll(): Promise<SyncActionResult>;
+  listConflictBackups(): Promise<string[]>;
+  copyProcessingDiagnostics(): Promise<{ ok: true }>;
   setRecordingOverlayState(update: RecordingOverlayUpdate): Promise<{ ok: true }>;
+  showEditMenu(): void;
   openAccessibilitySettings(): Promise<{ ok: true }>;
   refreshHotkeyPermissions(): Promise<SetupPayload>;
   testHotkey(accelerator?: string): Promise<HotkeyTestResult>;
@@ -93,6 +100,7 @@ export interface SetupPayload {
     version: string;
     buildCommit: string;
   };
+  processingDiagnostic?: ProcessingDiagnostic;
 }
 
 interface ProcessAudioResponse {
@@ -162,11 +170,16 @@ const api: V2TApi = {
   activateModel: (modelId) => ipcRenderer.invoke('v2t:activate-model', modelId),
   deleteModel: (modelId) => ipcRenderer.invoke('v2t:delete-model', modelId),
   getSyncStatus: () => ipcRenderer.invoke('v2t:get-sync-status'),
+  chooseSyncRepoPath: () => ipcRenderer.invoke('v2t:choose-sync-repo-path'),
   connectSyncRepo: (repoUrl) => ipcRenderer.invoke('v2t:connect-sync-repo', repoUrl),
+  resolveSyncImport: (strategy) => ipcRenderer.invoke('v2t:resolve-sync-import', strategy),
   pullSync: () => ipcRenderer.invoke('v2t:pull-sync'),
   pushSync: () => ipcRenderer.invoke('v2t:push-sync'),
   syncAll: () => ipcRenderer.invoke('v2t:sync-all'),
+  listConflictBackups: () => ipcRenderer.invoke('v2t:list-conflict-backups'),
+  copyProcessingDiagnostics: () => ipcRenderer.invoke('v2t:copy-processing-diagnostics'),
   setRecordingOverlayState: (update) => ipcRenderer.invoke('v2t:set-recording-overlay-state', update),
+  showEditMenu: () => ipcRenderer.send('v2t:show-edit-menu'),
   openAccessibilitySettings: () => ipcRenderer.invoke('v2t:open-accessibility-settings'),
   refreshHotkeyPermissions: () => ipcRenderer.invoke('v2t:refresh-hotkey-permissions'),
   testHotkey: (accelerator) => ipcRenderer.invoke('v2t:test-hotkey', accelerator),

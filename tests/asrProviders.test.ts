@@ -128,6 +128,32 @@ describe('ASR providers', () => {
     expect(durations.every((duration) => duration <= 20.1)).toBe(true);
   });
 
+  it('splits long SenseVoice audio into shorter chunks before transcription', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-sensevoice-long-'));
+    await writeFile(join(baseDir, 'model.int8.onnx'), 'model');
+    await writeFile(join(baseDir, 'tokens.txt'), 'tokens');
+    const audio = createPcm16Wav(new Array(16000 * 90).fill(1000), 16000);
+    const durations: number[] = [];
+    const provider = new LocalSherpaAsrProvider({
+      modelId: 'sensevoice-onnx-int8-2025-09-09',
+      modelPath: join(baseDir, 'model.int8.onnx'),
+      sherpaModelType: 'senseVoice',
+      recognizerFactory: () => ({
+        transcribe: (audioPath) => {
+          const wave = readWavAsFloat32(audioPath);
+          durations.push(wave.samples.length / wave.sampleRate);
+          return `片段${durations.length}`;
+        }
+      })
+    });
+
+    const result = await provider.transcribe(audio);
+
+    expect(result.text).toBe('片段1\n片段2\n片段3\n片段4\n片段5');
+    expect(durations).toHaveLength(5);
+    expect(durations.every((duration) => duration <= 20.1)).toBe(true);
+  });
+
   it('decodes PCM16 mono WAV into regular Float32 samples', async () => {
     const audioPath = join(await mkdtemp(join(tmpdir(), 'v2t-wav-')), 'sample.wav');
     await writeFile(audioPath, createPcm16Wav([0, 16384, -16384, 32767], 16000));

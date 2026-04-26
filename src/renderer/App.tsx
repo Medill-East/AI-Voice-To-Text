@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { referenceModels } from '../core/modelCatalog';
 import { hotkeyLabelForPlatform } from '../core/hotkeyLabels';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
 import type {
   AppUpdateState,
   AutoSyncState,
+  GitHubSyncStatus,
   HistoryEntry,
   InputMode,
   InstalledModelView,
@@ -17,6 +19,7 @@ import type {
   ModelStatusRecord,
   PromptFiles,
   Settings,
+  SyncImportStrategy,
   VoiceInputPipelineResult
 } from '../core/types';
 import type { HotkeyStatus } from '../main/hotkeyService';
@@ -35,6 +38,7 @@ const APP_PAGES: Array<{ id: AppPage; label: string }> = [
   { id: 'advanced', label: '高级设置' },
   { id: 'app', label: '应用' }
 ];
+const MAX_RECORDING_MS = 5 * 60 * 1000;
 
 interface LocalHistoryItem extends VoiceInputPipelineResult {
   createdAt: string;
@@ -72,6 +76,8 @@ export function App() {
   const [syncRepoUrl, setSyncRepoUrl] = useState('');
   const [syncBusy, setSyncBusy] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<GitHubSyncStatus | null>(null);
+  const [conflictBackups, setConflictBackups] = useState<string[]>([]);
   const [autoSyncState, setAutoSyncState] = useState<AutoSyncState | null>(null);
   const [appUpdateState, setAppUpdateState] = useState<AppUpdateState | null>(null);
   const [updateBusy, setUpdateBusy] = useState<string | null>(null);
@@ -93,6 +99,7 @@ export function App() {
   const inputActiveRef = useRef(false);
   const silenceStartedAtRef = useRef<number | undefined>(undefined);
   const silenceMsRef = useRef(0);
+  const recordingLimitTimerRef = useRef<number | undefined>(undefined);
   const capturedHotkeyKeysRef = useRef<Set<string>>(new Set());
 
   const applySetup = useCallback((nextSetup: SetupPayload) => {
@@ -124,6 +131,18 @@ export function App() {
     silenceStartedAtRef.current = undefined;
     silenceMsRef.current = 0;
   }, []);
+
+  const clearRecordingLimitTimer = useCallback(() => {
+    if (recordingLimitTimerRef.current !== undefined) {
+      window.clearTimeout(recordingLimitTimerRef.current);
+      recordingLimitTimerRef.current = undefined;
+    }
+  }, []);
+
+  const showEditMenu = (event: MouseEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    event.preventDefault();
+    window.v2t.showEditMenu();
+  };
 
   const updateInputMeter = useCallback((samples: Float32Array) => {
     if (samples.length === 0) {
@@ -211,6 +230,7 @@ export function App() {
   }, []);
 
   const stopRecording = useCallback(() => {
+    clearRecordingLimitTimer();
     const recorder = recorderRef.current;
     if (!recorder) {
       if (recordingStateRef.current === 'starting') {
@@ -231,7 +251,7 @@ export function App() {
 
     const wav = encodeWav(recorder.chunks, recorder.inputSampleRate, 16000);
     void processRecording(wav, modeRef.current);
-  }, [resetInputMeter]);
+  }, [clearRecordingLimitTimer, resetInputMeter]);
 
   const startRecording = useCallback(async (activeMode: InputMode = modeRef.current) => {
     if (recordingStateRef.current === 'starting' || recordingStateRef.current === 'recording' || recordingStateRef.current === 'processing') {
@@ -272,7 +292,11 @@ export function App() {
       };
       recordingStateRef.current = 'recording';
       setState('recording');
+      recordingLimitTimerRef.current = window.setTimeout(() => {
+        stopRecording();
+      }, MAX_RECORDING_MS);
     } catch (caught) {
+      clearRecordingLimitTimer();
       recordingStartedAtRef.current = undefined;
       recordingElapsedMsRef.current = undefined;
       recordingStateRef.current = 'error';
@@ -281,7 +305,7 @@ export function App() {
       setState('error');
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [resetInputMeter, updateInputMeter]);
+  }, [clearRecordingLimitTimer, resetInputMeter, stopRecording, updateInputMeter]);
 
   const processRecording = useCallback(async (bytes: Uint8Array, activeMode: InputMode) => {
     recordingStateRef.current = 'processing';
@@ -713,14 +737,53 @@ export function App() {
     setSyncBusy('connect');
     const result = await window.v2t.connectSyncRepo(syncRepoUrl.trim());
     setSyncBusy(null);
+    setSyncStatus(result.status);
     if (result.setup) {
       applySetup(result.setup);
     }
     if (result.ok) {
-      setSyncMessage('同步仓库已连接');
+      setSyncMessage(result.status.message ?? '同步仓库已连接');
     } else {
       setError(result.error ?? '同步仓库连接失败');
     }
+  };
+
+  const chooseSyncRepoPath = async () => {
+    setError(null);
+    setSyncMessage(null);
+    const result = await window.v2t.chooseSyncRepoPath();
+    setSyncStatus(result.status);
+    if (result.setup) {
+      applySetup(result.setup);
+    }
+    if (result.ok) {
+      setSyncMessage(result.status.message ?? '已选择本地同步仓库位置');
+    } else if (result.error) {
+      setError(result.error);
+    }
+  };
+
+  const resolveSyncImport = async (strategy: SyncImportStrategy) => {
+    setError(null);
+    setSyncMessage(null);
+    setSyncBusy(strategy);
+    const result = await window.v2t.resolveSyncImport(strategy);
+    setSyncBusy(null);
+    setSyncStatus(result.status);
+    if (result.setup) {
+      applySetup(result.setup);
+    }
+    if (result.ok) {
+      setSyncMessage(result.status.message ?? '同步导入策略已执行');
+    } else {
+      setError(result.error ?? '同步导入策略执行失败');
+    }
+  };
+
+  const showConflictBackups = async () => {
+    const backups = await window.v2t.listConflictBackups();
+    setConflictBackups(backups);
+    setSyncMessage(backups.length > 0 ? `找到 ${backups.length} 个冲突备份` : '暂无冲突备份');
   };
 
   const pullSync = async () => {
@@ -729,6 +792,7 @@ export function App() {
     setSyncBusy('pull');
     const result = await window.v2t.pullSync();
     setSyncBusy(null);
+    setSyncStatus(result.status);
     if (result.setup) {
       applySetup(result.setup);
     }
@@ -745,6 +809,7 @@ export function App() {
     setSyncBusy('push');
     const result = await window.v2t.pushSync();
     setSyncBusy(null);
+    setSyncStatus(result.status);
     if (result.setup) {
       applySetup(result.setup);
     }
@@ -761,6 +826,7 @@ export function App() {
     setSyncBusy('sync');
     const result = await window.v2t.syncAll();
     setSyncBusy(null);
+    setSyncStatus(result.status);
     if (result.setup) {
       applySetup(result.setup);
     }
@@ -840,6 +906,20 @@ export function App() {
           <p className="hint mode-hint">
             单击快捷键 {modeLabel(settings?.hotkey.singleClickMode ?? 'natural')}，双击快捷键 {modeLabel(settings?.hotkey.doubleClickMode ?? 'structured')}；窗口内录音默认使用单击模式。
           </p>
+          {setup?.processingDiagnostic ? (
+            <section className="setup-callout warning">
+              <div>
+                <h2>上次长语音处理异常退出</h2>
+                <p>
+                  模式 {modeLabel(setup.processingDiagnostic.mode)} · 音频约 {Math.round(setup.processingDiagnostic.audioDurationSeconds ?? 0)} 秒 ·
+                  {setup.processingDiagnostic.chunkCount ?? 1} 个分片
+                </p>
+              </div>
+              <button className="secondary" onClick={() => void window.v2t.copyProcessingDiagnostics()}>
+                复制诊断
+              </button>
+            </section>
+          ) : null}
           <p className="hint">结构化引擎：{structuredEngineLabel(settings)}。{settings?.providers.llm.enabled ? '结构输入会使用提示词页的 structured Prompt。' : 'Prompt 仅在启用 LLM 后生效；本地规则会使用内置整理逻辑。'}</p>
           <section className="gesture-settings">
             <div>
@@ -1406,25 +1486,35 @@ export function App() {
           {settings ? (
             <>
               <p className="hint">
-                建议使用一个单独的私有仓库，例如 v2t-sync。连接后 V2T 会在本机创建 sync-repo，并同步
+                建议使用一个单独的私有仓库，例如 v2t-sync。先选择本地同步仓库位置，再连接 GitHub 仓库；连接不会自动覆盖本机提示词。
                 settings.json、lexicon.json、prompts/natural.md、prompts/structured.md。词库页保存只改本地 lexicon.json，需要点击“推送”才会写入 GitHub。
                 模型和密钥不会同步；同步历史默认关闭，可以在这里单独开启。
               </p>
+              <div className="button-row">
+                <button className="secondary" onClick={() => void chooseSyncRepoPath()}>
+                  选择本地同步仓库位置
+                </button>
+                <button className="secondary" onClick={() => void showConflictBackups()}>
+                  查看冲突备份
+                </button>
+              </div>
               <label>
                 仓库 URL
                 <input
+                  className="no-drag"
                   value={syncRepoUrl}
                   placeholder="git@github.com:you/v2t-sync.git"
                   spellCheck={false}
                   autoCapitalize="off"
                   autoCorrect="off"
+                  onContextMenu={showEditMenu}
                   onChange={(event) => setSyncRepoUrl(event.target.value)}
                 />
               </label>
               <dl>
                 <div>
                   <dt>本地仓库</dt>
-                  <dd>{settings.sync.github.localPath ?? '未连接'}</dd>
+                  <dd>{settings.sync.github.localPath ?? '未选择'}</dd>
                 </div>
                 <div>
                   <dt>最后同步</dt>
@@ -1457,17 +1547,42 @@ export function App() {
                   <dd>{autoSyncStatusLabel(autoSyncState, settings)}</dd>
                 </div>
               </dl>
-              <button className="save" onClick={() => void syncAll()} disabled={Boolean(syncBusy)}>
+              {syncStatus?.needsImportDecision ? (
+                <section className="sync-import-decision">
+                  <h3>远端已有同步文件</h3>
+                  <p className="hint">请选择导入策略；默认不会覆盖本机 settings、词库或 Prompt。</p>
+                  <div className="button-row three">
+                    <button className="secondary" onClick={() => void resolveSyncImport('local-over-remote')} disabled={Boolean(syncBusy)}>
+                      使用本机覆盖远端
+                    </button>
+                    <button className="secondary" onClick={() => void resolveSyncImport('remote-over-local')} disabled={Boolean(syncBusy)}>
+                      导入远端到本机
+                    </button>
+                    <button className="secondary" onClick={() => void resolveSyncImport('smart-merge')} disabled={Boolean(syncBusy)}>
+                      智能合并
+                    </button>
+                  </div>
+                  {syncStatus.remoteFiles?.length ? <p className="hint">远端文件：{syncStatus.remoteFiles.join('、')}</p> : null}
+                </section>
+              ) : null}
+              {conflictBackups.length > 0 ? (
+                <ul className="conflict-list">
+                  {conflictBackups.map((file) => (
+                    <li key={file}>{file}</li>
+                  ))}
+                </ul>
+              ) : null}
+              <button className="save" onClick={() => void syncAll()} disabled={Boolean(syncBusy) || !settings.sync.github.localPath}>
                 {syncBusy === 'sync' ? '同步中' : '一键同步'}
               </button>
               <div className="button-row three">
-                <button className="secondary" onClick={() => void connectSyncRepo()} disabled={Boolean(syncBusy)}>
+                <button className="secondary" onClick={() => void connectSyncRepo()} disabled={Boolean(syncBusy) || !settings.sync.github.localPath}>
                   {syncBusy === 'connect' ? '连接中' : '连接'}
                 </button>
-                <button className="secondary" onClick={() => void pullSync()} disabled={Boolean(syncBusy)}>
+                <button className="secondary" onClick={() => void pullSync()} disabled={Boolean(syncBusy) || !settings.sync.github.localPath}>
                   {syncBusy === 'pull' ? '拉取中' : '拉取'}
                 </button>
-                <button className="secondary" onClick={() => void pushSync()} disabled={Boolean(syncBusy)}>
+                <button className="secondary" onClick={() => void pushSync()} disabled={Boolean(syncBusy) || !settings.sync.github.localPath}>
                   {syncBusy === 'push' ? '推送中' : '推送'}
                 </button>
               </div>
@@ -1523,11 +1638,11 @@ export function App() {
             <>
               <label>
                 当前模型目录
-                <input value={setup?.modelRoot ?? ''} readOnly />
+                <input className="no-drag" value={setup?.modelRoot ?? ''} readOnly onContextMenu={showEditMenu} />
               </label>
               <label>
                 同步数据目录
-                <input value={settings.dataDir ?? ''} readOnly />
+                <input className="no-drag" value={settings.dataDir ?? ''} readOnly onContextMenu={showEditMenu} />
               </label>
               <label>
                 ASR 模式
@@ -1554,7 +1669,9 @@ export function App() {
               <label>
                 FunASR 服务地址
                 <input
+                  className="no-drag"
                   value={settings.providers.asr.endpoint ?? ''}
+                  onContextMenu={showEditMenu}
                   onChange={(event) =>
                     setSettings({
                       ...settings,
@@ -1569,7 +1686,9 @@ export function App() {
               <label>
                 LLM Base URL
                 <input
+                  className="no-drag"
                   value={settings.providers.llm.baseUrl}
+                  onContextMenu={showEditMenu}
                   onChange={(event) =>
                     setSettings({
                       ...settings,
@@ -1584,7 +1703,9 @@ export function App() {
               <label>
                 LLM Model
                 <input
+                  className="no-drag"
                   value={settings.providers.llm.model}
+                  onContextMenu={showEditMenu}
                   onChange={(event) =>
                     setSettings({
                       ...settings,
