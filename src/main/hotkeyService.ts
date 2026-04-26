@@ -37,6 +37,7 @@ export interface HotkeyStatus {
   helperEventTapCreated?: boolean;
   nativeActive?: boolean;
   nativeHelperPath?: string;
+  nativeHelperKind?: 'mac-key-server' | 'win-key-server';
   nativeHelperSignature?: string;
   hotkeyLogPath?: string;
   nativeLastInfo?: string;
@@ -117,6 +118,8 @@ export class HotkeyService {
   private nativeExitCode?: number | null;
   private lastNativeEventAt?: number;
   private lastError?: string;
+  private pendingWindowsModifierTap = false;
+  private windowsModifierTapCanceled = false;
   private readonly nativeFactory: NativeKeyListenerFactory;
   private readonly noNativeEventTimeoutMs: number;
   private readonly now: () => number;
@@ -158,7 +161,7 @@ export class HotkeyService {
       return status;
     } catch (error) {
       this.nativeActive = false;
-      this.lastError = stringifyError(error);
+      this.lastError = stringifyNativeListenerError(error, options.platform, options.nativeHelperPath);
       if (nativeRequired) {
         const status = this.fallbackStatus(options, {
           needsAccessibilityPermission: true,
@@ -207,12 +210,15 @@ export class HotkeyService {
     this.nativeExitCode = undefined;
     this.lastNativeEventAt = undefined;
     this.lastError = undefined;
+    this.pendingWindowsModifierTap = false;
+    this.windowsModifierTapCanceled = false;
     this.detector?.reset();
     globalShortcut.unregisterAll();
   }
 
   private async registerNativeListener(options: HotkeyServiceOptions): Promise<void> {
     const matcher = createShortcutMatcher(options.accelerator);
+    const useWindowsModifierTap = usesWindowsModifierTap(options);
     this.hasSeenNativeEvent = false;
     this.helperAttempted = true;
     this.helperStarted = false;
@@ -223,17 +229,13 @@ export class HotkeyService {
     this.logDiagnostic('helper-start', options);
 
     this.listenerCallback = (event: IGlobalKeyEvent, down: IGlobalKeyDownMap) => {
-      this.hasSeenNativeEvent = true;
-      this.lastNativeEventAt = this.now();
-      if (!this.nativeActive) {
-        this.nativeActive = true;
-        this.helperVerified = true;
-        this.lastError = undefined;
-        this.logDiagnostic('native-event', options);
-        options.onStatus?.(this.nativeStatus(options));
+      this.recordNativeEvent(options);
+      if (useWindowsModifierTap) {
+        return this.handleWindowsModifierTap(event, down, matcher, options);
       }
+
       if (!this.detector || !event.name || !matcher({ name: event.name, state: event.state }, down)) {
-        return;
+        return false;
       }
 
       if (event.state === 'DOWN' && !this.isShortcutDown) {
@@ -243,16 +245,16 @@ export class HotkeyService {
           this.timer = undefined;
         }
         this.emitActions(this.detector.keyDown(this.now()), options.onAction);
-        return true;
+        return false;
       }
 
       if (event.state === 'UP' && this.isShortcutDown) {
         this.isShortcutDown = false;
         this.emitActions(this.detector.keyUp(this.now()), options.onAction);
-        return true;
+        return false;
       }
 
-      return true;
+      return false;
     };
 
     this.nativeHandle = await this.nativeFactory.addListener(
@@ -269,6 +271,57 @@ export class HotkeyService {
         options.onStatus?.(this.nativeStatus(options));
       }
     }, this.noNativeEventTimeoutMs);
+  }
+
+  private recordNativeEvent(options: HotkeyServiceOptions): void {
+    this.hasSeenNativeEvent = true;
+    this.lastNativeEventAt = this.now();
+    if (!this.nativeActive) {
+      this.nativeActive = true;
+      this.helperVerified = true;
+      this.lastError = undefined;
+      this.logDiagnostic('native-event', options);
+      options.onStatus?.(this.nativeStatus(options));
+    }
+  }
+
+  private handleWindowsModifierTap(
+    event: IGlobalKeyEvent,
+    down: IGlobalKeyDownMap,
+    matcher: ReturnType<typeof createShortcutMatcher>,
+    options: HotkeyServiceOptions
+  ): false {
+    if (!this.detector || !event.name) {
+      return false;
+    }
+
+    const matched = matcher({ name: event.name, state: event.state }, down);
+    if (this.pendingWindowsModifierTap && event.state === 'DOWN' && !matched) {
+      this.windowsModifierTapCanceled = true;
+    }
+
+    if (!matched) {
+      return false;
+    }
+
+    if (event.state === 'DOWN') {
+      if (!this.pendingWindowsModifierTap) {
+        this.pendingWindowsModifierTap = true;
+        this.windowsModifierTapCanceled = false;
+      }
+      return false;
+    }
+
+    if (event.state === 'UP' && this.pendingWindowsModifierTap) {
+      const canceled = this.windowsModifierTapCanceled;
+      this.pendingWindowsModifierTap = false;
+      this.windowsModifierTapCanceled = false;
+      if (!canceled) {
+        this.emitActions(this.detector.shortcutActivated(this.now()), options.onAction);
+      }
+    }
+
+    return false;
   }
 
   private emitActions(actions: HotkeyAction[], onAction: (action: HotkeyAction) => void): void {
@@ -364,12 +417,12 @@ export class HotkeyService {
     this.nativeActive = false;
     this.helperVerified = false;
     this.nativeExitCode = exitCodeFromError(error);
-    this.lastError = stringifyError(error);
+    this.lastError = stringifyNativeListenerError(error, options.platform, options.nativeHelperPath);
     if (isEventTapFailure(this.nativeLastInfo)) {
       this.helperEventTapCreated = false;
     }
     const nativeRequired = requiresNativeListener(options.accelerator);
-    const diagnosticMessage = helperFailureDiagnostic(options.platform, options.nativeHelperPath, this.nativeLastInfo);
+    const diagnosticMessage = helperFailureDiagnostic(options.platform, options.nativeHelperPath, this.nativeLastInfo, this.lastError);
     this.logDiagnostic('helper-error', options, { stderr: this.nativeLastInfo, exitCode: this.nativeExitCode, message: this.lastError });
     const status: HotkeyStatus =
       nativeRequired && this.fallbackRegistered
@@ -419,6 +472,7 @@ export class HotkeyService {
       helperEventTapCreated: this.helperEventTapCreated,
       nativeActive: this.nativeActive,
       nativeHelperPath: this.nativeHelperPath ?? options.nativeHelperPath,
+      nativeHelperKind: nativeHelperKindFor(options.platform, this.nativeHelperPath ?? options.nativeHelperPath),
       nativeHelperSignature: options.nativeHelperSignature,
       hotkeyLogPath: options.hotkeyLogPath,
       nativeLastInfo: this.nativeLastInfo,
@@ -463,6 +517,7 @@ export class HotkeyService {
       helperEventTapCreated: this.helperEventTapCreated,
       nativeActive: this.nativeActive,
       nativeHelperPath: this.nativeHelperPath ?? options.nativeHelperPath,
+      nativeHelperKind: nativeHelperKindFor(options.platform, this.nativeHelperPath ?? options.nativeHelperPath),
       nativeHelperSignature: options.nativeHelperSignature,
       hotkeyLogPath: options.hotkeyLogPath,
       nativeLastInfo: this.nativeLastInfo,
@@ -535,7 +590,7 @@ export class HotkeyService {
                 helperLastStderr: nativeLastInfo,
                 recommendedAction: 'none'
               });
-              return true;
+              return false;
             }
             return false;
           },
@@ -549,7 +604,7 @@ export class HotkeyService {
               helperVerified: false,
               helperLastStderr: nativeLastInfo,
               nativeExitCode: exitCodeFromError(error),
-              error: stringifyError(error),
+              error: stringifyNativeListenerError(error, options.platform, options.nativeHelperPath),
               diagnosticMessage: `系统监听组件不可用。${helperPermissionDiagnostic(options.platform, options.nativeHelperPath)}`,
               recommendedAction: (options.platform ?? process.platform) === 'darwin' ? 'grant-native-helper-accessibility' : 'try-fallback-shortcut'
             });
@@ -570,7 +625,7 @@ export class HotkeyService {
             nativeHelperPath: options.nativeHelperPath,
             helperStarted: false,
             helperVerified: false,
-            error: stringifyError(error),
+            error: stringifyNativeListenerError(error, options.platform, options.nativeHelperPath),
             diagnosticMessage: `系统监听组件启动失败。${helperPermissionDiagnostic(options.platform, options.nativeHelperPath)}`,
             recommendedAction: (options.platform ?? process.platform) === 'darwin' ? 'grant-native-helper-accessibility' : 'try-fallback-shortcut'
           });
@@ -609,7 +664,9 @@ class DefaultNativeKeyListenerFactory implements NativeKeyListenerFactory {
         serverPath
       },
       windows: {
-        onError
+        onError,
+        onInfo,
+        serverPath
       }
     });
     await listener.addListener(callback);
@@ -625,6 +682,14 @@ function stringifyError(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function stringifyNativeListenerError(error: unknown, platform?: NodeJS.Platform, nativeHelperPath?: string): string {
+  if ((platform ?? process.platform) === 'win32' && exitCodeFromError(error) === -4058) {
+    const target = nativeHelperPath ?? 'WinKeyServer.exe';
+    return `WinKeyServer.exe 未找到或无法启动：${target}`;
+  }
+  return stringifyError(error);
 }
 
 function exitCodeFromError(error: unknown): number | null | undefined {
@@ -654,11 +719,13 @@ function helperPendingDiagnostic(platform?: NodeJS.Platform): string {
   return '监听组件已启动，按一次快捷键完成验证；如果仍无反应，请完全退出 V2T 后重新打开。';
 }
 
-function helperFailureDiagnostic(platform?: NodeJS.Platform, nativeHelperPath?: string, stderr?: string): string {
+function helperFailureDiagnostic(platform?: NodeJS.Platform, nativeHelperPath?: string, stderr?: string, errorMessage?: string): string {
   const resolvedPlatform = platform ?? process.platform;
   if (resolvedPlatform === 'win32') {
     return stderr?.trim()
       ? `Windows 系统键盘监听不可用：${stderr.trim()}`
+      : errorMessage
+        ? `Windows 系统键盘监听不可用：${errorMessage}`
       : `Windows 系统键盘监听不可用。${helperPermissionDiagnostic(platform, nativeHelperPath)}`;
   }
   const base = isEventTapFailure(stderr)
@@ -678,6 +745,24 @@ function permissionKindFor(platform: NodeJS.Platform | undefined, accelerator: s
     return 'windows-native-hook';
   }
   return 'none';
+}
+
+function nativeHelperKindFor(platform: NodeJS.Platform | undefined, nativeHelperPath?: string): HotkeyStatus['nativeHelperKind'] {
+  if (!nativeHelperPath) {
+    return undefined;
+  }
+  const resolvedPlatform = platform ?? process.platform;
+  if (resolvedPlatform === 'darwin') {
+    return 'mac-key-server';
+  }
+  if (resolvedPlatform === 'win32') {
+    return 'win-key-server';
+  }
+  return undefined;
+}
+
+function usesWindowsModifierTap(options: HotkeyServiceOptions): boolean {
+  return (options.platform ?? process.platform) === 'win32' && isModifierOnlyAccelerator(options.accelerator);
 }
 
 function parseNativeInfo(info: string): Pick<HotkeyStatus, 'helperListenAccess' | 'helperEventTapCreated'> {

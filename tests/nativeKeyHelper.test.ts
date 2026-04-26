@@ -3,9 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  bundledWinKeyServerPath,
   bundledV2TMacKeyServerPath,
   ensureStableMacKeyServer,
+  ensureStableWinKeyServer,
   resolveBundledMacKeyServerPath,
+  stableWinKeyServerPath,
   stableMacKeyServerPath,
   unpackedAsarPath
 } from '../src/main/nativeKeyHelper';
@@ -25,9 +28,25 @@ describe('native key helper', () => {
     expect((await stat(target)).mode & 0o111).not.toBe(0);
   });
 
+  it('copies WinKeyServer.exe into a stable app data path', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'v2t-win-key-helper-'));
+    const source = join(root, 'WinKeyServer.exe');
+    const userData = join(root, 'AppData', 'Roaming', 'V2T');
+    await writeFile(source, 'fake windows helper');
+
+    const target = await ensureStableWinKeyServer(source, userData);
+
+    expect(target).toBe(join(userData, 'keyboard-listener', 'WinKeyServer.exe'));
+    expect(target).toBe(stableWinKeyServerPath(userData));
+    await expect(readFile(target, 'utf8')).resolves.toBe('fake windows helper');
+  });
+
   it('resolves packaged asar paths to asar.unpacked paths', () => {
     expect(unpackedAsarPath('/Applications/V2T.app/Contents/Resources/app.asar/node_modules/pkg/bin/MacKeyServer')).toBe(
       '/Applications/V2T.app/Contents/Resources/app.asar.unpacked/node_modules/pkg/bin/MacKeyServer'
+    );
+    expect(unpackedAsarPath('C:\\Program Files\\V2T\\resources\\app.asar\\node_modules\\pkg\\bin\\WinKeyServer.exe')).toBe(
+      'C:\\Program Files\\V2T\\resources\\app.asar.unpacked\\node_modules\\pkg\\bin\\WinKeyServer.exe'
     );
     expect(unpackedAsarPath('/Users/me/V2T/node_modules/pkg/bin/MacKeyServer')).toBe('/Users/me/V2T/node_modules/pkg/bin/MacKeyServer');
   });
@@ -50,5 +69,13 @@ describe('native key helper', () => {
     expect(bundledV2TMacKeyServerPath('/Applications/V2T.app/Contents/Resources/app.asar/dist/main')).toBe(
       '/Applications/V2T.app/Contents/Resources/app.asar.unpacked/dist/native/MacKeyServer'
     );
+  });
+
+  it('resolves packaged Windows helper paths outside app.asar', () => {
+    expect(
+      bundledWinKeyServerPath(
+        '/Applications/V2T.app/Contents/Resources/app.asar/node_modules/node-global-key-listener/bin/WinKeyServer.exe'
+      )
+    ).toBe('/Applications/V2T.app/Contents/Resources/app.asar.unpacked/node_modules/node-global-key-listener/bin/WinKeyServer.exe');
   });
 });

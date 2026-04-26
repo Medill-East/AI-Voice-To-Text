@@ -910,7 +910,7 @@ export function App() {
                 <dd>{hotkeyStatus.helperEventTapCreated ? '已创建' : '创建失败'}</dd>
               </div>
             ) : null}
-            {hotkeyStatus?.appAccessibilityTrusted !== undefined ? (
+            {hotkeyStatus?.permissionKind === 'macos-accessibility' && hotkeyStatus.appAccessibilityTrusted !== undefined ? (
               <div>
                 <dt>V2T 权限</dt>
                 <dd>{hotkeyStatus.appAccessibilityTrusted ? '主应用辅助功能权限已确认' : '主应用辅助功能权限未确认；仍会继续检测监听组件'}</dd>
@@ -1999,7 +1999,7 @@ function hotkeyHelperStateLabel(status: HotkeyStatus): string {
 
 function hotkeyPermissionHint(status?: HotkeyStatus): string {
   if (status?.permissionKind === 'windows-native-hook') {
-    return 'Windows 系统键盘监听不需要 macOS 辅助功能权限；如果检测失败，请重新检测，或确认安全软件没有拦截 V2T。';
+    return 'Windows 系统键盘监听无需额外系统授权；如果检测失败，请重新检测，或确认安全软件没有拦截 V2T。';
   }
   if (status?.permissionKind === 'none') {
     return '当前快捷键使用系统组合键注册，不需要额外权限。';

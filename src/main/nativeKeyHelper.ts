@@ -6,8 +6,12 @@ export function stableMacKeyServerPath(userDataPath: string): string {
   return join(userDataPath, 'keyboard-listener', 'MacKeyServer');
 }
 
+export function stableWinKeyServerPath(userDataPath: string): string {
+  return join(userDataPath, 'keyboard-listener', 'WinKeyServer.exe');
+}
+
 export function unpackedAsarPath(filePath: string): string {
-  return filePath.replace('/app.asar/', '/app.asar.unpacked/');
+  return filePath.replace(/([/\\])app\.asar([/\\])/, '$1app.asar.unpacked$2');
 }
 
 export function bundledV2TMacKeyServerPath(mainDir: string): string {
@@ -16,6 +20,10 @@ export function bundledV2TMacKeyServerPath(mainDir: string): string {
 
 export function bundledMacKeyServerPath(): string {
   return unpackedAsarPath(require.resolve('node-global-key-listener/bin/MacKeyServer'));
+}
+
+export function bundledWinKeyServerPath(filePath = require.resolve('node-global-key-listener/bin/WinKeyServer.exe')): string {
+  return unpackedAsarPath(filePath);
 }
 
 export async function resolveBundledMacKeyServerPath(mainDir: string, fallbackPath = bundledMacKeyServerPath()): Promise<string> {
@@ -35,6 +43,20 @@ export async function ensureStableMacKeyServer(sourcePath: string, userDataPath:
     await copyFile(sourcePath, targetPath);
   }
   await chmod(targetPath, 0o755);
+  return targetPath;
+}
+
+export async function resolveBundledWinKeyServerPath(fallbackPath = bundledWinKeyServerPath()): Promise<string> {
+  await access(fallbackPath, constants.F_OK);
+  return fallbackPath;
+}
+
+export async function ensureStableWinKeyServer(sourcePath: string, userDataPath: string): Promise<string> {
+  const targetPath = stableWinKeyServerPath(userDataPath);
+  await mkdir(dirname(targetPath), { recursive: true });
+  if (await shouldCopy(sourcePath, targetPath)) {
+    await copyFile(sourcePath, targetPath);
+  }
   return targetPath;
 }
 

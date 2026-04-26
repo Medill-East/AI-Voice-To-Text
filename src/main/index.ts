@@ -21,7 +21,7 @@ import { getFocusedAppName } from './focusedApp';
 import { createCheckingHotkeyStatus } from './hotkeyDiagnostics';
 import { HotkeyDiagnosticLog } from './hotkeyDiagnosticLog';
 import { HotkeyService, type HotkeyStatus, type HotkeyTestResult } from './hotkeyService';
-import { ensureStableMacKeyServer, resolveBundledMacKeyServerPath } from './nativeKeyHelper';
+import { ensureStableMacKeyServer, ensureStableWinKeyServer, resolveBundledMacKeyServerPath, resolveBundledWinKeyServerPath } from './nativeKeyHelper';
 import { OsPasteKeySender } from './osPasteKeySender';
 import { SecretStore } from './secretStore';
 import { createTrayImage } from './trayIcon';
@@ -848,6 +848,16 @@ function requiresNativeHotkey(accelerator: string): boolean {
 }
 
 async function setupNativeKeyHelper(): Promise<string | undefined> {
+  if (process.platform === 'win32') {
+    const bundledPath = await resolveBundledWinKeyServerPath();
+    try {
+      return await ensureStableWinKeyServer(bundledPath, app.getPath('userData'));
+    } catch (error) {
+      console.warn(`Unable to install stable WinKeyServer helper: ${readableError(error)}`);
+      return bundledPath;
+    }
+  }
+
   if (process.platform !== 'darwin') {
     return undefined;
   }
@@ -862,6 +872,9 @@ async function setupNativeKeyHelper(): Promise<string | undefined> {
 }
 
 function readCodeSignature(filePath: string): string | undefined {
+  if (process.platform !== 'darwin') {
+    return undefined;
+  }
   const result = spawnSync('codesign', ['-dv', '--verbose=4', filePath], { encoding: 'utf8' });
   const text = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim();
   const cdHash = text.match(/^CDHash=.+$/m)?.[0];

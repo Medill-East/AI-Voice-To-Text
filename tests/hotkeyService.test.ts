@@ -179,7 +179,7 @@ describe('HotkeyService', () => {
     });
 
     expect(nativeFactory.addListener).toHaveBeenCalledWith(expect.any(Function), expect.any(Function), expect.any(Function), undefined);
-    reportNativeError?.(new Error('Windows hook failed'));
+    reportNativeError?.(-4058);
 
     expect(onStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -187,11 +187,105 @@ describe('HotkeyService', () => {
         permissionKind: 'windows-native-hook',
         backend: 'electron-shortcut',
         activeAccelerator: 'CommandOrControl+Alt+Space',
+        lastError: expect.stringContaining('WinKeyServer.exe 未找到或无法启动'),
         diagnosticMessage: expect.stringContaining('Windows 系统键盘监听')
       })
     );
     expect(onStatus.mock.calls.at(-1)?.[0].diagnosticMessage).not.toContain('macOS');
     expect(onStatus.mock.calls.at(-1)?.[0].diagnosticMessage).not.toContain('MacKeyServer');
+  });
+
+  it('passes a Windows helper path to the native listener factory', async () => {
+    const { HotkeyService } = await import('../src/main/hotkeyService');
+    const nativeFactory: NativeKeyListenerFactory = {
+      addListener: vi.fn(async () => ({
+        remove: vi.fn(),
+        kill: vi.fn()
+      }))
+    };
+    const service = new HotkeyService({ nativeFactory });
+
+    const status = await service.register({
+      accelerator: 'RightControl',
+      fallbackAccelerator: 'CommandOrControl+Alt+Space',
+      longPressMs: 350,
+      platform: 'win32',
+      nativeHelperPath: 'C:\\Users\\me\\AppData\\Roaming\\V2T\\keyboard-listener\\WinKeyServer.exe',
+      onAction: vi.fn()
+    });
+
+    expect(nativeFactory.addListener).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function),
+      'C:\\Users\\me\\AppData\\Roaming\\V2T\\keyboard-listener\\WinKeyServer.exe'
+    );
+    expect(status).toMatchObject({
+      platform: 'win32',
+      nativeHelperKind: 'win-key-server',
+      nativeHelperPath: 'C:\\Users\\me\\AppData\\Roaming\\V2T\\keyboard-listener\\WinKeyServer.exe'
+    });
+  });
+
+  it('does not consume Windows pure modifier events and triggers only after a clean tap', async () => {
+    const { HotkeyService } = await import('../src/main/hotkeyService');
+    const onAction = vi.fn();
+    let listener: Parameters<NativeKeyListenerFactory['addListener']>[0] | undefined;
+    const nativeFactory: NativeKeyListenerFactory = {
+      addListener: vi.fn(async (callback) => {
+        listener = callback;
+        return {
+          remove: vi.fn(),
+          kill: vi.fn()
+        };
+      })
+    };
+    const service = new HotkeyService({ nativeFactory, now: () => 1000 });
+
+    await service.register({
+      accelerator: 'RightControl',
+      fallbackAccelerator: 'CommandOrControl+Alt+Space',
+      longPressMs: 350,
+      platform: 'win32',
+      onAction
+    });
+
+    expect(listener?.({ name: 'RIGHT CTRL', state: 'DOWN', vKey: 0xa3, scanCode: 0x1d, _raw: '' }, {})).toBe(false);
+    expect(onAction).not.toHaveBeenCalled();
+
+    expect(listener?.({ name: 'RIGHT CTRL', state: 'UP', vKey: 0xa3, scanCode: 0x1d, _raw: '' }, {})).toBe(false);
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledWith({ type: 'start-recording', mode: 'toggle', inputMode: 'natural' });
+  });
+
+  it('does not trigger Windows pure modifier when it was used in another app shortcut', async () => {
+    const { HotkeyService } = await import('../src/main/hotkeyService');
+    const onAction = vi.fn();
+    let listener: Parameters<NativeKeyListenerFactory['addListener']>[0] | undefined;
+    const nativeFactory: NativeKeyListenerFactory = {
+      addListener: vi.fn(async (callback) => {
+        listener = callback;
+        return {
+          remove: vi.fn(),
+          kill: vi.fn()
+        };
+      })
+    };
+    const service = new HotkeyService({ nativeFactory, now: () => 1000 });
+
+    await service.register({
+      accelerator: 'RightControl',
+      fallbackAccelerator: 'CommandOrControl+Alt+Space',
+      longPressMs: 350,
+      platform: 'win32',
+      onAction
+    });
+
+    expect(listener?.({ name: 'RIGHT CTRL', state: 'DOWN', vKey: 0xa3, scanCode: 0x1d, _raw: '' }, {})).toBe(false);
+    expect(listener?.({ name: 'RETURN', state: 'DOWN', vKey: 0x0d, scanCode: 0x1c, _raw: '' }, { 'RIGHT CTRL': true })).toBe(false);
+    expect(listener?.({ name: 'RETURN', state: 'UP', vKey: 0x0d, scanCode: 0x1c, _raw: '' }, { 'RIGHT CTRL': true })).toBe(false);
+    expect(listener?.({ name: 'RIGHT CTRL', state: 'UP', vKey: 0xa3, scanCode: 0x1d, _raw: '' }, {})).toBe(false);
+    expect(onAction).not.toHaveBeenCalled();
   });
 
   it('keeps primary hotkey pending when helper starts but no events arrive yet', async () => {
