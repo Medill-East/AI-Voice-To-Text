@@ -6,8 +6,34 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  windows:
+  build-mac:
+    name: Build macOS
+    runs-on: macos-latest
+    env:
+      ELECTRON_BUILDER_PUBLISH: never
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run dist:mac:ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v2t-macos
+          path: |
+            release/*.dmg
+            release/*-mac-*.zip
+          if-no-files-found: error
+
+  build-windows:
     name: Build Windows
     runs-on: windows-latest
     env:
@@ -26,5 +52,47 @@ jobs:
           name: v2t-windows
           path: |
             release/*.exe
-            release/*.zip
+            release/*-win-*.zip
           if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-mac, build-windows]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          TAG="v${VERSION}-${SHORT_SHA}"
+          TITLE="V2T v${VERSION} (${SHORT_SHA})"
+
+          cat > release-notes.md <<EOF
+          Build commit: \`${GITHUB_SHA}\`
+
+          Assets:
+          - macOS: DMG and ZIP
+          - Windows: EXE installer and ZIP
+
+          Notes:
+          - macOS CI package is 未 notarize/未正式签名.
+          - Windows CI package is unsigned.
+          - GitHub 同步仓库只同步设置、词库、提示词和可选历史；安装包统一从本 Release 下载。
+          EOF
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            gh release create "$TAG" release-assets/* --target "$GITHUB_SHA" --title "$TITLE" --notes-file release-notes.md
+          fi
