@@ -224,6 +224,30 @@ export function createSherpaOfflineRecognizerConfig(options: {
     };
   }
 
+  if (options.sherpaModelType === 'qwen3Asr') {
+    return {
+      featConfig: {
+        sampleRate: 16000,
+        featureDim: 80
+      },
+      modelConfig: {
+        ...baseModelConfig,
+        tokens: '',
+        qwen3Asr: {
+          convFrontend: join(options.modelRoot, 'conv_frontend.onnx'),
+          encoder: join(options.modelRoot, 'encoder.int8.onnx'),
+          decoder: join(options.modelRoot, 'decoder.int8.onnx'),
+          tokenizer: join(options.modelRoot, 'tokenizer'),
+          maxTotalLen: 512,
+          maxNewTokens: 512,
+          temperature: 1e-6,
+          topP: 0.8,
+          seed: 42
+        }
+      }
+    };
+  }
+
   if (options.sherpaModelType === 'fireRedAsrCtc') {
     return {
       featConfig: {
@@ -286,6 +310,9 @@ export function createSherpaOfflineRecognizerConfig(options: {
 }
 
 function requiredSherpaFiles(modelType: SherpaModelType): string[] {
+  if (modelType === 'qwen3Asr') {
+    return ['conv_frontend.onnx', 'encoder.int8.onnx', 'decoder.int8.onnx', 'tokenizer/vocab.json', 'tokenizer/merges.txt'];
+  }
   if (modelType === 'funasrNano') {
     return [
       'encoder_adaptor.int8.onnx',

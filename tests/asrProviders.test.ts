@@ -81,6 +81,25 @@ describe('ASR providers', () => {
         tokens: '/models/firered/tokens.txt'
       }
     });
+
+    expect(
+      createSherpaOfflineRecognizerConfig({
+        modelRoot: '/models/qwen3',
+        sherpaModelType: 'qwen3Asr',
+        language: 'zh'
+      })
+    ).toMatchObject({
+      modelConfig: {
+        tokens: '',
+        qwen3Asr: {
+          convFrontend: '/models/qwen3/conv_frontend.onnx',
+          encoder: '/models/qwen3/encoder.int8.onnx',
+          decoder: '/models/qwen3/decoder.int8.onnx',
+          tokenizer: '/models/qwen3/tokenizer',
+          maxNewTokens: 512
+        }
+      }
+    });
   });
 
   it('turns native sherpa numeric throws into a user-facing transcription error', async () => {

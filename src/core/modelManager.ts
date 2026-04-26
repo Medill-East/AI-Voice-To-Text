@@ -8,6 +8,7 @@ import * as tar from 'tar';
 import unbzip2Stream from 'unbzip2-stream';
 import type {
   InstalledModelView,
+  ModelBenchmarkResult,
   ModelCatalogItem,
   ModelDownloadProbeResult,
   ModelDownloadSource,
@@ -54,6 +55,7 @@ interface ModelManagerOptions {
   ) => Promise<void>;
   extractor?: (model: ModelCatalogItem, archivePath: string, installDir: string) => Promise<void>;
   verifier?: (model: ModelCatalogItem, installDir: string) => Promise<void>;
+  benchmarkTranscriber?: (model: ModelCatalogItem, modelPath: string, audio: Buffer) => Promise<string>;
   probeFetch?: typeof fetch;
   nowMs?: () => number;
 }
@@ -70,6 +72,7 @@ export class ModelManager {
   ) => Promise<void>;
   private readonly extractor: (model: ModelCatalogItem, archivePath: string, installDir: string) => Promise<void>;
   private readonly verifier: (model: ModelCatalogItem, installDir: string) => Promise<void>;
+  private readonly benchmarkTranscriber: (model: ModelCatalogItem, modelPath: string, audio: Buffer) => Promise<string>;
   private readonly probeFetch: typeof fetch;
   private readonly nowMs: () => number;
 
@@ -80,6 +83,7 @@ export class ModelManager {
     this.downloader = options.downloader ?? downloadModelArchive;
     this.extractor = options.extractor ?? extractModelArchive;
     this.verifier = options.verifier ?? verifyModelFiles;
+    this.benchmarkTranscriber = options.benchmarkTranscriber ?? defaultBenchmarkTranscriber;
     this.probeFetch = options.probeFetch ?? fetch;
     this.nowMs = options.nowMs ?? (() => Date.now());
   }
@@ -382,6 +386,56 @@ export class ModelManager {
     return probeDownloadSource(model.id, source, this.probeFetch, this.nowMs);
   }
 
+  async benchmarkInstalledModel(modelId: string): Promise<ModelBenchmarkResult> {
+    const model = this.getModel(modelId);
+    if (model.runtime !== 'sherpa-onnx' || !model.sherpaModelType) {
+      return { modelId, ok: false, error: '这个模型不是本地 sherpa-onnx 模型，暂时不能测速。' };
+    }
+
+    const statuses = await this.getStatuses();
+    const settings = await this.store.loadSettings();
+    const modelPath = statuses[modelId]?.modelPath ?? (settings.providers.asr.modelId === modelId ? settings.providers.asr.modelPath : undefined);
+    if (!modelPath) {
+      return { modelId, ok: false, error: '这个模型尚未安装，不能进行本机测速。' };
+    }
+
+    const samplePath = await benchmarkWavPath(model, dirname(modelPath));
+    if (!samplePath) {
+      return { modelId, ok: false, error: '这个模型没有可用的本机测速音频。' };
+    }
+
+    try {
+      const audio = await readFile(samplePath);
+      const audioSeconds = estimatePcm16WavDurationSeconds(audio);
+      const startedAt = this.nowMs();
+      const text = await this.benchmarkTranscriber(model, modelPath, audio);
+      const processMs = Math.max(1, this.nowMs() - startedAt);
+      const chars = [...text.trim()].length;
+      const benchmark: ModelBenchmarkResult = {
+        modelId,
+        ok: true,
+        audioSeconds,
+        processMs,
+        realTimeFactor: audioSeconds ? roundTo(audioSeconds / (processMs / 1000), 2) : undefined,
+        charsPerSecond: roundTo(chars / (processMs / 1000), 1),
+        textPreview: text.trim().slice(0, 80),
+        benchmarkedAt: new Date().toISOString()
+      };
+      await this.writeStatus(modelId, {
+        ...(statuses[modelId] ?? { status: settings.providers.asr.modelId === modelId ? 'current' : 'installed' }),
+        benchmarkMs: benchmark.processMs,
+        benchmarkAudioSeconds: benchmark.audioSeconds,
+        benchmarkRealTimeFactor: benchmark.realTimeFactor,
+        benchmarkCharsPerSecond: benchmark.charsPerSecond,
+        benchmarkedAt: benchmark.benchmarkedAt,
+        modelPath
+      });
+      return benchmark;
+    } catch (error) {
+      return { modelId, ok: false, error: `本机测速失败：${readableError(error)}` };
+    }
+  }
+
   private getModel(modelId: string): ModelCatalogItem {
     const model = this.findModel(modelId);
     if (!model) {
@@ -466,6 +520,9 @@ function inferSherpaModelType(modelId: string, modelPath?: string): SherpaModelT
   if (value.includes('firered')) {
     return 'fireRedAsr';
   }
+  if (value.includes('qwen3-asr')) {
+    return 'qwen3Asr';
+  }
   return undefined;
 }
 
@@ -517,6 +574,45 @@ async function missingRequiredFiles(model: ModelCatalogItem, root: string): Prom
     }
   }
   return missing;
+}
+
+async function benchmarkWavPath(model: ModelCatalogItem, modelRoot: string): Promise<string | undefined> {
+  const candidates =
+    model.sherpaModelType === 'qwen3Asr'
+      ? ['test_wavs/codeswitch.wav', 'test_wavs/noise2.wav', 'test_wavs/raokouling.wav']
+      : ['test_wavs/zh.wav', 'test_wavs/noise2.wav', 'test_wavs/codeswitch.wav'];
+  for (const candidate of candidates) {
+    const filePath = join(modelRoot, candidate);
+    if (existsSync(filePath)) {
+      return filePath;
+    }
+  }
+  return undefined;
+}
+
+function estimatePcm16WavDurationSeconds(bytes: Buffer | Uint8Array): number | undefined {
+  if (bytes.byteLength < 44) {
+    return undefined;
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  try {
+    if (String.fromCharCode(...bytes.slice(0, 4)) !== 'RIFF' || String.fromCharCode(...bytes.slice(8, 12)) !== 'WAVE') {
+      return undefined;
+    }
+    const channels = view.getUint16(22, true);
+    const sampleRate = view.getUint32(24, true);
+    const bitsPerSample = view.getUint16(34, true);
+    const dataBytes = view.getUint32(40, true);
+    const bytesPerSample = Math.max(1, (bitsPerSample / 8) * channels);
+    return dataBytes / bytesPerSample / sampleRate;
+  } catch {
+    return undefined;
+  }
+}
+
+function roundTo(value: number, digits: number): number {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
 }
 
 async function downloadModelArchive(
@@ -800,6 +896,17 @@ async function smokeTestInstalledModel(model: ModelCatalogItem, installDir: stri
   } catch (error) {
     throw new Error(`模型运行失败，请重新安装或选择其他模型：${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+async function defaultBenchmarkTranscriber(model: ModelCatalogItem, modelPath: string, audio: Buffer): Promise<string> {
+  const provider = new LocalSherpaAsrProvider({
+    modelId: model.id,
+    modelPath,
+    sherpaModelType: model.sherpaModelType,
+    language: 'zh'
+  });
+  const result = await provider.transcribe(audio);
+  return result.text;
 }
 
 function readableError(error: unknown): string {

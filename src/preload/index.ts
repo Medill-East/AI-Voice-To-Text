@@ -12,6 +12,7 @@ import type {
   LlmInstallerTarget,
   LlmProviderDetection,
   LlmTestResult,
+  ModelBenchmarkResult,
   ModelCatalogItem,
   ModelCatalogRefreshState,
   ModelDownloadProbeResult,
@@ -38,6 +39,7 @@ export interface V2TApi {
   refreshModelCatalog(): Promise<SetupPayload>;
   copyModelCatalogDiagnostics(): Promise<{ ok: true }>;
   testModelDownload(modelId: string): Promise<ModelDownloadProbeResult>;
+  benchmarkAsrModel(modelId: string): Promise<ModelBenchmarkResult>;
   checkForUpdates(): Promise<AppUpdateState>;
   downloadUpdate(): Promise<AppUpdateState>;
   installUpdate(): Promise<AppUpdateState>;
@@ -87,9 +89,12 @@ export interface V2TApi {
   getLlmInstallers(): Promise<LlmInstallerTarget[]>;
   openLlmInstaller(kind: LlmInstallerTarget['kind']): Promise<LlmInstallerActionResult>;
   openLlmInstallerDocs(kind: LlmInstallerTarget['kind']): Promise<LlmInstallerActionResult>;
+  openOpenRouterApiKeys(): Promise<{ ok: true }>;
+  openOpenRouterFreeModels(): Promise<{ ok: true }>;
   detectLlmProviders(): Promise<LlmProviderDetection[]>;
   enableLlmProvider(detection: LlmProviderDetection, model: string): Promise<LlmEnableResult>;
   testLlmConnection(): Promise<LlmTestResult>;
+  testCloudLlmConnection(): Promise<LlmTestResult>;
   processAudio(payload: { bytes: Uint8Array; mode: InputMode }): Promise<VoiceInputPipelineResult>;
   onRecordingCommand(callback: (command: RecordingCommand) => void): () => void;
   onHotkeyStatus(callback: (status: HotkeyStatus) => void): () => void;
@@ -177,6 +182,7 @@ const api: V2TApi = {
   refreshModelCatalog: () => ipcRenderer.invoke('v2t:refresh-model-catalog'),
   copyModelCatalogDiagnostics: () => ipcRenderer.invoke('v2t:copy-model-catalog-diagnostics'),
   testModelDownload: (modelId) => ipcRenderer.invoke('v2t:test-model-download', modelId),
+  benchmarkAsrModel: (modelId) => ipcRenderer.invoke('v2t:benchmark-asr-model', modelId),
   checkForUpdates: () => ipcRenderer.invoke('v2t:check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('v2t:download-update'),
   installUpdate: () => ipcRenderer.invoke('v2t:install-update'),
@@ -226,9 +232,12 @@ const api: V2TApi = {
   getLlmInstallers: () => ipcRenderer.invoke('v2t:get-llm-installers'),
   openLlmInstaller: (kind) => ipcRenderer.invoke('v2t:open-llm-installer', kind),
   openLlmInstallerDocs: (kind) => ipcRenderer.invoke('v2t:open-llm-installer-docs', kind),
+  openOpenRouterApiKeys: () => ipcRenderer.invoke('v2t:open-openrouter-api-keys'),
+  openOpenRouterFreeModels: () => ipcRenderer.invoke('v2t:open-openrouter-free-models'),
   detectLlmProviders: () => ipcRenderer.invoke('v2t:detect-llm-providers'),
   enableLlmProvider: (detection, model) => ipcRenderer.invoke('v2t:enable-llm-provider', detection, model),
   testLlmConnection: () => ipcRenderer.invoke('v2t:test-llm-connection'),
+  testCloudLlmConnection: () => ipcRenderer.invoke('v2t:test-cloud-llm'),
   processAudio: async (payload) => {
     const response = (await ipcRenderer.invoke('v2t:process-audio', payload)) as ProcessAudioResponse;
     if (!response.ok || !response.result) {

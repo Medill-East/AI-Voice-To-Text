@@ -54,6 +54,11 @@ describe('settings navigation structure', () => {
     expect(app).toContain('刷新模型榜单');
     expect(app).toContain('复制榜单诊断');
     expect(app).toContain('下载测速');
+    expect(app).toContain('本机测速');
+    expect(app).toContain('打开 OpenRouter API Key');
+    expect(app).toContain('打开免费模型列表');
+    expect(app).toContain('测试云端整理');
+    expect(app).toContain('低内存本地模型建议');
     expect(app).toContain('重新测速');
     expect(app).toContain('结构化引擎');
     expect(app).toContain('本地规则');
@@ -109,5 +114,7 @@ describe('settings navigation structure', () => {
     expect(styles).toContain('.llm-engine-grid');
     expect(styles).toContain('.subpage-tabs');
     expect(styles).toContain('.cloud-model-card');
+    expect(styles).toContain('.engine-card.active span');
+    expect(styles).toContain('.local-llm-suggestions');
   });
 });

@@ -288,6 +288,42 @@ describe('HotkeyService', () => {
     expect(onAction).not.toHaveBeenCalled();
   });
 
+  it('suppresses stale Windows modifier releases during processing or injection', async () => {
+    const { HotkeyService } = await import('../src/main/hotkeyService');
+    const onAction = vi.fn();
+    let currentTime = 1000;
+    let listener: Parameters<NativeKeyListenerFactory['addListener']>[0] | undefined;
+    const nativeFactory: NativeKeyListenerFactory = {
+      addListener: vi.fn(async (callback) => {
+        listener = callback;
+        return {
+          remove: vi.fn(),
+          kill: vi.fn()
+        };
+      })
+    };
+    const service = new HotkeyService({ nativeFactory, now: () => currentTime });
+
+    await service.register({
+      accelerator: 'RightControl',
+      fallbackAccelerator: 'CommandOrControl+Alt+Space',
+      longPressMs: 350,
+      platform: 'win32',
+      onAction
+    });
+
+    listener?.({ name: 'RIGHT CTRL', state: 'DOWN', vKey: 0xa3, scanCode: 0x1d, _raw: '' }, {});
+    service.suppressWindowsModifierTap('processing-started');
+    listener?.({ name: 'RIGHT CTRL', state: 'UP', vKey: 0xa3, scanCode: 0x1d, _raw: '' }, {});
+
+    expect(onAction).not.toHaveBeenCalled();
+
+    currentTime = 2000;
+    listener?.({ name: 'RIGHT CTRL', state: 'DOWN', vKey: 0xa3, scanCode: 0x1d, _raw: '' }, {});
+    listener?.({ name: 'RIGHT CTRL', state: 'UP', vKey: 0xa3, scanCode: 0x1d, _raw: '' }, {});
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps primary hotkey pending when helper starts but no events arrive yet', async () => {
     vi.useFakeTimers();
     const { HotkeyService } = await import('../src/main/hotkeyService');

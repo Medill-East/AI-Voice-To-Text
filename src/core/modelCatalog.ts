@@ -455,29 +455,42 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
   },
   {
     id: 'qwen3-asr-0.6b',
-    name: 'Qwen3-ASR 0.6B',
+    name: 'Qwen3-ASR 0.6B int8 2026-03-25',
     family: 'qwen3-asr',
-    releasedAt: '2026-03-01',
-    installable: false,
-    availability: 'manual',
-    unavailableReason: 'sherpa-onnx 已有 Qwen3-ASR 0.6B ONNX 文档，但 V2T 还没有实现对应 recognizer config 和安装后 smoke test。',
-    manualSetup: '可参考 sherpa-onnx Qwen3-ASR 文档手动运行；完成 V2T adapter 后可进入一键安装区。',
+    releasedAt: '2026-03-25',
+    installable: true,
+    availability: 'installable',
+    runtimeVerified: true,
     runtime: 'sherpa-onnx',
-    sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/qwen3-asr/index.html',
+    sherpaModelType: 'qwen3Asr',
+    sourceUrl:
+      'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2',
+    downloadSources: [
+      {
+        label: 'GitHub Release',
+        url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2',
+        priority: 10
+      }
+    ],
     license: 'Open',
-    sizeMb: 600,
+    sizeMb: 838,
     languages: ['中文', '英文', '粤语', '多语言', '中文方言'],
-    qualityTags: ['公开榜单高分', '中文方言', '中英混输', '待接入'],
+    qualityTags: ['中文优先', '方言增强', '公开榜单高分', '中文方言', '中英混输', '本地离线'],
     hardwareRequirements: { minMemoryGb: 16, recommendedTier: 'high' },
-    archiveType: 'file',
-    extractedDir: '',
-    primaryModelFile: '',
-    requiredFiles: [],
+    archiveType: 'tar.bz2',
+    extractedDir: 'sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25',
+    primaryModelFile: 'encoder.int8.onnx',
+    requiredFiles: ['conv_frontend.onnx', 'encoder.int8.onnx', 'decoder.int8.onnx', 'tokenizer/vocab.json', 'tokenizer/merges.txt'],
+    benchmarks: {
+      sourceLabel: 'sherpa-onnx / Qwen3-ASR',
+      sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/qwen3-asr/pretrained.html',
+      note: '官方 ONNX int8 模型参考；本机速度以 V2T 测速为准。'
+    },
     evaluationSources: {
       chineseBenchmark: {
         sourceLabel: 'Qwen3-ASR sherpa-onnx documentation',
-        sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/qwen3-asr/index.html',
-        note: 'Qwen3-ASR 0.6B ONNX 文档说明支持中文、英文、粤语和多种中文方言；V2T 尚未完成一键运行验证。',
+        sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/qwen3-asr/pretrained.html',
+        note: 'Qwen3-ASR 0.6B ONNX 文档说明支持中文、英文、粤语和多种中文方言；V2T 已接入一键运行链路。',
         metrics: [
           { label: '中文/英文/粤语覆盖', metric: 'Rank', value: 3, lowerIsBetter: false, dataset: 'language coverage' },
           { label: '中文方言覆盖', metric: 'Rank', value: 1, lowerIsBetter: false, dataset: 'dialect coverage' }
@@ -494,9 +507,12 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
       },
       officialBenchmark: {
         sourceLabel: 'sherpa-onnx Qwen3-ASR documentation',
-        sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/qwen3-asr/index.html',
-        note: 'sherpa-onnx 文档说明 Qwen3-ASR 支持中文、英文、粤语和多种中文方言。',
+        sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/qwen3-asr/pretrained.html',
+        note: 'sherpa-onnx 文档说明 Qwen3-ASR 支持中文、英文、粤语和多种中文方言，并提供 JavaScript API。',
         metrics: []
+      },
+      localRecommendation: {
+        note: 'V2T 本机适配分，结合中文适配、速度、硬件匹配、体积和语言覆盖计算。'
       }
     }
   },
@@ -672,6 +688,11 @@ function scoreModel(model: ModelCatalogItem, hardware: HardwareProfile, status: 
 
   if (status === 'current') {
     rawScore += 6;
+  }
+
+  if (hardware.memoryGb < model.hardwareRequirements.minMemoryGb) {
+    rawScore -= 30;
+    reasons.push('内存低于建议');
   }
 
   if (reasons.length === 0) {

@@ -13,6 +13,7 @@ import type {
   Lexicon,
   LlmInstallerTarget,
   LlmProviderDetection,
+  ModelBenchmarkResult,
   ModelCatalogItem,
   ModelCatalogRefreshState,
   ModelDownloadProbeResult,
@@ -113,6 +114,8 @@ export function App() {
   const [installProgressById, setInstallProgressById] = useState<Record<string, ModelStatusRecord>>({});
   const [downloadProbeById, setDownloadProbeById] = useState<Record<string, ModelDownloadProbeResult>>({});
   const [probingModelId, setProbingModelId] = useState<string | null>(null);
+  const [benchmarkingModelId, setBenchmarkingModelId] = useState<string | null>(null);
+  const [benchmarkResultById, setBenchmarkResultById] = useState<Record<string, ModelBenchmarkResult>>({});
   const [activatingModelId, setActivatingModelId] = useState<string | null>(null);
   const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
   const [syncRepoUrl, setSyncRepoUrl] = useState('');
@@ -748,6 +751,15 @@ export function App() {
     setProbingModelId(null);
   };
 
+  const benchmarkAsrModel = async (modelId: string) => {
+    setError(null);
+    setBenchmarkingModelId(modelId);
+    const result = await window.v2t.benchmarkAsrModel(modelId);
+    setBenchmarkResultById((current) => ({ ...current, [modelId]: result }));
+    setBenchmarkingModelId(null);
+    applySetup(await window.v2t.getSetup());
+  };
+
   const testHotkey = async () => {
     if (!settings?.hotkey.accelerator) {
       return;
@@ -891,6 +903,28 @@ export function App() {
       const elapsed = typeof result.elapsedMs === 'number' ? `（${Math.round(result.elapsedMs / 100) / 10}s）` : '';
       setLlmMessage(`${result.error ?? 'LLM 测试失败'}${elapsed}${result.reasoningOnly ? '；这是 reasoning-only 响应，建议关闭 Thinking 或启用云端兜底。' : ''}`);
     }
+  };
+
+  const testCloudLlmConnection = async () => {
+    setLlmMessage('正在用内置样例测试云端整理');
+    const result = await window.v2t.testCloudLlmConnection();
+    if (result.ok) {
+      const elapsed = typeof result.elapsedMs === 'number' ? ` · ${Math.round(result.elapsedMs / 100) / 10}s` : '';
+      setLlmMessage(`云端模型可用${elapsed}：${result.output ?? '测试通过'}`);
+    } else {
+      const elapsed = typeof result.elapsedMs === 'number' ? `（${Math.round(result.elapsedMs / 100) / 10}s）` : '';
+      setLlmMessage(`${result.error ?? '云端模型测试失败'}${elapsed}`);
+    }
+  };
+
+  const openOpenRouterApiKeys = async () => {
+    await window.v2t.openOpenRouterApiKeys();
+    setLlmMessage('已打开 OpenRouter API Key 页面。创建 Key 后回到这里保存。');
+  };
+
+  const openOpenRouterFreeModels = async () => {
+    await window.v2t.openOpenRouterFreeModels();
+    setLlmMessage('已打开 OpenRouter 免费模型列表。免费模型可能限流或变化。');
   };
 
   const saveLlmApiKey = async () => {
@@ -1248,7 +1282,7 @@ export function App() {
                   </button>
                 </div>
               </section>
-              <ModelComparisonTable recommendations={setup.recommendations} referenceModels={referenceCatalog} />
+              <ModelComparisonTable recommendations={setup.recommendations} referenceModels={referenceCatalog} modelStatuses={setup.modelStatuses} />
               <div className="model-list">
                 {setup.recommendations.map((recommendation) => (
                   <ModelRow
@@ -1257,7 +1291,9 @@ export function App() {
                     currentModelId={settings?.providers.asr.modelId}
                     statusRecord={installProgressById[recommendation.model.id] ?? setup.modelStatuses[recommendation.model.id]}
                     probeResult={downloadProbeById[recommendation.model.id]}
+                    benchmarkResult={benchmarkResultById[recommendation.model.id]}
                     probing={probingModelId === recommendation.model.id}
+                    benchmarking={benchmarkingModelId === recommendation.model.id}
                     installingModelId={installingModelId}
                     deletingModelId={deletingModelId}
                     onInstall={installModel}
@@ -1267,6 +1303,7 @@ export function App() {
                      onImportDirectory={importModelDirectory}
                      onClearInstall={clearModelInstall}
                      onTestDownload={testModelDownload}
+                     onBenchmark={benchmarkAsrModel}
                     onActivate={activateModel}
                     onDelete={deleteModel}
                   />
@@ -1284,6 +1321,8 @@ export function App() {
                         deletingModelId={deletingModelId}
                         onActivate={activateModel}
                         onReinstall={reinstallModel}
+                        onBenchmark={benchmarkAsrModel}
+                        benchmarking={benchmarkingModelId === model.modelId}
                         onDelete={deleteModel}
                       />
                     ))}
@@ -1392,6 +1431,16 @@ export function App() {
                     </div>
                   ) : null}
 
+                  <section className="advanced-group">
+                    <h3>低内存本地模型建议</h3>
+                    <p className="hint">0.5B-1.7B 适合短文本纠错和轻量结构化，内存占用低但稳定性不如 4B-9B；4B 左右通常是速度和质量更稳的折中。</p>
+                    <div className="local-llm-suggestions">
+                      {['Qwen3.5 1.7B / Q4', 'Qwen3.5 4B / Q4', 'Gemma 4 4B / Q4', 'Nemotron 3 Nano 小参数量量化版'].map((name) => (
+                        <span key={name}>{name}</span>
+                      ))}
+                    </div>
+                  </section>
+
                   <section className="advanced-group llm-manual-config">
                     <h3>本地 OpenAI-compatible 配置</h3>
                     <p className="hint">适合 Ollama、LM Studio 或其它本机兼容服务；API Key 只保存到系统钥匙串，不写入同步目录。</p>
@@ -1468,6 +1517,17 @@ export function App() {
                   <section className="advanced-group">
                     <h3>推荐云端模型</h3>
                     <p className="hint">优先推荐适合中文和中英混合口述整理的 OpenAI-compatible 模型。免费模型可能限流或变动；敏感内容建议继续用本地 LLM。</p>
+                    <div className="inline-actions cloud-quick-actions">
+                      <button className="secondary compact" onClick={() => void openOpenRouterApiKeys()}>
+                        打开 OpenRouter API Key
+                      </button>
+                      <button className="secondary compact" onClick={() => void openOpenRouterFreeModels()}>
+                        打开免费模型列表
+                      </button>
+                      <button className="secondary compact" onClick={() => void testCloudLlmConnection()}>
+                        测试云端整理
+                      </button>
+                    </div>
                     <div className="cloud-model-list">
                       {CLOUD_LLM_RECOMMENDATIONS.map((recommendation) => (
                         <article key={recommendation.model} className="cloud-model-card">
@@ -2413,15 +2473,19 @@ function InstalledModelRow({
   model,
   activatingModelId,
   deletingModelId,
+  benchmarking,
   onActivate,
   onReinstall,
+  onBenchmark,
   onDelete
 }: {
   model: InstalledModelView;
   activatingModelId: string | null;
   deletingModelId: string | null;
+  benchmarking: boolean;
   onActivate(modelId: string): Promise<void>;
   onReinstall(modelId: string): Promise<void>;
+  onBenchmark(modelId: string): Promise<void>;
   onDelete(modelId: string): Promise<void>;
 }) {
   const activating = activatingModelId === model.modelId;
@@ -2443,6 +2507,9 @@ function InstalledModelRow({
             重新安装
           </button>
         ) : null}
+        <button className="secondary" onClick={() => void onBenchmark(model.modelId)} disabled={benchmarking}>
+          {benchmarking ? '测速中' : '本机测速'}
+        </button>
         {model.canDelete ? (
           <button className="danger" onClick={() => void onDelete(model.modelId)} disabled={deleting}>
             {deleting ? '删除中' : '删除'}
@@ -2493,10 +2560,12 @@ function PromptEditor({
 
 function ModelComparisonTable({
   recommendations,
-  referenceModels
+  referenceModels,
+  modelStatuses
 }: {
   recommendations: ModelRecommendation[];
   referenceModels: ModelCatalogItem[];
+  modelStatuses: Record<string, ModelStatusRecord>;
 }) {
   const rows = [
     ...recommendations.map((recommendation) => ({
@@ -2521,6 +2590,7 @@ function ModelComparisonTable({
           <span>中文/方言指标</span>
           <span>英文公开榜参考</span>
           <span>RTFx</span>
+          <span>本机速度</span>
           <span>状态</span>
         </div>
         {rows.map(({ model, score, status }) => {
@@ -2533,6 +2603,11 @@ function ModelComparisonTable({
               <ComparisonMetric value={chineseMetric.value} label={chineseMetric.label} lowerIsBetter={chineseMetric.lowerIsBetter} max={chineseMetric.max} />
               <ComparisonMetric value={openAsr?.avgWer} label={openAsr?.avgWer ? `WER ${openAsr.avgWer}%` : '无英文榜'} lowerIsBetter max={10} />
               <ComparisonMetric value={openAsr?.rtfx} label={openAsr?.rtfx ? `${Math.round(openAsr.rtfx)}` : '暂无'} max={3500} />
+              <ComparisonMetric
+                value={modelStatuses[model.id]?.benchmarkRealTimeFactor}
+                label={modelStatuses[model.id]?.benchmarkRealTimeFactor ? `${modelStatuses[model.id]?.benchmarkRealTimeFactor}x` : '未测速'}
+                max={20}
+              />
               <span>{status}</span>
             </div>
           );
@@ -2590,7 +2665,9 @@ function ModelRow({
   currentModelId,
   statusRecord,
   probeResult,
+  benchmarkResult,
   probing,
+  benchmarking,
   installingModelId,
   deletingModelId,
   onInstall,
@@ -2600,6 +2677,7 @@ function ModelRow({
   onImportDirectory,
   onClearInstall,
   onTestDownload,
+  onBenchmark,
   onActivate,
   onDelete
 }: {
@@ -2607,7 +2685,9 @@ function ModelRow({
   currentModelId?: string;
   statusRecord?: ModelStatusRecord;
   probeResult?: ModelDownloadProbeResult;
+  benchmarkResult?: ModelBenchmarkResult;
   probing: boolean;
+  benchmarking: boolean;
   installingModelId: string | null;
   deletingModelId: string | null;
   onInstall(modelId: string): Promise<void>;
@@ -2617,6 +2697,7 @@ function ModelRow({
   onImportDirectory(modelId: string): Promise<void>;
   onClearInstall(modelId: string): Promise<void>;
   onTestDownload(modelId: string): Promise<void>;
+  onBenchmark(modelId: string): Promise<void>;
   onActivate(modelId: string): Promise<void>;
   onDelete(modelId: string): Promise<void>;
 }) {
@@ -2650,6 +2731,7 @@ function ModelRow({
        </small>
        <p className="progress-meta">导入模型：可选择已下载的官方压缩包，或选择已解压目录。</p>
        <DownloadProbeSummary result={probeResult} />
+       <BenchmarkSummary status={statusRecord} result={benchmarkResult} />
          {statusRecord ? <InstallProgress status={statusRecord} /> : null}
        </div>
       <div className="model-row-actions">
@@ -2673,6 +2755,11 @@ function ModelRow({
         <button className="secondary" onClick={() => void onTestDownload(recommendation.model.id)} disabled={probing || installing}>
           {probing ? '测速中' : probeResult ? '重新测速' : '下载测速'}
         </button>
+        {installed ? (
+          <button className="secondary" onClick={() => void onBenchmark(recommendation.model.id)} disabled={benchmarking || installing}>
+            {benchmarking ? '测速中' : '本机测速'}
+          </button>
+        ) : null}
         {installing ? (
           <button className="secondary" onClick={() => void onCancelInstall(recommendation.model.id)}>
             取消
@@ -2823,6 +2910,29 @@ function DownloadProbeSummary({ result }: { result?: ModelDownloadProbeResult })
       {result.error ? <p className="progress-error">{result.error}</p> : null}
       <small>{result.url}</small>
     </div>
+  );
+}
+
+function BenchmarkSummary({ status, result }: { status?: ModelStatusRecord; result?: ModelBenchmarkResult }) {
+  const failed = result && !result.ok;
+  const realTimeFactor = result?.realTimeFactor ?? status?.benchmarkRealTimeFactor;
+  const charsPerSecond = result?.charsPerSecond ?? status?.benchmarkCharsPerSecond;
+  const benchmarkedAt = result?.benchmarkedAt ?? status?.benchmarkedAt;
+
+  if (failed) {
+    return <p className="progress-error">{result.error}</p>;
+  }
+
+  if (!realTimeFactor && !charsPerSecond) {
+    return <p className="progress-meta">本机测速会用模型自带中文/中英样例，显示你的设备真实转写速度。</p>;
+  }
+
+  return (
+    <p className="progress-meta">
+      本机速度 {realTimeFactor ? `${realTimeFactor}x 实时` : '未知'}
+      {charsPerSecond ? ` · ${charsPerSecond} 字/秒` : ''}
+      {benchmarkedAt ? ` · ${new Date(benchmarkedAt).toLocaleString()}` : ''}
+    </p>
   );
 }
 

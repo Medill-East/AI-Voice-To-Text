@@ -2,7 +2,7 @@ export type InputMode = 'natural' | 'structured';
 export type AsrProviderKind = 'local-sherpa-onnx' | 'funasr-http' | 'whisper-cpp';
 export type ModelRuntime = 'sherpa-onnx' | 'whisper-cpp' | 'external';
 export type ModelAvailability = 'installable' | 'manual' | 'reference';
-export type SherpaModelType = 'senseVoice' | 'funasrNano' | 'fireRedAsr' | 'fireRedAsrCtc' | 'paraformer' | 'zipformerCtc';
+export type SherpaModelType = 'senseVoice' | 'funasrNano' | 'fireRedAsr' | 'fireRedAsrCtc' | 'paraformer' | 'zipformerCtc' | 'qwen3Asr';
 export type ModelInstallStatus =
   | 'not-installed'
   | 'downloading'
@@ -284,6 +284,11 @@ export interface ModelStatusRecord {
   startedAt?: string;
   lastProgressAt?: string;
   modelPath?: string;
+  benchmarkMs?: number;
+  benchmarkAudioSeconds?: number;
+  benchmarkRealTimeFactor?: number;
+  benchmarkCharsPerSecond?: number;
+  benchmarkedAt?: string;
   error?: string;
   updatedAt: string;
 }
@@ -312,6 +317,18 @@ export interface InstalledModelView {
   canActivate: boolean;
   canDelete: boolean;
   canReinstall: boolean;
+}
+
+export interface ModelBenchmarkResult {
+  modelId: string;
+  ok: boolean;
+  audioSeconds?: number;
+  processMs?: number;
+  realTimeFactor?: number;
+  charsPerSecond?: number;
+  textPreview?: string;
+  benchmarkedAt?: string;
+  error?: string;
 }
 
 export interface GitHubSyncStatus {

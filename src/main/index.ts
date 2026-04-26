@@ -329,9 +329,18 @@ function registerIpc(): void {
   ipcMain.handle('v2t:get-llm-installers', async () => getLlmInstallerTargets());
   ipcMain.handle('v2t:open-llm-installer', async (_event, kind: LlmProviderKind) => openLlmInstaller(kind, 'download'));
   ipcMain.handle('v2t:open-llm-installer-docs', async (_event, kind: LlmProviderKind) => openLlmInstaller(kind, 'docs'));
+  ipcMain.handle('v2t:open-openrouter-api-keys', async () => {
+    await shell.openExternal('https://openrouter.ai/settings/keys');
+    return { ok: true };
+  });
+  ipcMain.handle('v2t:open-openrouter-free-models', async () => {
+    await shell.openExternal('https://openrouter.ai/models?max_price=0');
+    return { ok: true };
+  });
   ipcMain.handle('v2t:detect-llm-providers', async () => detectLocalLlmProviders());
   ipcMain.handle('v2t:enable-llm-provider', async (_event, detection: LlmProviderDetection, model: string) => enableLlmProvider(detection, model));
   ipcMain.handle('v2t:test-llm-connection', async () => testCurrentLlmConnection());
+  ipcMain.handle('v2t:test-cloud-llm', async () => testCloudLlmConnection());
   ipcMain.handle('v2t:update-hotkey', async (_event, accelerator: string) => updateHotkey(accelerator));
   ipcMain.handle('v2t:open-accessibility-settings', async () => {
     if (process.platform !== 'darwin') {
@@ -482,6 +491,16 @@ function registerIpc(): void {
     }
   });
   ipcMain.handle('v2t:test-model-download', async (_event, modelId: string) => createModelManager().probeModelDownload(modelId));
+  ipcMain.handle('v2t:benchmark-asr-model', async (_event, modelId: string) => {
+    const result = await createModelManager().benchmarkInstalledModel(modelId);
+    if (result.ok) {
+      const status = (await createModelManager().getStatuses())[modelId];
+      if (status) {
+        mainWindow?.webContents.send('v2t:model-install-progress', status);
+      }
+    }
+    return result;
+  });
   ipcMain.handle('v2t:activate-model', async (_event, modelId: string) => {
     const manager = createModelManager();
     try {
@@ -503,6 +522,7 @@ function registerIpc(): void {
   });
   ipcMain.handle('v2t:process-audio', async (_event, payload: { bytes: Uint8Array; mode: InputMode }) => {
     const diagnostic = createProcessingDiagnostic(payload);
+    hotkeyService.suppressWindowsModifierTap('processing-started');
     try {
       await writeProcessingMarker(diagnostic);
       const pipeline = await createPipeline();
@@ -511,10 +531,12 @@ function registerIpc(): void {
         targetApp: await getFocusedAppName(),
         prompt: await store.readPrompt(payload.mode)
       });
+      hotkeyService.suppressWindowsModifierTap('text-injected');
       await clearProcessingMarker();
       scheduleAutoSync('voice-input');
       return { ok: true, result };
     } catch (error) {
+      hotkeyService.suppressWindowsModifierTap('processing-failed');
       await writeProcessingMarker({ ...diagnostic, stage: 'failed', error: readableError(error) }).catch(() => undefined);
       await clearProcessingMarker().catch(() => undefined);
       return { ok: false, error: readableError(error) };
@@ -644,6 +666,17 @@ async function testCurrentLlmConnection() {
     apiKey: await new SecretStore().getOpenAICompatibleKey(),
     timeoutMs: settings.providers.llm.timeoutMs,
     fastMode: settings.providers.llm.fastMode
+  });
+}
+
+async function testCloudLlmConnection() {
+  return testLlmClient({
+    kind: 'openai-compatible',
+    baseUrl: settings.providers.llm.fallback.baseUrl,
+    model: settings.providers.llm.fallback.model,
+    apiKey: await new SecretStore('v2t-llm-fallback').getOpenAICompatibleKey(),
+    timeoutMs: settings.providers.llm.fallback.timeoutMs,
+    fastMode: true
   });
 }
 
@@ -1706,6 +1739,8 @@ function createHotkeyDiagnosticText(): string {
     `helperListenAccess: ${String(status?.helperListenAccess ?? 'unknown')}`,
     `helperEventTapCreated: ${String(status?.helperEventTapCreated ?? 'unknown')}`,
     `lastNativeEventAt: ${status?.lastNativeEventAt ? new Date(status.lastNativeEventAt).toISOString() : 'none'}`,
+    `lastSuppressedTapReason: ${status?.lastSuppressedTapReason ?? 'none'}`,
+    `lastSuppressedTapAt: ${status?.lastSuppressedTapAt ? new Date(status.lastSuppressedTapAt).toISOString() : 'none'}`,
     `exitCode: ${String(status?.nativeExitCode ?? 'none')}`,
     `stderr: ${status?.helperLastStderr ?? status?.nativeLastInfo ?? 'none'}`,
     `logPath: ${hotkeyLog.getPath()}`
@@ -1820,6 +1855,7 @@ function sendHotkeyAction(action: { type: 'start-recording' | 'stop-recording' |
     sendRecordingCommand({ type: 'set-mode', trigger: 'toggle', inputMode: action.inputMode });
   } else {
     sendRecordingCommand({ type: 'stop', trigger: action.mode ?? 'toggle' });
+    hotkeyService.suppressWindowsModifierTap('recording-stop-requested', 500);
   }
 }
 

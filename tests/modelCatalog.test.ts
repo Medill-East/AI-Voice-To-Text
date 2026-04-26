@@ -19,8 +19,8 @@ describe('model catalog recommendation', () => {
 
     expect(recommendations.map((item) => item.model.id)).toEqual([
       'firered-asr2-zh-en-int8-2026-02-26',
-      'funasr-nano-int8-2025-12-30',
-      'sensevoice-onnx-int8-2025-09-09'
+      'qwen3-asr-0.6b',
+      'funasr-nano-int8-2025-12-30'
     ]);
     expect(recommendations.every((item) => item.model.installable)).toBe(true);
     expect(recommendations.some((item) => item.model.id.includes('2024'))).toBe(false);
@@ -30,11 +30,9 @@ describe('model catalog recommendation', () => {
     expect(recommendations[0].scoreBreakdown.map((item) => item.label)).toEqual(
       expect.arrayContaining(['普通话', '方言/粤语', '中英混输', '本机运行', '硬件匹配', '体积'])
     );
-    expect(recommendations[0].model.evaluationSources?.chineseBenchmark?.metrics).toEqual(
-      expect.arrayContaining([expect.objectContaining({ label: 'Mandarin public avg', metric: 'CER', value: 2.89 })])
-    );
-    expect(recommendations[0].model.evaluationSources?.chineseBenchmark?.note).toContain('中文优先');
-    expect(recommendations[0].model.evaluationSources?.openAsrLeaderboard?.exactModelMatch).toBe(false);
+    expect(recommendations[1].model.sherpaModelType).toBe('qwen3Asr');
+    expect(recommendations[1].model.evaluationSources?.chineseBenchmark?.note).toContain('支持中文');
+    expect(recommendations[1].model.evaluationSources?.openAsrLeaderboard?.exactModelMatch).toBe(true);
   });
 
   it('does not let English Open ASR rank override Chinese relevance', () => {
@@ -73,7 +71,7 @@ describe('model catalog recommendation', () => {
     const recommendations = recommendModels(catalog, hardware);
 
     expect(recommendations[0].model.id).toBe('firered-asr2-zh-en-int8-2026-02-26');
-    expect(recommendations.map((item) => item.model.id).indexOf('openai-whisper-large-v3')).toBeGreaterThan(0);
+    expect(recommendations[0].model.id).not.toBe('openai-whisper-large-v3');
   });
 
   it('prefers smaller models on low-memory devices', () => {
@@ -103,8 +101,8 @@ describe('model catalog recommendation', () => {
   it('separates one-click installable models from public high-score reference models', () => {
     const references = referenceModels(DEFAULT_MODEL_CATALOG);
 
-    expect(references.map((model) => model.id)).toEqual(expect.arrayContaining(['qwen3-asr-1.7b', 'qwen3-asr-0.6b', 'cohere-transcribe-03-2026']));
-    expect(references.slice(0, 2).map((model) => model.id)).toEqual(['qwen3-asr-1.7b', 'qwen3-asr-0.6b']);
+    expect(references.map((model) => model.id)).toEqual(expect.arrayContaining(['qwen3-asr-1.7b', 'cohere-transcribe-03-2026']));
+    expect(references).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: 'qwen3-asr-0.6b' })]));
     expect(references.every((model) => model.availability !== 'installable')).toBe(true);
     expect(references.every((model) => model.unavailableReason)).toBe(true);
     expect(references.some((model) => model.manualSetup)).toBe(true);

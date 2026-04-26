@@ -488,13 +488,13 @@ textarea {
 .comparison-table {
   display: grid;
   gap: 8px;
-  min-width: 920px;
+  min-width: 1060px;
 }
 
 .comparison-head,
 .comparison-row {
   display: grid;
-  grid-template-columns: 230px 128px 180px 170px 110px 120px;
+  grid-template-columns: 230px 128px 180px 170px 110px 110px 120px;
   gap: 10px;
   align-items: center;
 }
@@ -1012,6 +1012,7 @@ textarea {
   gap: 5px;
   min-height: 78px;
   padding: 12px;
+  color: var(--color-text);
   text-align: left;
   background: var(--color-control);
   border: 1px solid var(--color-control-border);
@@ -1029,8 +1030,32 @@ textarea {
 }
 
 .engine-card span {
+  color: var(--color-muted);
   font-size: 12px;
   line-height: 1.35;
+}
+
+.engine-card.active span {
+  color: var(--color-bg);
+  opacity: 0.78;
+}
+
+.local-llm-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.local-llm-suggestions span {
+  padding: 7px 9px;
+  color: var(--color-text);
+  background: var(--color-control);
+  border: 1px solid var(--color-control-border);
+  border-radius: 6px;
+}
+
+.cloud-quick-actions {
+  margin-bottom: 12px;
 }
 
 .subpage-tabs {

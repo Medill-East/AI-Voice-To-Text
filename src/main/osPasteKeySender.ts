@@ -18,7 +18,13 @@ export class OsPasteKeySender implements PasteKeySender {
       await execFileAsync('powershell.exe', [
         '-NoProfile',
         '-Command',
-        "$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys('^v')"
+        [
+          'Add-Type -Namespace V2T -Name Keyboard -MemberDefinition \'[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, int dwFlags, UIntPtr dwExtraInfo);\'',
+          '[V2T.Keyboard]::keybd_event(0xA2, 0, 0, [UIntPtr]::Zero)',
+          '[V2T.Keyboard]::keybd_event(0x56, 0, 0, [UIntPtr]::Zero)',
+          '[V2T.Keyboard]::keybd_event(0x56, 0, 2, [UIntPtr]::Zero)',
+          '[V2T.Keyboard]::keybd_event(0xA2, 0, 2, [UIntPtr]::Zero)'
+        ].join('; ')
       ]);
       return;
     }

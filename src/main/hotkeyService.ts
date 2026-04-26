@@ -60,6 +60,8 @@ export interface HotkeyStatus {
   appAccessibilityTrusted?: boolean;
   accessibilityTrusted?: boolean;
   lastError?: string;
+  lastSuppressedTapReason?: string;
+  lastSuppressedTapAt?: number;
   diagnosticMessage?: string;
   recommendedAction?: 'grant-native-helper-accessibility' | 'try-fallback-shortcut' | 'none';
   message?: string;
@@ -131,6 +133,9 @@ export class HotkeyService {
   private nativeExitCode?: number | null;
   private lastNativeEventAt?: number;
   private lastError?: string;
+  private windowsModifierTapSuppressedUntil = 0;
+  private lastSuppressedTapReason?: string;
+  private lastSuppressedTapAt?: number;
   private pendingWindowsModifierTap = false;
   private windowsModifierTapCanceled = false;
   private readonly nativeFactory: NativeKeyListenerFactory;
@@ -223,10 +228,25 @@ export class HotkeyService {
     this.nativeExitCode = undefined;
     this.lastNativeEventAt = undefined;
     this.lastError = undefined;
+    this.windowsModifierTapSuppressedUntil = 0;
+    this.lastSuppressedTapReason = undefined;
+    this.lastSuppressedTapAt = undefined;
     this.pendingWindowsModifierTap = false;
     this.windowsModifierTapCanceled = false;
     this.detector?.reset();
     globalShortcut.unregisterAll();
+  }
+
+  suppressWindowsModifierTap(reason: string, durationMs = 900): void {
+    this.windowsModifierTapSuppressedUntil = Math.max(this.windowsModifierTapSuppressedUntil, this.now() + durationMs);
+    this.lastSuppressedTapReason = reason;
+    this.lastSuppressedTapAt = this.now();
+    this.pendingWindowsModifierTap = false;
+    this.windowsModifierTapCanceled = true;
+    const options = this.currentOptions;
+    if (options) {
+      options.onStatus?.(this.nativeStatus(options));
+    }
   }
 
   private async registerNativeListener(options: HotkeyServiceOptions): Promise<void> {
@@ -329,6 +349,10 @@ export class HotkeyService {
       const canceled = this.windowsModifierTapCanceled;
       this.pendingWindowsModifierTap = false;
       this.windowsModifierTapCanceled = false;
+      if (this.now() < this.windowsModifierTapSuppressedUntil) {
+        this.lastSuppressedTapAt = this.now();
+        return false;
+      }
       if (!canceled) {
         this.emitActions(this.detector.shortcutActivated(this.now()), options.onAction);
       }
@@ -501,6 +525,8 @@ export class HotkeyService {
       appAccessibilityTrusted: options.accessibilityTrusted,
       accessibilityTrusted: options.accessibilityTrusted,
       lastError: this.lastError,
+      lastSuppressedTapReason: this.lastSuppressedTapReason,
+      lastSuppressedTapAt: this.lastSuppressedTapAt,
       diagnosticMessage: waitingForNativeEvent ? helperPendingDiagnostic(options.platform) : undefined,
       recommendedAction: waitingForNativeEvent ? 'none' : undefined,
       message: waitingForNativeEvent ? '监听组件已启动，按一次快捷键完成验证；备用快捷键待命。' : undefined
@@ -552,6 +578,8 @@ export class HotkeyService {
       appAccessibilityTrusted: options.accessibilityTrusted,
       accessibilityTrusted: options.accessibilityTrusted,
       lastError: details.lastError ?? this.lastError,
+      lastSuppressedTapReason: this.lastSuppressedTapReason,
+      lastSuppressedTapAt: this.lastSuppressedTapAt,
       diagnosticMessage: details.diagnosticMessage,
       recommendedAction: details.recommendedAction,
       message: this.fallbackRegistered ? details.message : `${details.message ?? '当前触发键不可用'} 备用快捷键也注册失败。`

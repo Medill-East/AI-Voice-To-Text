@@ -29,6 +29,27 @@ describe('ModelManager', () => {
     expect(settings.providers.asr.sherpaModelType).toBe('funasrNano');
   });
 
+  it('installs Qwen3-ASR 0.6B with the qwen3 sherpa model type', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    const manager = new ModelManager({
+      modelRoot: join(baseDir, 'models'),
+      store,
+      catalog: DEFAULT_MODEL_CATALOG,
+      downloader: vi.fn().mockResolvedValue(undefined),
+      extractor: vi.fn().mockResolvedValue(undefined),
+      verifier: vi.fn().mockResolvedValue(undefined)
+    });
+
+    const result = await manager.installAndActivate('qwen3-asr-0.6b');
+    const settings = await store.loadSettings();
+
+    expect(result.status).toBe('current');
+    expect(settings.providers.asr.modelId).toBe('qwen3-asr-0.6b');
+    expect(settings.providers.asr.sherpaModelType).toBe('qwen3Asr');
+    expect(settings.providers.asr.modelPath).toContain('encoder.int8.onnx');
+  });
+
   it('reports installation progress through each stage', async () => {
     const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
     const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
@@ -94,6 +115,42 @@ describe('ModelManager', () => {
         canResume: true
       })
     );
+  });
+
+  it('records a local ASR benchmark for an installed model', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const modelRoot = join(baseDir, 'models');
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    const modelDir = join(modelRoot, 'qwen3-asr-0.6b', 'sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25');
+    await mkdir(join(modelDir, 'test_wavs'), { recursive: true });
+    await writeFile(join(modelDir, 'encoder.int8.onnx'), 'encoder');
+    await writeFile(join(modelDir, 'test_wavs', 'codeswitch.wav'), createPcm16Wav(new Array(16000).fill(1000), 16000));
+    const storeSettings = await store.loadSettings();
+    await store.saveSettings({
+      ...storeSettings,
+      providers: {
+        ...storeSettings.providers,
+        asr: {
+          ...storeSettings.providers.asr,
+          modelId: 'qwen3-asr-0.6b',
+          modelPath: join(modelDir, 'encoder.int8.onnx'),
+          sherpaModelType: 'qwen3Asr'
+        }
+      }
+    });
+    const manager = new ModelManager({
+      modelRoot,
+      store,
+      catalog: DEFAULT_MODEL_CATALOG,
+      benchmarkTranscriber: vi.fn(async () => '测试中文 English')
+    });
+
+    const result = await manager.benchmarkInstalledModel('qwen3-asr-0.6b');
+    const statuses = await manager.getStatuses();
+
+    expect(result).toMatchObject({ ok: true, audioSeconds: 1, processMs: 1 });
+    expect(statuses['qwen3-asr-0.6b'].benchmarkRealTimeFactor).toBe(1000);
+    expect(statuses['qwen3-asr-0.6b'].benchmarkCharsPerSecond).toBeGreaterThan(0);
   });
 
   it('probes a model source with a 1MB range request and reports speed diagnostics', async () => {
@@ -561,3 +618,24 @@ describe('ModelManager', () => {
     await expect(stat(join(modelRoot, legacyId))).rejects.toThrow();
   });
 });
+
+function createPcm16Wav(samples: number[], sampleRate: number): Buffer {
+  const bytesPerSample = 2;
+  const dataSize = samples.length * bytesPerSample;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write('RIFF', 0, 'ascii');
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8, 'ascii');
+  buffer.write('fmt ', 12, 'ascii');
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * bytesPerSample, 28);
+  buffer.writeUInt16LE(bytesPerSample, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36, 'ascii');
+  buffer.writeUInt32LE(dataSize, 40);
+  samples.forEach((sample, index) => buffer.writeInt16LE(sample, 44 + index * bytesPerSample));
+  return buffer;
+}
