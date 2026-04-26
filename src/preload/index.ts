@@ -8,6 +8,8 @@ import type {
   HistoryEntry,
   InstalledModelView,
   Lexicon,
+  LlmInstallerActionResult,
+  LlmInstallerTarget,
   LlmProviderDetection,
   LlmTestResult,
   ModelCatalogItem,
@@ -81,6 +83,9 @@ export interface V2TApi {
   chooseDataDir(): Promise<PathActionResult>;
   openPath(path: string): Promise<{ ok: boolean; error?: string }>;
   copyText(value: string): Promise<{ ok: true }>;
+  getLlmInstallers(): Promise<LlmInstallerTarget[]>;
+  openLlmInstaller(kind: LlmInstallerTarget['kind']): Promise<LlmInstallerActionResult>;
+  openLlmInstallerDocs(kind: LlmInstallerTarget['kind']): Promise<LlmInstallerActionResult>;
   detectLlmProviders(): Promise<LlmProviderDetection[]>;
   enableLlmProvider(detection: LlmProviderDetection, model: string): Promise<LlmEnableResult>;
   testLlmConnection(): Promise<LlmTestResult>;
@@ -216,6 +221,9 @@ const api: V2TApi = {
   chooseDataDir: () => ipcRenderer.invoke('v2t:choose-data-dir'),
   openPath: (path) => ipcRenderer.invoke('v2t:open-path', path),
   copyText: (value) => ipcRenderer.invoke('v2t:copy-text', value),
+  getLlmInstallers: () => ipcRenderer.invoke('v2t:get-llm-installers'),
+  openLlmInstaller: (kind) => ipcRenderer.invoke('v2t:open-llm-installer', kind),
+  openLlmInstallerDocs: (kind) => ipcRenderer.invoke('v2t:open-llm-installer-docs', kind),
   detectLlmProviders: () => ipcRenderer.invoke('v2t:detect-llm-providers'),
   enableLlmProvider: (detection, model) => ipcRenderer.invoke('v2t:enable-llm-provider', detection, model),
   testLlmConnection: () => ipcRenderer.invoke('v2t:test-llm-connection'),

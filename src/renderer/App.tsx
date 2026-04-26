@@ -11,6 +11,7 @@ import type {
   InputMode,
   InstalledModelView,
   Lexicon,
+  LlmInstallerTarget,
   LlmProviderDetection,
   ModelCatalogItem,
   ModelCatalogRefreshState,
@@ -27,11 +28,12 @@ import type { HotkeyStatus } from '../main/hotkeyService';
 import type { RecordingCommand, SetupPayload } from '../preload';
 
 type RecordingState = 'idle' | 'starting' | 'recording' | 'processing' | 'error';
-type AppPage = 'voice' | 'models' | 'hotkey' | 'lexicon' | 'prompts' | 'sync' | 'advanced' | 'app';
+type AppPage = 'voice' | 'asrModels' | 'llmModels' | 'hotkey' | 'lexicon' | 'prompts' | 'sync' | 'advanced' | 'app';
 
 const APP_PAGES: Array<{ id: AppPage; label: string }> = [
   { id: 'voice', label: '语音输入' },
-  { id: 'models', label: '模型' },
+  { id: 'asrModels', label: '语音识别模型' },
+  { id: 'llmModels', label: '文本整理模型' },
   { id: 'hotkey', label: '快捷键' },
   { id: 'lexicon', label: '词库' },
   { id: 'prompts', label: '提示词' },
@@ -92,6 +94,8 @@ export function App() {
   const [promptDirty, setPromptDirty] = useState<{ natural: boolean; structured: boolean }>({ natural: false, structured: false });
   const [promptMessage, setPromptMessage] = useState<string | null>(null);
   const [llmDetections, setLlmDetections] = useState<LlmProviderDetection[]>([]);
+  const [llmInstallers, setLlmInstallers] = useState<LlmInstallerTarget[]>([]);
+  const [llmInstallerBusy, setLlmInstallerBusy] = useState<string | null>(null);
   const [llmMessage, setLlmMessage] = useState<string | null>(null);
   const [llmApiKeyDraft, setLlmApiKeyDraft] = useState('');
   const [pathMessage, setPathMessage] = useState<string | null>(null);
@@ -207,6 +211,13 @@ export function App() {
       .getPrompts()
       .then(applyPrompts)
       .catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
+  }, []);
+
+  useEffect(() => {
+    void window.v2t
+      .getLlmInstallers()
+      .then(setLlmInstallers)
+      .catch((caught) => setLlmMessage(caught instanceof Error ? caught.message : String(caught)));
   }, []);
 
   useEffect(() => {
@@ -783,8 +794,40 @@ export function App() {
     setLlmMessage('正在检测 Ollama 和 LM Studio');
     const result = await window.v2t.detectLlmProviders();
     setLlmDetections(result);
+    void window.v2t.getLlmInstallers().then(setLlmInstallers);
     const okCount = result.filter((item) => item.ok).length;
     setLlmMessage(okCount > 0 ? `检测到 ${okCount} 个本地 LLM 服务` : '未检测到 Ollama 或 LM Studio；请先安装并启动，或填写 OpenAI-compatible 配置。');
+  };
+
+  const refreshLlmInstallers = async () => {
+    setLlmInstallerBusy('detect');
+    setLlmMessage('正在检测 Ollama 和 LM Studio');
+    try {
+      const [installers, detections] = await Promise.all([window.v2t.getLlmInstallers(), window.v2t.detectLlmProviders()]);
+      setLlmInstallers(installers);
+      setLlmDetections(detections);
+      const okCount = installers.filter((item) => item.status === 'service-available').length;
+      setLlmMessage(okCount > 0 ? `检测到 ${okCount} 个可用本地 LLM 服务` : '未检测到可用本地 LLM 服务；可打开官方安装器或启动本地服务后重新检测。');
+    } catch (caught) {
+      setLlmMessage(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setLlmInstallerBusy(null);
+    }
+  };
+
+  const openLlmInstaller = async (kind: LlmInstallerTarget['kind'], docs = false) => {
+    setLlmInstallerBusy(`${kind}-${docs ? 'docs' : 'download'}`);
+    setLlmMessage(null);
+    const result = docs ? await window.v2t.openLlmInstallerDocs(kind) : await window.v2t.openLlmInstaller(kind);
+    setLlmInstallerBusy(null);
+    if (result.ok) {
+      setLlmMessage(docs ? '已打开官方文档。安装或启动服务后，请重新检测。' : '已打开官方下载入口。安装完成并启动服务后，请重新检测。');
+      if (result.target) {
+        setLlmInstallers((current) => current.map((item) => (item.kind === result.target?.kind ? result.target : item)));
+      }
+    } else {
+      setError(result.error ?? '打开 LLM 安装入口失败');
+    }
   };
 
   const enableLlmProvider = async (detection: LlmProviderDetection, modelName: string) => {
@@ -1067,17 +1110,19 @@ export function App() {
       );
     }
 
-    if (activePage === 'models') {
+    if (activePage === 'asrModels') {
       return (
-        <section className="page-section">
-          <h2>推荐安装</h2>
+        <section className="page-section asr-models-page">
+          <h2>语音识别模型 ASR</h2>
           {setup ? (
             <>
                <p className="hint">
                  {setup.hardware.cpuName} · {setup.hardware.memoryGb}GB · {tierLabel(setup.hardware.recommendedTier)}
                </p>
+               <p className="hint">ASR 负责把语音转成原始文字；FireRed、SenseVoice、Fun-ASR-Nano 都属于语音识别模型，不负责提示词驱动的结构化整理。</p>
                <p className="hint">中文推荐分优先看普通话、方言/粤语、中英混输和本机可运行性；Open ASR 英文榜只作参考。V2T 本机适配分只表示这台设备上的推荐优先级。WER/CER 越低越好，RTFx 越高越快。</p>
                <p className="hint">导入模型可以使用浏览器或下载器先下载官方压缩包，再从这里导入。当前一键下载主要来自 GitHub/k2-fsa Release，速度受 GitHub CDN、地区网络、代理和安全软件扫描影响。</p>
+               <p className="hint">只有满足以下条件的模型才显示“一键安装”：V2T 已接入 runtime、知道 required files、下载源可信、checksum 或 smoke test 可验证，并且打包后能在 macOS/Windows 跑通。其他高分模型会放在“公开高分参考 / 待接入”。</p>
               <section className="catalog-refresh">
                 <div>
                   <span>模型榜单</span>
@@ -1161,6 +1206,147 @@ export function App() {
             </>
           ) : (
             <p className="empty">检测中</p>
+          )}
+        </section>
+      );
+    }
+
+    if (activePage === 'llmModels') {
+      return (
+        <section className="page-section llm-models-page">
+          <h2>文本整理模型 LLM</h2>
+          {settings ? (
+            <>
+              <p className="hint">LLM 负责自然输入纠错和结构输入整理；ASR 只负责听写，不等于 LLM。未启用 LLM 时，Prompt 不会参与处理，结构输入只会使用本地基础规则。</p>
+              <section className="llm-current">
+                <div>
+                  <span>当前整理引擎</span>
+                  <strong>{settings.providers.llm.enabled ? `${providerLabel(settings.providers.llm.kind)} · ${settings.providers.llm.model || '未选择模型'}` : '本地规则'}</strong>
+                  <p>{settings.providers.llm.enabled ? settings.providers.llm.baseUrl : 'Prompt 仅在启用 LLM 后生效。'}</p>
+                </div>
+                <div className="inline-actions">
+                  <button className="secondary compact" onClick={() => void refreshLlmInstallers()} disabled={Boolean(llmInstallerBusy)}>
+                    {llmInstallerBusy === 'detect' ? '检测中' : '重新检测'}
+                  </button>
+                  <button className="secondary compact" onClick={() => void testLlmConnection()}>
+                    测试结构化整理
+                  </button>
+                </div>
+              </section>
+
+              <h3 className="subsection-title">本地 LLM 安装向导</h3>
+              <p className="hint">V2T 只会打开 Ollama / LM Studio 官方下载或文档入口，引导你完成系统安装；不会静默运行未知脚本，也不会绕过系统权限。</p>
+              <div className="llm-installer-list">
+                {llmInstallers.map((target) => (
+                  <LlmInstallerCard
+                    key={target.kind}
+                    target={target}
+                    busy={llmInstallerBusy}
+                    onOpenInstaller={openLlmInstaller}
+                    onEnable={enableLlmProvider}
+                  />
+                ))}
+              </div>
+
+              {llmDetections.length > 0 ? (
+                <div className="llm-detection-list">
+                  {llmDetections.map((detection) => (
+                    <article key={detection.kind} className={detection.ok ? 'llm-detection ok' : 'llm-detection'}>
+                      <div>
+                        <strong>{detection.label}</strong>
+                        <p>{detection.ok ? `${detection.baseUrl} · ${detection.models.length || 0} 个模型` : detection.error ?? '未连接'}</p>
+                      </div>
+                      {detection.ok && detection.models.length > 0 ? (
+                        <div className="inline-actions">
+                          {detection.models.slice(0, 3).map((modelName) => (
+                            <button key={modelName} className="secondary compact" onClick={() => void enableLlmProvider(detection, modelName)}>
+                              启用 {shortModelName(modelName)}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+
+              <section className="advanced-group llm-manual-config">
+                <h3>OpenAI-compatible 手动配置</h3>
+                <p className="hint">适合 OpenAI-compatible API、Ollama、LM Studio 或其它兼容服务；API Key 只保存到系统钥匙串，不写入同步目录。</p>
+                <label>
+                  LLM Base URL
+                  <input
+                    className="no-drag"
+                    value={settings.providers.llm.baseUrl}
+                    onContextMenu={showEditMenu}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        providers: {
+                          ...settings.providers,
+                          llm: { ...settings.providers.llm, baseUrl: event.target.value }
+                        }
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  LLM Model
+                  <input
+                    className="no-drag"
+                    value={settings.providers.llm.model}
+                    onContextMenu={showEditMenu}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        providers: {
+                          ...settings.providers,
+                          llm: { ...settings.providers.llm, model: event.target.value }
+                        }
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  API Key
+                  <input
+                    className="no-drag"
+                    type="password"
+                    value={llmApiKeyDraft}
+                    placeholder="只保存到系统钥匙串，不写入同步目录"
+                    onContextMenu={showEditMenu}
+                    onChange={(event) => setLlmApiKeyDraft(event.target.value)}
+                  />
+                </label>
+                <div className="button-row">
+                  <button className="secondary" onClick={() => void saveLlmApiKey()} disabled={!llmApiKeyDraft}>
+                    保存 API Key
+                  </button>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={settings.providers.llm.enabled}
+                      onChange={(event) =>
+                        setSettings({
+                          ...settings,
+                          providers: {
+                            ...settings.providers,
+                            llm: { ...settings.providers.llm, enabled: event.target.checked }
+                          }
+                        })
+                      }
+                    />
+                    启用 LLM 后处理
+                  </label>
+                </div>
+              </section>
+              <button className="save" onClick={() => void saveSettings()}>
+                保存文本整理模型设置
+              </button>
+              {llmMessage ? <p className="sync-message">{llmMessage}</p> : null}
+            </>
+          ) : (
+            <p className="empty">加载中</p>
           )}
         </section>
       );
@@ -1576,15 +1762,18 @@ export function App() {
                 settings.json、lexicon.json、prompts/natural.md、prompts/structured.md。词库页保存只改本地 lexicon.json，需要点击“推送”才会写入 GitHub。
                 模型和密钥不会同步；同步历史默认关闭，可以在这里单独开启。
               </p>
-              <div className="button-row">
+              <div className="sync-repo-path-block">
+                <div className="button-row">
                 <button className="secondary" onClick={() => void chooseSyncRepoPath()}>
                   选择本地同步仓库位置
                 </button>
                 <button className="secondary" onClick={() => void showConflictBackups()}>
                   查看冲突备份
                 </button>
+                </div>
+                <p className="hint">本地仓库路径：{settings.sync.github.localPath ?? '未选择'}</p>
               </div>
-              <label>
+              <label className="sync-repo-url-field">
                 仓库 URL
                 <input
                   className="no-drag"
@@ -1724,16 +1913,9 @@ export function App() {
             <>
               <section className="advanced-group path-management">
                 <h3>路径管理</h3>
-                <p className="hint">模型目录、同步数据目录、GitHub 本地同步仓库是三个不同位置。更改位置会复制旧数据并校验后切换，失败时继续使用旧目录。</p>
+                <p className="hint">模型目录只保存本机 ASR 模型；同步数据目录保存 settings、词库、提示词、历史和冲突备份。GitHub 仓库位置请在 GitHub 同步页管理，不会在这里改动。</p>
                 <PathRow title="模型目录" value={setup?.modelRoot ?? ''} onCopy={copyText} onOpen={openPath} onChange={chooseModelRootPath} />
                 <PathRow title="同步数据目录" value={settings.dataDir ?? ''} onCopy={copyText} onOpen={openPath} onChange={chooseDataDir} />
-                <PathRow
-                  title="GitHub 本地同步仓库"
-                  value={settings.sync.github.localPath ?? '未选择'}
-                  onCopy={copyText}
-                  onOpen={openPath}
-                  onChange={chooseSyncRepoPath}
-                />
                 {pathMessage ? <p className="sync-message">{pathMessage}</p> : null}
               </section>
 
@@ -1781,106 +1963,6 @@ export function App() {
                 </label>
               </section>
 
-              <section className="advanced-group">
-                <h3>文本整理模型 LLM</h3>
-                <p className="hint">LLM 负责自然输入纠错和结构输入整理。未启用 LLM 时，提示词不会参与处理，只会使用本地基础规则。</p>
-                <div className="button-row">
-                  <button className="secondary" onClick={() => void detectLlmProviders()}>
-                    检测本地 LLM
-                  </button>
-                  <button className="secondary" onClick={() => void testLlmConnection()}>
-                    测试结构化整理
-                  </button>
-                </div>
-                {llmDetections.length > 0 ? (
-                  <div className="llm-detection-list">
-                    {llmDetections.map((detection) => (
-                      <article key={detection.kind} className={detection.ok ? 'llm-detection ok' : 'llm-detection'}>
-                        <div>
-                          <strong>{detection.label}</strong>
-                          <p>{detection.ok ? `${detection.baseUrl} · ${detection.models.length || 0} 个模型` : detection.error ?? '未连接'}</p>
-                        </div>
-                        {detection.ok && detection.models.length > 0 ? (
-                          <div className="inline-actions">
-                            {detection.models.slice(0, 3).map((modelName) => (
-                              <button key={modelName} className="secondary compact" onClick={() => void enableLlmProvider(detection, modelName)}>
-                                启用 {shortModelName(modelName)}
-                              </button>
-                            ))}
-                          </div>
-                        ) : null}
-                      </article>
-                    ))}
-                  </div>
-                ) : null}
-                <label>
-                  LLM Base URL
-                  <input
-                    className="no-drag"
-                    value={settings.providers.llm.baseUrl}
-                    onContextMenu={showEditMenu}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        providers: {
-                          ...settings.providers,
-                          llm: { ...settings.providers.llm, baseUrl: event.target.value }
-                        }
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  LLM Model
-                  <input
-                    className="no-drag"
-                    value={settings.providers.llm.model}
-                    onContextMenu={showEditMenu}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        providers: {
-                          ...settings.providers,
-                          llm: { ...settings.providers.llm, model: event.target.value }
-                        }
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  API Key
-                  <input
-                    className="no-drag"
-                    type="password"
-                    value={llmApiKeyDraft}
-                    placeholder="只保存到系统钥匙串，不写入同步目录"
-                    onContextMenu={showEditMenu}
-                    onChange={(event) => setLlmApiKeyDraft(event.target.value)}
-                  />
-                </label>
-                <div className="button-row">
-                  <button className="secondary" onClick={() => void saveLlmApiKey()} disabled={!llmApiKeyDraft}>
-                    保存 API Key
-                  </button>
-                  <label className="check">
-                    <input
-                      type="checkbox"
-                      checked={settings.providers.llm.enabled}
-                      onChange={(event) =>
-                        setSettings({
-                          ...settings,
-                          providers: {
-                            ...settings.providers,
-                            llm: { ...settings.providers.llm, enabled: event.target.checked }
-                          }
-                        })
-                      }
-                    />
-                    启用 LLM 后处理
-                  </label>
-                </div>
-                {llmMessage ? <p className="sync-message">{llmMessage}</p> : null}
-              </section>
               <button className="save" onClick={() => void saveSettings()}>
                 保存高级设置
               </button>
@@ -2069,6 +2151,56 @@ function PathRow({
   );
 }
 
+function LlmInstallerCard({
+  target,
+  busy,
+  onOpenInstaller,
+  onEnable
+}: {
+  target: LlmInstallerTarget;
+  busy: string | null;
+  onOpenInstaller(kind: LlmInstallerTarget['kind'], docs?: boolean): Promise<void>;
+  onEnable(detection: LlmProviderDetection, model: string): Promise<void>;
+}) {
+  const available = target.status === 'service-available';
+  const detection: LlmProviderDetection = {
+    kind: target.kind,
+    label: target.label,
+    baseUrl: target.baseUrl,
+    ok: available,
+    models: target.models,
+    error: target.error
+  };
+
+  return (
+    <article className={`llm-installer-card ${available ? 'ok' : ''}`}>
+      <div>
+        <h3>{target.label}</h3>
+        <p>{llmInstallerStatusLabel(target)}</p>
+        <small>{target.baseUrl}</small>
+        <p className="hint">{target.serviceHint}</p>
+      </div>
+      {available && target.models.length > 0 ? (
+        <div className="llm-model-pills">
+          {target.models.slice(0, 4).map((modelName) => (
+            <button key={modelName} className="secondary compact" onClick={() => void onEnable(detection, modelName)}>
+              启用 {shortModelName(modelName)}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div className="model-row-actions">
+        <button className="secondary" onClick={() => void onOpenInstaller(target.kind)} disabled={busy === `${target.kind}-download`}>
+          {busy === `${target.kind}-download` ? '打开中' : target.installActionLabel}
+        </button>
+        <button className="secondary" onClick={() => void onOpenInstaller(target.kind, true)} disabled={busy === `${target.kind}-docs`}>
+          官方文档
+        </button>
+      </div>
+    </article>
+  );
+}
+
 function InstalledModelRow({
   model,
   activatingModelId,
@@ -2094,19 +2226,21 @@ function InstalledModelRow({
         <p>{model.legacy ? '旧模型 · 本机已安装' : '本机已安装'}</p>
         <small>{model.modelPath ?? model.modelId}</small>
       </div>
-      <button onClick={() => void onActivate(model.modelId)} disabled={!model.canActivate || activating || model.current}>
-        {model.current ? '当前' : activating ? '启用中' : '启用'}
-      </button>
-      {model.canReinstall ? (
-        <button className="secondary" onClick={() => void onReinstall(model.modelId)}>
-          重新安装
+      <div className="model-row-actions">
+        <button onClick={() => void onActivate(model.modelId)} disabled={!model.canActivate || activating || model.current}>
+          {model.current ? '当前' : activating ? '启用中' : '启用'}
         </button>
-      ) : null}
-      {model.canDelete ? (
-        <button className="danger" onClick={() => void onDelete(model.modelId)} disabled={deleting}>
-          {deleting ? '删除中' : '删除'}
-        </button>
-      ) : null}
+        {model.canReinstall ? (
+          <button className="secondary" onClick={() => void onReinstall(model.modelId)}>
+            重新安装
+          </button>
+        ) : null}
+        {model.canDelete ? (
+          <button className="danger" onClick={() => void onDelete(model.modelId)} disabled={deleting}>
+            {deleting ? '删除中' : '删除'}
+          </button>
+        ) : null}
+      </div>
     </article>
   );
 }
@@ -2236,7 +2370,9 @@ function ReferenceModelRow({ model }: { model: ModelCatalogItem }) {
         {model.manualSetup ? <p>配置办法：{model.manualSetup}</p> : null}
         <small>{model.sourceUrl}</small>
       </div>
-      <button disabled>{model.availability === 'manual' ? '手动配置' : '待接入'}</button>
+      <div className="model-row-actions">
+        <button disabled>{model.availability === 'manual' ? '手动配置' : '待接入'}</button>
+      </div>
     </article>
   );
 }
@@ -2308,41 +2444,43 @@ function ModelRow({
        <DownloadProbeSummary result={probeResult} />
          {statusRecord ? <InstallProgress status={statusRecord} /> : null}
        </div>
-      <button
-        onClick={() => void (installed ? onActivate(recommendation.model.id) : onInstall(recommendation.model.id))}
-        disabled={installing || isCurrent}
-      >
-         {isCurrent ? '当前' : installing ? '安装中' : installed ? '启用' : primaryInstallLabel}
-       </button>
-       {installed || statusRecord?.status === 'failed' ? (
-         <button className="secondary" onClick={() => void onReinstall(recommendation.model.id)} disabled={installing}>
-           重新安装
-         </button>
-       ) : null}
-       <button className="secondary" onClick={() => void onImportArchive(recommendation.model.id)} disabled={installing}>
-         导入压缩包
-       </button>
-       <button className="secondary" onClick={() => void onImportDirectory(recommendation.model.id)} disabled={installing}>
-         导入已解压目录
-       </button>
-       <button className="secondary" onClick={() => void onTestDownload(recommendation.model.id)} disabled={probing || installing}>
-         {probing ? '测速中' : probeResult ? '重新测速' : '下载测速'}
-       </button>
-      {installing ? (
-        <button className="secondary" onClick={() => void onCancelInstall(recommendation.model.id)}>
-         取消
-       </button>
-     ) : null}
-      {canClearResidue ? (
-        <button className="secondary" onClick={() => void onClearInstall(recommendation.model.id)}>
-          清除残留
+      <div className="model-row-actions">
+        <button
+          onClick={() => void (installed ? onActivate(recommendation.model.id) : onInstall(recommendation.model.id))}
+          disabled={installing || isCurrent}
+        >
+          {isCurrent ? '当前' : installing ? '安装中' : installed ? '启用' : primaryInstallLabel}
         </button>
-      ) : null}
-      {canDelete ? (
-        <button className="danger" onClick={() => void onDelete(recommendation.model.id)} disabled={deleting}>
-          {deleting ? '删除中' : '删除'}
+        {installed || statusRecord?.status === 'failed' ? (
+          <button className="secondary" onClick={() => void onReinstall(recommendation.model.id)} disabled={installing}>
+            重新安装
+          </button>
+        ) : null}
+        <button className="secondary" onClick={() => void onImportArchive(recommendation.model.id)} disabled={installing}>
+          导入压缩包
         </button>
-      ) : null}
+        <button className="secondary" onClick={() => void onImportDirectory(recommendation.model.id)} disabled={installing}>
+          导入已解压目录
+        </button>
+        <button className="secondary" onClick={() => void onTestDownload(recommendation.model.id)} disabled={probing || installing}>
+          {probing ? '测速中' : probeResult ? '重新测速' : '下载测速'}
+        </button>
+        {installing ? (
+          <button className="secondary" onClick={() => void onCancelInstall(recommendation.model.id)}>
+            取消
+          </button>
+        ) : null}
+        {canClearResidue ? (
+          <button className="secondary" onClick={() => void onClearInstall(recommendation.model.id)}>
+            清除残留
+          </button>
+        ) : null}
+        {canDelete ? (
+          <button className="danger" onClick={() => void onDelete(recommendation.model.id)} disabled={deleting}>
+            {deleting ? '删除中' : '删除'}
+          </button>
+        ) : null}
+      </div>
     </article>
   );
 }
@@ -2528,6 +2666,29 @@ function modeLabel(inputMode: InputMode): string {
 
 function structuredEngineLabel(settings: Settings | null): string {
   return settings?.providers.llm.enabled ? 'LLM Prompt' : '本地规则';
+}
+
+function providerLabel(kind: Settings['providers']['llm']['kind']): string {
+  if (kind === 'ollama') {
+    return 'Ollama';
+  }
+  if (kind === 'lm-studio') {
+    return 'LM Studio';
+  }
+  return 'OpenAI-compatible';
+}
+
+function llmInstallerStatusLabel(target: LlmInstallerTarget): string {
+  if (target.status === 'service-available') {
+    return `服务可用 · ${target.models.length || 0} 个模型`;
+  }
+  if (target.status === 'installed-not-running') {
+    return `未检测到本地服务${target.error ? `：${target.error}` : ''}`;
+  }
+  if (target.status === 'error') {
+    return `检测失败${target.error ? `：${target.error}` : ''}`;
+  }
+  return '未检测到本地服务';
 }
 
 function currentAsrLabel(settings: Settings | null): string {

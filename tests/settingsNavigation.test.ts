@@ -5,8 +5,9 @@ describe('settings navigation structure', () => {
   it('defines the fixed app pages used by the sidebar navigation', async () => {
     const app = await readFile(new URL('../src/renderer/App.tsx', import.meta.url), 'utf8');
 
-    expect(app).toContain("type AppPage = 'voice' | 'models' | 'hotkey' | 'lexicon' | 'prompts' | 'sync' | 'advanced' | 'app'");
-    for (const label of ['语音输入', '模型', '快捷键', '词库', '提示词', 'GitHub 同步', '高级设置', '应用']) {
+    expect(app).toContain("type AppPage = 'voice' | 'asrModels' | 'llmModels' | 'hotkey' | 'lexicon' | 'prompts' | 'sync' | 'advanced' | 'app'");
+    expect(app).not.toContain("{ id: 'models', label: '模型' }");
+    for (const label of ['语音输入', '语音识别模型', '文本整理模型', '快捷键', '词库', '提示词', 'GitHub 同步', '高级设置', '应用']) {
       expect(app).toContain(label);
     }
     expect(app).not.toContain('触发按键');
@@ -46,6 +47,7 @@ describe('settings navigation structure', () => {
     expect(app).toContain('清除残留');
     expect(app).toContain('当前一键下载主要来自 GitHub/k2-fsa Release');
     expect(app).toContain('公开高分参考');
+    expect(app).toContain('只有满足以下条件的模型才显示“一键安装”');
     expect(app).toContain('ModelComparisonTable');
     expect(app).toContain('中文推荐分');
     expect(app).toContain('英文公开榜参考');
@@ -60,12 +62,15 @@ describe('settings navigation structure', () => {
     expect(app).toContain('ASR 负责把语音转成原始文字');
     expect(app).toContain('文本整理模型 LLM');
     expect(app).toContain('LLM 负责自然输入纠错和结构输入整理');
+    expect(app).toContain('本地 LLM 安装向导');
+    expect(app).toContain('OpenAI-compatible 手动配置');
+    expect(app).toContain('官方文档');
     expect(app).toContain('路径管理');
     expect(app).toContain('模型目录');
     expect(app).toContain('同步数据目录');
-    expect(app).toContain('GitHub 本地同步仓库');
+    expect(app).not.toContain('title="GitHub 本地同步仓库"');
     expect(app).toContain('更改位置');
-    expect(app).toContain('检测本地 LLM');
+    expect(app).toContain('本地 LLM 安装向导');
     expect(app).toContain('Ollama');
     expect(app).toContain('LM Studio');
     expect(app).toContain('测试结构化整理');
@@ -86,5 +91,8 @@ describe('settings navigation structure', () => {
     const styles = await readFile(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     expect(styles).toContain('.setting-check input[type="checkbox"]');
     expect(styles).toContain('width: 16px');
+    expect(styles).toContain('.comparison-panel');
+    expect(styles).toContain('overflow-x: auto');
+    expect(styles).toContain('.model-row-actions');
   });
 });

@@ -16,6 +16,7 @@ import { ModelManager } from '../core/modelManager';
 import { GitHubSyncService } from '../core/githubSyncService';
 import { OpenAICompatibleClient } from '../core/llmClient';
 import { detectLocalLlmProviders, testLlmClient } from '../core/llmDiscovery';
+import { getLlmInstallerTargets, LLM_INSTALLER_URLS, officialLlmInstallerUrl } from '../core/llmInstaller';
 import { createVoiceInputPipeline } from '../core/pipeline';
 import { PostProcessor } from '../core/postProcessor';
 import { TextInjectionService } from '../core/textInjection';
@@ -31,6 +32,7 @@ import type {
   ProcessingDiagnostic,
   SyncImportStrategy,
   LlmProviderDetection,
+  LlmProviderKind,
   Settings
 } from '../core/types';
 import { getFocusedAppName } from './focusedApp';
@@ -320,6 +322,9 @@ function registerIpc(): void {
     clipboard.writeText(value);
     return { ok: true };
   });
+  ipcMain.handle('v2t:get-llm-installers', async () => getLlmInstallerTargets());
+  ipcMain.handle('v2t:open-llm-installer', async (_event, kind: LlmProviderKind) => openLlmInstaller(kind, 'download'));
+  ipcMain.handle('v2t:open-llm-installer-docs', async (_event, kind: LlmProviderKind) => openLlmInstaller(kind, 'docs'));
   ipcMain.handle('v2t:detect-llm-providers', async () => detectLocalLlmProviders());
   ipcMain.handle('v2t:enable-llm-provider', async (_event, detection: LlmProviderDetection, model: string) => enableLlmProvider(detection, model));
   ipcMain.handle('v2t:test-llm-connection', async () => testCurrentLlmConnection());
@@ -561,6 +566,23 @@ async function enableLlmProvider(detection: LlmProviderDetection, model: string)
     return { ok: true, settings, setup: await getSetupPayload() };
   } catch (error) {
     return { ok: false, settings, setup: await getSetupPayload(), error: readableError(error) };
+  }
+}
+
+async function openLlmInstaller(kind: LlmProviderKind, target: 'download' | 'docs') {
+  try {
+    if (kind !== 'ollama' && kind !== 'lm-studio') {
+      throw new Error('OpenAI-compatible API 不需要安装向导，请在文本整理模型页手动配置。');
+    }
+    const url = target === 'download' ? officialLlmInstallerUrl(kind) : LLM_INSTALLER_URLS[kind].docsUrl;
+    if (!url) {
+      throw new Error('没有可用的官方下载入口。');
+    }
+    await shell.openExternal(url);
+    const installers = await getLlmInstallerTargets();
+    return { ok: true, target: installers.find((item) => item.kind === kind) };
+  } catch (error) {
+    return { ok: false, error: readableError(error) };
   }
 }
 

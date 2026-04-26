@@ -16,6 +16,7 @@ export type RecommendedTier = 'low' | 'medium' | 'high';
 export type AppUpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'installing' | 'error';
 export type PostProcessorEngine = 'local-rules' | 'llm';
 export type LlmProviderKind = 'openai-compatible' | 'ollama' | 'lm-studio';
+export type LlmInstallStatus = 'not-installed' | 'installed-not-running' | 'service-available' | 'checking' | 'error';
 
 export interface LexiconTerm {
   phrase: string;
@@ -410,6 +411,25 @@ export interface LlmProviderDetection {
   baseUrl: string;
   ok: boolean;
   models: string[];
+  error?: string;
+}
+
+export interface LlmInstallerTarget {
+  kind: Exclude<LlmProviderKind, 'openai-compatible'>;
+  label: string;
+  status: LlmInstallStatus;
+  baseUrl: string;
+  downloadUrl: string;
+  docsUrl: string;
+  installActionLabel: string;
+  serviceHint: string;
+  models: string[];
+  error?: string;
+}
+
+export interface LlmInstallerActionResult {
+  ok: boolean;
+  target?: LlmInstallerTarget;
   error?: string;
 }
 

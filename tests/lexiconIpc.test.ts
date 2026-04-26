@@ -32,6 +32,9 @@ describe('lexicon IPC surface', () => {
     expect(preload).toContain('chooseDataDir(): Promise<PathActionResult>');
     expect(preload).toContain('openPath(path: string): Promise<{ ok: boolean; error?: string }>');
     expect(preload).toContain('copyText(value: string): Promise<{ ok: true }>');
+    expect(preload).toContain('getLlmInstallers(): Promise<LlmInstallerTarget[]>');
+    expect(preload).toContain("openLlmInstaller(kind: LlmInstallerTarget['kind']): Promise<LlmInstallerActionResult>");
+    expect(preload).toContain("openLlmInstallerDocs(kind: LlmInstallerTarget['kind']): Promise<LlmInstallerActionResult>");
     expect(preload).toContain('detectLlmProviders(): Promise<LlmProviderDetection[]>');
     expect(preload).toContain('enableLlmProvider(detection: LlmProviderDetection, model: string): Promise');
     expect(preload).toContain('testLlmConnection(): Promise<LlmTestResult>');
@@ -54,6 +57,9 @@ describe('lexicon IPC surface', () => {
     expect(preload).toContain("ipcRenderer.invoke('v2t:clear-model-install', modelId)");
     expect(preload).toContain("ipcRenderer.invoke('v2t:choose-model-root-path')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:choose-data-dir')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:get-llm-installers')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:open-llm-installer', kind)");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:open-llm-installer-docs', kind)");
     expect(preload).toContain("ipcRenderer.invoke('v2t:detect-llm-providers')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:enable-llm-provider', detection, model)");
     expect(preload).toContain("ipcRenderer.invoke('v2t:test-llm-connection')");
@@ -86,6 +92,9 @@ describe('lexicon IPC surface', () => {
     expect(main).toContain("ipcMain.handle('v2t:choose-data-dir'");
     expect(main).toContain("ipcMain.handle('v2t:open-path'");
     expect(main).toContain("ipcMain.handle('v2t:copy-text'");
+    expect(main).toContain("ipcMain.handle('v2t:get-llm-installers'");
+    expect(main).toContain("ipcMain.handle('v2t:open-llm-installer'");
+    expect(main).toContain("ipcMain.handle('v2t:open-llm-installer-docs'");
     expect(main).toContain("ipcMain.handle('v2t:detect-llm-providers'");
     expect(main).toContain("ipcMain.handle('v2t:enable-llm-provider'");
     expect(main).toContain("ipcMain.handle('v2t:test-llm-connection'");

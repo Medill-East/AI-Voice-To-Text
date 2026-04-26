@@ -184,7 +184,7 @@ label,
 }
 
 .page-section {
-  max-width: 760px;
+  max-width: 1080px;
 }
 
 .eyebrow {
@@ -446,6 +446,7 @@ textarea {
   padding: 14px 0;
   border-top: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
 }
 
 .comparison-panel h3 {
@@ -487,12 +488,13 @@ textarea {
 .comparison-table {
   display: grid;
   gap: 8px;
+  min-width: 920px;
 }
 
 .comparison-head,
 .comparison-row {
   display: grid;
-  grid-template-columns: minmax(170px, 1.15fr) minmax(108px, 0.7fr) minmax(140px, 1fr) minmax(126px, 0.85fr) minmax(90px, 0.65fr) minmax(84px, 0.55fr);
+  grid-template-columns: 230px 128px 180px 170px 110px 120px;
   gap: 10px;
   align-items: center;
 }
@@ -511,6 +513,7 @@ textarea {
 .comparison-row strong {
   font-size: 12px;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .comparison-metric {
@@ -546,11 +549,17 @@ textarea {
 
 .model-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(4, auto);
-  gap: 14px;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
   padding: 14px 0;
   border-top: 1px solid var(--color-border);
+}
+
+.model-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .model-row.current {
@@ -864,6 +873,19 @@ textarea {
   margin-top: 14px;
 }
 
+.sync-repo-path-block {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 22px;
+  padding: 14px 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sync-repo-url-field {
+  margin-top: 8px;
+}
+
 .appearance-settings {
   display: grid;
   gap: 10px;
@@ -932,7 +954,9 @@ textarea {
 }
 
 .path-row,
-.llm-detection {
+.llm-detection,
+.llm-installer-card,
+.llm-current {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
@@ -942,17 +966,21 @@ textarea {
 }
 
 .path-row:first-of-type,
-.llm-detection:first-of-type {
+.llm-detection:first-of-type,
+.llm-installer-card:first-of-type {
   border-top: 0;
 }
 
-.path-row span {
+.path-row span,
+.llm-current span {
   color: var(--color-muted-2);
   font-size: 12px;
 }
 
 .path-row p,
-.llm-detection p {
+.llm-detection p,
+.llm-current p,
+.llm-installer-card p {
   overflow-wrap: anywhere;
   margin-top: 4px;
   color: var(--color-text);
@@ -960,13 +988,44 @@ textarea {
   line-height: 1.4;
 }
 
+.llm-installer-list,
 .llm-detection-list {
   display: grid;
-  gap: 2px;
+  gap: 8px;
+  margin-top: 12px;
 }
 
+.llm-current strong,
+.llm-installer-card h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.llm-installer-card {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.llm-installer-card.ok strong,
+.llm-installer-card.ok h3,
 .llm-detection.ok strong {
   color: var(--color-success);
+}
+
+.llm-installer-card small {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-muted-2);
+  font-size: 11px;
+}
+
+.llm-model-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.llm-manual-config {
+  margin-top: 18px;
 }
 
 .check {
