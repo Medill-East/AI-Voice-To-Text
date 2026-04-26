@@ -69,17 +69,19 @@ describe('recording overlay helpers', () => {
 
   it('places the overlay at the bottom center of the visible display area', () => {
     expect(recordingOverlayBounds({ x: 0, y: 0, width: 1440, height: 900 })).toEqual({
-      x: 610,
-      y: 814,
-      width: 220,
-      height: 52
+      x: 622,
+      y: 816,
+      width: 196,
+      height: 50
     });
   });
 
-  it('uses compact overlay markup without the old 280px width', async () => {
+  it('uses compact overlay markup without the old wide widths', async () => {
     const source = await import('node:fs/promises').then(({ readFile }) => readFile(new URL('../src/main/index.ts', import.meta.url), 'utf8'));
 
-    expect(source).toContain('width: 220px');
+    expect(source).toContain('recording-overlay-compact');
+    expect(source).toContain('width: 196px');
+    expect(source).not.toContain('width: 220px');
     expect(source).not.toContain('width: 280px');
   });
 

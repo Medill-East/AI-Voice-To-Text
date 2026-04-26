@@ -57,6 +57,9 @@ export interface Settings {
   paths?: {
     modelDir?: string;
   };
+  startup: {
+    openAtLogin: boolean;
+  };
   providers: {
     asr: {
       kind: AsrProviderKind;
@@ -364,6 +367,11 @@ export interface ProcessingDiagnostic {
   audioBytes: number;
   audioDurationSeconds?: number;
   chunkCount?: number;
+  heartbeatAt?: string;
+  chunkProgress?: {
+    current: number;
+    total: number;
+  };
   error?: string;
 }
 
@@ -541,4 +549,47 @@ export interface LlmTestResult {
   finishReason?: string;
   reasoningOnly?: boolean;
   error?: string;
+}
+
+export type CloudLlmSortKey = 'recommended' | 'performance' | 'name' | 'releasedAt' | 'price';
+
+export interface CloudLlmModelView {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt?: string;
+  contextLength?: number;
+  promptPrice?: number;
+  completionPrice?: number;
+  isFree: boolean;
+  recommended: boolean;
+  recommendationScore: number;
+  performanceScore: number;
+  modelUrl?: string;
+  note?: string;
+}
+
+export interface CloudLlmModelCatalogState {
+  status: 'idle' | 'refreshing' | 'success' | 'failed';
+  sourceUrl: string;
+  updatedAt?: string;
+  cacheUsed?: boolean;
+  error?: string;
+  models: CloudLlmModelView[];
+}
+
+export interface AsrTranscriptionWorkerResult {
+  ok: boolean;
+  text?: string;
+  error?: string;
+  diagnostic?: {
+    workerExitCode?: number | null;
+    workerSignal?: string | null;
+    workerStderr?: string;
+    heartbeatAt?: string;
+    chunkProgress?: {
+      current: number;
+      total: number;
+    };
+  };
 }

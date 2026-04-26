@@ -17,6 +17,7 @@ describe('UserDataStore', () => {
     expect(settings.providers.asr.modelId).toBeUndefined();
     expect(settings.sync.kind).toBe('local-folder');
     expect(settings.sync.github.autoSync).toBe(false);
+    expect(settings.startup.openAtLogin).toBe(false);
     expect(settings.updates.autoCheck).toBe(true);
     expect(settings.updates.autoDownload).toBe(true);
     expect(settings.appearance.theme).toBe('system');

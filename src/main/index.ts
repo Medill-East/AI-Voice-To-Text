@@ -8,6 +8,7 @@ import { autoUpdater } from 'electron-updater';
 import { FunAsrHttpProvider, LocalSherpaAsrProvider, UserFacingAsrError, WhisperCppAsrProvider, type AsrErrorDiagnostic } from '../core/asrProviders';
 import { AppUpdateService } from '../core/appUpdateService';
 import { AutoSyncService } from '../core/autoSyncService';
+import { CloudLlmCatalogService } from '../core/cloudLlmCatalog';
 import { checkManualMacUpdate, macDownloadUrlFromState, type GitHubReleaseLike } from '../core/manualAppUpdate';
 import { DEFAULT_MODEL_CATALOG, recommendModels } from '../core/modelCatalog';
 import { DEFAULT_REMOTE_MODEL_CATALOG_URL, ModelCatalogRefreshService } from '../core/modelCatalogRefresh';
@@ -25,6 +26,7 @@ import type {
   AppUpdateState,
   AsrBenchmarkBatchState,
   AutoSyncState,
+  CloudLlmModelCatalogState,
   InputMode,
   ModelCatalogItem,
   ModelCatalogRefreshState,
@@ -37,6 +39,7 @@ import type {
   Settings
 } from '../core/types';
 import { AsrBenchmarkRunner } from './asrBenchmarkRunner';
+import { AsrTranscriptionRunner, type AsrTranscriptionRunnerRequest } from './asrTranscriptionRunner';
 import { getFocusedAppName } from './focusedApp';
 import { createCheckingHotkeyStatus } from './hotkeyDiagnostics';
 import { HotkeyDiagnosticLog } from './hotkeyDiagnosticLog';
@@ -88,6 +91,12 @@ let autoSyncService: AutoSyncService;
 let autoSyncState: AutoSyncState = { status: 'idle', updatedAt: new Date().toISOString() };
 let appUpdateService: AppUpdateService;
 let appUpdateState: AppUpdateState;
+let cloudLlmCatalogService: CloudLlmCatalogService;
+let cloudLlmCatalogState: CloudLlmModelCatalogState = {
+  status: 'idle',
+  sourceUrl: 'https://openrouter.ai/api/v1/models',
+  models: []
+};
 let modelCatalog: ModelCatalogItem[] = DEFAULT_MODEL_CATALOG;
 let modelCatalogRefreshService: ModelCatalogRefreshService;
 let modelCatalogRefreshState: ModelCatalogRefreshState = {
@@ -135,7 +144,12 @@ async function bootstrap(): Promise<void> {
   modelCatalogRefreshState = cachedCatalog.state;
   appUpdateService = createAppUpdateService();
   appUpdateState = appUpdateService.getState();
+  cloudLlmCatalogService = new CloudLlmCatalogService({
+    cachePath: join(app.getPath('userData'), 'cloud-llm-model-cache.json')
+  });
+  cloudLlmCatalogState = await cloudLlmCatalogService.loadCached();
   autoUpdater.autoDownload = settings.updates.autoDownload;
+  applyLoginItemSettings(settings.startup.openAtLogin);
   await createModelManager().recoverInterruptedInstalls();
   hotkeyService = new HotkeyService({
     onDiagnostic: (event) => {
@@ -287,9 +301,22 @@ function registerIpc(): void {
     settings = normalizeRuntimeSettings(nextSettings);
     await store.saveSettings(settings);
     autoUpdater.autoDownload = settings.updates.autoDownload;
+    applyLoginItemSettings(settings.startup.openAtLogin);
     await registerHotkey();
     scheduleAutoSync('settings-save');
     return { settings, hotkeyStatus };
+  });
+  ipcMain.handle('v2t:set-open-at-login', async (_event, openAtLogin: boolean) => {
+    settings = normalizeRuntimeSettings({
+      ...settings,
+      startup: {
+        ...settings.startup,
+        openAtLogin
+      }
+    });
+    applyLoginItemSettings(openAtLogin);
+    await store.saveSettings(settings);
+    return { ok: true, settings, loginItem: app.getLoginItemSettings() };
   });
   ipcMain.handle('v2t:get-lexicon', async () => store.loadLexicon());
   ipcMain.handle('v2t:get-history', async (_event, limit?: number) => store.readRecentHistory(limit ?? 30));
@@ -333,6 +360,10 @@ function registerIpc(): void {
   ipcMain.handle('v2t:choose-model-root-path', async () => chooseModelRootPath());
   ipcMain.handle('v2t:choose-data-dir', async () => chooseDataDir());
   ipcMain.handle('v2t:open-path', async (_event, targetPath: string) => {
+    if (/^https?:\/\//.test(targetPath)) {
+      await shell.openExternal(targetPath);
+      return { ok: true };
+    }
     const error = await shell.openPath(targetPath);
     return error ? { ok: false, error } : { ok: true };
   });
@@ -354,7 +385,32 @@ function registerIpc(): void {
   ipcMain.handle('v2t:detect-llm-providers', async () => detectLocalLlmProviders());
   ipcMain.handle('v2t:enable-llm-provider', async (_event, detection: LlmProviderDetection, model: string) => enableLlmProvider(detection, model));
   ipcMain.handle('v2t:test-llm-connection', async () => testCurrentLlmConnection());
-  ipcMain.handle('v2t:test-cloud-llm', async () => testCloudLlmConnection());
+  ipcMain.handle('v2t:test-cloud-llm', async (_event, options?: { baseUrl?: string; model?: string }) => testCloudLlmConnection(options));
+  ipcMain.handle('v2t:get-cloud-llm-models', async () => cloudLlmCatalogState);
+  ipcMain.handle('v2t:refresh-cloud-llm-models', async () => {
+    cloudLlmCatalogState = {
+      ...cloudLlmCatalogState,
+      status: 'refreshing'
+    };
+    cloudLlmCatalogState = await cloudLlmCatalogService.refresh();
+    return cloudLlmCatalogState;
+  });
+  ipcMain.handle('v2t:open-model-download-url', async (_event, modelId: string) => {
+    const url = modelDownloadUrl(modelId);
+    if (!url) {
+      return { ok: false, error: '这个模型没有可打开的外部来源。' };
+    }
+    await shell.openExternal(url);
+    return { ok: true };
+  });
+  ipcMain.handle('v2t:copy-model-download-url', async (_event, modelId: string) => {
+    const url = modelDownloadUrl(modelId);
+    if (!url) {
+      return { ok: false, error: '这个模型没有可复制的外部来源。' };
+    }
+    clipboard.writeText(url);
+    return { ok: true };
+  });
   ipcMain.handle('v2t:update-hotkey', async (_event, accelerator: string) => updateHotkey(accelerator));
   ipcMain.handle('v2t:open-accessibility-settings', async () => {
     if (process.platform !== 'darwin') {
@@ -598,7 +654,7 @@ function registerIpc(): void {
     hotkeyService.suppressWindowsModifierTap('processing-started');
     try {
       await writeProcessingMarker(diagnostic);
-      const pipeline = await createPipeline();
+      const pipeline = await createPipeline(diagnostic);
       const result = await pipeline.handleAudio(Buffer.from(payload.bytes), {
         mode: payload.mode,
         targetApp: await getFocusedAppName(),
@@ -630,7 +686,7 @@ function registerIpc(): void {
   });
 }
 
-async function createPipeline() {
+async function createPipeline(diagnostic: ProcessingDiagnostic) {
   const primaryKey = await new SecretStore().getOpenAICompatibleKey();
   const fallbackKey = await new SecretStore('v2t-llm-fallback').getOpenAICompatibleKey();
   const engine = settings.providers.llm.engine;
@@ -668,7 +724,7 @@ async function createPipeline() {
 
   return createVoiceInputPipeline({
     store,
-    asr: createAsrProvider(),
+    asr: createAsrProvider(diagnostic),
     injector: new TextInjectionService({
       clipboard,
       keySender: new OsPasteKeySender()
@@ -769,18 +825,18 @@ async function testCurrentLlmConnection() {
   });
 }
 
-async function testCloudLlmConnection() {
+async function testCloudLlmConnection(options?: { baseUrl?: string; model?: string }) {
   return testLlmClient({
     kind: 'openai-compatible',
-    baseUrl: settings.providers.llm.fallback.baseUrl,
-    model: settings.providers.llm.fallback.model,
+    baseUrl: options?.baseUrl ?? settings.providers.llm.fallback.baseUrl,
+    model: options?.model ?? settings.providers.llm.fallback.model,
     apiKey: await new SecretStore('v2t-llm-fallback').getOpenAICompatibleKey(),
     timeoutMs: settings.providers.llm.fallback.timeoutMs,
     fastMode: true
   });
 }
 
-function createAsrProvider() {
+function createAsrProvider(diagnostic: ProcessingDiagnostic) {
   if (settings.providers.asr.kind === 'funasr-http') {
     return new FunAsrHttpProvider({
       endpoint: settings.providers.asr.endpoint ?? 'http://127.0.0.1:10095/transcribe',
@@ -792,12 +848,29 @@ function createAsrProvider() {
     return new WhisperCppAsrProvider();
   }
 
-  return new LocalSherpaAsrProvider({
-    modelId: settings.providers.asr.modelId,
-    modelPath: settings.providers.asr.modelPath,
-    sherpaModelType: settings.providers.asr.sherpaModelType,
-    language: settings.providers.asr.language
-  });
+  return {
+    async transcribe(audio: Buffer | Uint8Array) {
+      const runner = new AsrTranscriptionRunner({
+        workerPath: join(__dirname, 'asrTranscriptionWorker.js'),
+        timeoutMs: 180_000,
+        onHeartbeat: (heartbeatAt) => {
+          lastProcessingDiagnostic = { ...diagnostic, heartbeatAt };
+        },
+        onChunkProgress: (chunkProgress) => {
+          lastProcessingDiagnostic = { ...diagnostic, chunkProgress, heartbeatAt: new Date().toISOString() };
+        }
+      });
+      const request: AsrTranscriptionRunnerRequest = {
+        audio: audio instanceof Uint8Array ? audio : new Uint8Array(audio),
+        modelId: settings.providers.asr.modelId,
+        modelPath: settings.providers.asr.modelPath,
+        sherpaModelType: settings.providers.asr.sherpaModelType,
+        language: settings.providers.asr.language,
+        processing: diagnostic
+      };
+      return runner.transcribe(request);
+    }
+  };
 }
 
 async function applyRecordingOverlayState(state: NormalizedRecordingOverlayState): Promise<void> {
@@ -824,8 +897,8 @@ async function ensureRecordingOverlayWindow(): Promise<BrowserWindow> {
   }
 
   recordingOverlayWindow = new BrowserWindow({
-    width: 220,
-    height: 52,
+    width: 196,
+    height: 50,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -1308,11 +1381,29 @@ function normalizeRuntimeSettings(nextSettings: Settings): Settings {
   return {
     ...nextSettings,
     dataDir: store.getBaseDir(),
+    startup: {
+      openAtLogin: nextSettings.startup?.openAtLogin ?? false
+    },
     paths: {
       ...nextSettings.paths,
       modelDir: modelRoot
     }
   };
+}
+
+function applyLoginItemSettings(openAtLogin: boolean): void {
+  app.setLoginItemSettings({
+    openAtLogin
+  });
+}
+
+function modelDownloadUrl(modelId: string): string | undefined {
+  const model = modelCatalog.find((item) => item.id === modelId);
+  if (!model) {
+    return undefined;
+  }
+  const sortedSources = [...(model.downloadSources ?? [])].sort((left, right) => (left.priority ?? 100) - (right.priority ?? 100));
+  return sortedSources[0]?.url ?? model.sourceUrl;
 }
 
 function dataDirPointerPath(): string {
@@ -2033,11 +2124,11 @@ function recordingOverlayHtmlUrl(): string {
   <style>
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; margin: 0; background: transparent; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .overlay { width: 220px; height: 52px; display: flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid rgba(255, 250, 240, 0.1); border-radius: 13px; background: rgba(31, 39, 36, 0.92); color: #fffaf0; box-shadow: 0 12px 24px rgba(0, 0, 0, 0.22); cursor: pointer; user-select: none; }
+    .overlay.recording-overlay-compact { width: 196px; height: 50px; display: flex; align-items: center; gap: 7px; padding: 8px 10px; border: 1px solid rgba(255, 250, 240, 0.1); border-radius: 13px; background: rgba(31, 39, 36, 0.92); color: #fffaf0; box-shadow: 0 12px 24px rgba(0, 0, 0, 0.22); cursor: pointer; user-select: none; }
     .overlay:active { transform: translateY(1px); }
     .status-dot { width: 6px; height: 6px; border-radius: 999px; background: #d84d3f; box-shadow: 0 0 0 4px rgba(216, 77, 63, 0.15); flex: 0 0 auto; }
     .processing .status-dot { background: #2e6f95; box-shadow: 0 0 0 4px rgba(46, 111, 149, 0.14); }
-    .waves { width: 32px; height: 22px; display: flex; align-items: center; justify-content: center; gap: 2px; flex: 0 0 auto; }
+    .waves { width: 28px; height: 22px; display: flex; align-items: center; justify-content: center; gap: 2px; flex: 0 0 auto; }
     .bar { width: 2px; min-height: 4px; border-radius: 999px; background: rgba(255, 250, 240, 0.78); transition: height 90ms ease, opacity 120ms ease; }
     .no-input .bar { opacity: 0.32; }
     .processing .bar { height: 11px !important; opacity: 0.45; }
@@ -2047,7 +2138,7 @@ function recordingOverlayHtmlUrl(): string {
   </style>
 </head>
 <body>
-  <div id="overlay" class="overlay" role="button" aria-label="停止录音" title="停止录音">
+  <div id="overlay" class="overlay recording-overlay-compact" role="button" aria-label="停止录音" title="停止录音">
     <div class="status-dot"></div>
     <div class="waves" aria-hidden="true">
       <span class="bar"></span>
@@ -2078,7 +2169,7 @@ function recordingOverlayHtmlUrl(): string {
       const bars = Array.from(document.querySelectorAll('.bar'));
       const level = Math.max(0, Math.min(1, state.level || 0));
       const inputActive = Boolean(state.inputActive);
-      overlay.className = 'overlay ' + state.state + (inputActive ? ' input-active' : ' no-input');
+      overlay.className = 'overlay recording-overlay-compact ' + state.state + (inputActive ? ' input-active' : ' no-input');
       title.textContent = state.state === 'processing' ? '正在整理' : '正在录音';
       const mode = state.mode === 'structured' ? '结构输入' : '自然输入';
       if (state.state === 'recording' && !inputActive && (state.silenceMs || 0) > 1800) {

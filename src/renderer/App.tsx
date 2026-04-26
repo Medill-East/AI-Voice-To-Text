@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
+import { sortCloudLlmModels } from '../core/cloudLlmCatalogShared';
 import { oneClickEligibility, oneClickInstallableModels, publicChineseMetrics, referenceModels, scoreModel } from '../core/modelCatalog';
 import { hotkeyLabelForPlatform } from '../core/hotkeyLabels';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
@@ -7,6 +8,9 @@ import type {
   AppUpdateState,
   AsrBenchmarkBatchState,
   AutoSyncState,
+  CloudLlmModelCatalogState,
+  CloudLlmModelView,
+  CloudLlmSortKey,
   GitHubSyncStatus,
   HistoryEntry,
   InputMode,
@@ -86,6 +90,7 @@ const CLOUD_LLM_RECOMMENDATIONS = [
   }
 ];
 const MAX_RECORDING_MS = 5 * 60 * 1000;
+const CLOUD_MODELS_PAGE_SIZE = 20;
 
 interface LocalHistoryItem extends VoiceInputPipelineResult {
   createdAt: string;
@@ -151,6 +156,12 @@ export function App() {
   const [llmMessage, setLlmMessage] = useState<string | null>(null);
   const [llmApiKeyDraft, setLlmApiKeyDraft] = useState('');
   const [llmFallbackApiKeyDraft, setLlmFallbackApiKeyDraft] = useState('');
+  const [cloudLlmCatalog, setCloudLlmCatalog] = useState<CloudLlmModelCatalogState | null>(null);
+  const [cloudModelSearch, setCloudModelSearch] = useState('');
+  const [cloudModelSort, setCloudModelSort] = useState<CloudLlmSortKey>('recommended');
+  const [cloudModelPage, setCloudModelPage] = useState(0);
+  const [cloudOnlyFree, setCloudOnlyFree] = useState(false);
+  const [cloudOnlyRecommended, setCloudOnlyRecommended] = useState(true);
   const [pathMessage, setPathMessage] = useState<string | null>(null);
   const recorderRef = useRef<PcmRecorder | null>(null);
   const modeRef = useRef<InputMode>('natural');
@@ -277,6 +288,13 @@ export function App() {
     void window.v2t
       .getLlmInstallers()
       .then(setLlmInstallers)
+      .catch((caught) => setLlmMessage(caught instanceof Error ? caught.message : String(caught)));
+  }, []);
+
+  useEffect(() => {
+    void window.v2t
+      .getCloudLlmModels()
+      .then(setCloudLlmCatalog)
       .catch((caught) => setLlmMessage(caught instanceof Error ? caught.message : String(caught)));
   }, []);
 
@@ -557,6 +575,13 @@ export function App() {
     applySetup(nextSetup);
   };
 
+  const updateOpenAtLogin = async (openAtLogin: boolean) => {
+    const result = await window.v2t.setOpenAtLogin(openAtLogin);
+    setSettings(result.settings);
+    const nextSetup = await window.v2t.getSetup();
+    applySetup(nextSetup);
+  };
+
   const updateUpdaterSetting = async (patch: Partial<Settings['updates']>) => {
     if (!settings) {
       return;
@@ -775,6 +800,18 @@ export function App() {
     setCatalogMessage('模型榜单诊断信息已复制到剪贴板');
   };
 
+  const openModelDownloadUrl = async (modelId: string) => {
+    const result = await window.v2t.openModelDownloadUrl(modelId);
+    if (!result.ok) {
+      setError(result.error ?? '无法打开模型外部下载链接');
+    }
+  };
+
+  const copyModelDownloadUrl = async (modelId: string) => {
+    const result = await window.v2t.copyModelDownloadUrl(modelId);
+    setCatalogMessage(result.ok ? '模型下载链接已复制' : (result.error ?? '无法复制模型下载链接'));
+  };
+
   const testModelDownload = async (modelId: string) => {
     setError(null);
     setProbingModelId(modelId);
@@ -963,12 +1000,19 @@ export function App() {
     }
   };
 
-  const testCloudLlmConnection = async () => {
+  const testCloudLlmConnection = async (model?: CloudLlmModelView) => {
     setLlmMessage('正在用内置样例测试云端整理');
-    const result = await window.v2t.testCloudLlmConnection();
+    const result = await window.v2t.testCloudLlmConnection(
+      model
+        ? {
+            baseUrl: 'https://openrouter.ai/api/v1',
+            model: model.id
+          }
+        : undefined
+    );
     if (result.ok) {
       const elapsed = typeof result.elapsedMs === 'number' ? ` · ${Math.round(result.elapsedMs / 100) / 10}s` : '';
-      setLlmMessage(`云端模型可用${elapsed}：${result.output ?? '测试通过'}`);
+      setLlmMessage(`${model ? model.name : '云端模型'}可用${elapsed}：${result.output ?? '测试通过'}`);
     } else {
       const elapsed = typeof result.elapsedMs === 'number' ? `（${Math.round(result.elapsedMs / 100) / 10}s）` : '';
       setLlmMessage(`${result.error ?? '云端模型测试失败'}${elapsed}`);
@@ -983,6 +1027,14 @@ export function App() {
   const openOpenRouterFreeModels = async () => {
     await window.v2t.openOpenRouterFreeModels();
     setLlmMessage('已打开 OpenRouter 免费模型列表。免费模型可能限流或变化。');
+  };
+
+  const refreshCloudLlmModels = async () => {
+    setLlmMessage('正在刷新 OpenRouter 云端模型列表');
+    const state = await window.v2t.refreshCloudLlmModels();
+    setCloudLlmCatalog(state);
+    setCloudModelPage(0);
+    setLlmMessage(state.status === 'success' ? `已刷新 ${state.models.length} 个云端模型` : `刷新失败：${state.error ?? '未知错误'}；已显示缓存或内置推荐`);
   };
 
   const saveLlmApiKey = async () => {
@@ -1041,6 +1093,34 @@ export function App() {
     });
     setLlmSettingsPage('cloud');
     setLlmMessage(`已填入 ${recommendation.name}，保存设置和 API Key 后即可使用。`);
+  };
+
+  const useCloudModel = (model: CloudLlmModelView) => {
+    if (!settings) {
+      return;
+    }
+    setSettings({
+      ...settings,
+      providers: {
+        ...settings.providers,
+        llm: {
+          ...settings.providers.llm,
+          engine: 'cloud',
+          enabled: false,
+          fallback: {
+            ...settings.providers.llm.fallback,
+            enabled: false,
+            baseUrl: 'https://openrouter.ai/api/v1',
+            model: model.id
+          }
+        }
+      }
+    });
+    setLlmMessage(`已填入 ${model.name}，保存设置和云端 API Key 后即可测试。`);
+  };
+
+  const openCloudModelPage = async (model: CloudLlmModelView) => {
+    await window.v2t.openPath(model.modelUrl ?? `https://openrouter.ai/models/${model.id}`);
   };
 
   const connectSyncRepo = async () => {
@@ -1393,6 +1473,8 @@ export function App() {
                     onBenchmark={benchmarkAsrModel}
                     onActivate={activateModel}
                     onDelete={deleteModel}
+                    onOpenDownloadUrl={openModelDownloadUrl}
+                    onCopyDownloadUrl={copyModelDownloadUrl}
                   />
                 </>
               ) : null}
@@ -1449,6 +1531,7 @@ export function App() {
                       className={settings.providers.llm.engine === engine ? 'engine-card active' : 'engine-card'}
                       onClick={() => updateLlmEngine(engine)}
                     >
+                      <span className="engine-badge">{llmEngineBadge(engine)}</span>
                       <strong>{llmEngineName(engine)}</strong>
                       <span>{llmEngineHint(engine)}</span>
                     </button>
@@ -1593,28 +1676,44 @@ export function App() {
                       <button className="secondary compact" onClick={() => void openOpenRouterApiKeys()}>
                         打开 OpenRouter API Key
                       </button>
-                      <button className="secondary compact" onClick={() => void openOpenRouterFreeModels()}>
-                        打开免费模型列表
+                      <button className="secondary compact" onClick={() => void refreshCloudLlmModels()}>
+                        刷新云端模型
                       </button>
                       <button className="secondary compact" onClick={() => void testCloudLlmConnection()}>
                         测试云端整理
                       </button>
                     </div>
-                    <div className="cloud-model-list">
-                      {CLOUD_LLM_RECOMMENDATIONS.map((recommendation) => (
-                        <article key={recommendation.model} className="cloud-model-card">
-                          <div>
-                            <span>{recommendation.tag}</span>
-                            <strong>{recommendation.name}</strong>
-                            <p>{recommendation.model}</p>
-                            <small>{recommendation.note}</small>
-                          </div>
-                          <button className="secondary compact" onClick={() => useCloudRecommendation(recommendation)}>
-                            填入
-                          </button>
-                        </article>
-                      ))}
-                    </div>
+                    <CloudModelTable
+                      state={cloudLlmCatalog}
+                      search={cloudModelSearch}
+                      sortKey={cloudModelSort}
+                      page={cloudModelPage}
+                      onlyFree={cloudOnlyFree}
+                      onlyRecommended={cloudOnlyRecommended}
+                      onSearch={(value) => {
+                        setCloudModelSearch(value);
+                        setCloudModelPage(0);
+                      }}
+                      onSort={(value) => {
+                        setCloudModelSort(value);
+                        setCloudModelPage(0);
+                      }}
+                      onOnlyFree={(value) => {
+                        setCloudOnlyFree(value);
+                        setCloudModelPage(0);
+                      }}
+                      onOnlyRecommended={(value) => {
+                        setCloudOnlyRecommended(value);
+                        setCloudModelPage(0);
+                      }}
+                      onPage={setCloudModelPage}
+                      onUse={useCloudModel}
+                      onTest={async (model) => {
+                        useCloudModel(model);
+                        await testCloudLlmConnection(model);
+                      }}
+                      onOpen={openCloudModelPage}
+                    />
                   </section>
                   <section className="advanced-group llm-manual-config">
                     <h3>云端 OpenAI-compatible 配置</h3>
@@ -1680,9 +1779,11 @@ export function App() {
                   </section>
                 </>
               )}
-              <button className="save" onClick={() => void saveSettings()}>
-                保存文本整理模型设置
-              </button>
+              <div className="settings-save-row">
+                <button className="save" onClick={() => void saveSettings()}>
+                  保存文本整理模型设置
+                </button>
+              </div>
               {llmMessage ? <p className="sync-message">{llmMessage}</p> : null}
             </>
           ) : (
@@ -2366,6 +2467,14 @@ export function App() {
                 </button>
               ))}
             </div>
+            <label className="setting-check">
+              <input
+                type="checkbox"
+                checked={settings.startup.openAtLogin}
+                onChange={(event) => void updateOpenAtLogin(event.target.checked)}
+              />
+              开机自动启动 V2T
+            </label>
           </section>
         ) : null}
         {setup ? (
@@ -2714,6 +2823,129 @@ function PromptEditor({
   );
 }
 
+function CloudModelTable({
+  state,
+  search,
+  sortKey,
+  page,
+  onlyFree,
+  onlyRecommended,
+  onSearch,
+  onSort,
+  onOnlyFree,
+  onOnlyRecommended,
+  onPage,
+  onUse,
+  onTest,
+  onOpen
+}: {
+  state: CloudLlmModelCatalogState | null;
+  search: string;
+  sortKey: CloudLlmSortKey;
+  page: number;
+  onlyFree: boolean;
+  onlyRecommended: boolean;
+  onSearch(value: string): void;
+  onSort(value: CloudLlmSortKey): void;
+  onOnlyFree(value: boolean): void;
+  onOnlyRecommended(value: boolean): void;
+  onPage(value: number): void;
+  onUse(model: CloudLlmModelView): void;
+  onTest(model: CloudLlmModelView): Promise<void>;
+  onOpen(model: CloudLlmModelView): Promise<void>;
+}) {
+  const query = search.trim().toLowerCase();
+  const filtered = sortCloudLlmModels(state?.models ?? [], sortKey).filter((model) => {
+    if (onlyFree && !model.isFree) {
+      return false;
+    }
+    if (onlyRecommended && !model.recommended) {
+      return false;
+    }
+    if (!query) {
+      return true;
+    }
+    return `${model.name} ${model.id} ${model.description ?? ''}`.toLowerCase().includes(query);
+  });
+  const totalPages = Math.max(1, Math.ceil(filtered.length / CLOUD_MODELS_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const visible = filtered.slice(safePage * CLOUD_MODELS_PAGE_SIZE, safePage * CLOUD_MODELS_PAGE_SIZE + CLOUD_MODELS_PAGE_SIZE);
+
+  return (
+    <div className="cloud-model-browser">
+      <div className="cloud-model-toolbar">
+        <input
+          className="no-drag"
+          value={search}
+          placeholder="搜索模型名或 ID"
+          spellCheck={false}
+          onChange={(event) => onSearch(event.target.value)}
+        />
+        <select value={sortKey} onChange={(event) => onSort(event.target.value as CloudLlmSortKey)}>
+          <option value="recommended">推荐</option>
+          <option value="performance">Performance</option>
+          <option value="name">Name</option>
+          <option value="releasedAt">发布时间</option>
+          <option value="price">价格</option>
+        </select>
+        <label className="setting-check">
+          <input type="checkbox" checked={onlyFree} onChange={(event) => onOnlyFree(event.target.checked)} />
+          只看免费
+        </label>
+        <label className="setting-check">
+          <input type="checkbox" checked={onlyRecommended} onChange={(event) => onOnlyRecommended(event.target.checked)} />
+          只看推荐
+        </label>
+      </div>
+      <p className="progress-meta">
+        {state?.status === 'failed' ? `刷新失败：${state.error ?? '未知错误'}；正在显示缓存或内置推荐。` : `共 ${filtered.length} 个模型`}
+        {state?.updatedAt ? ` · 上次刷新 ${new Date(state.updatedAt).toLocaleString()}` : ''}
+      </p>
+      <div className="cloud-model-table">
+        <div className="cloud-model-head">
+          <span>模型</span>
+          <span>适配</span>
+          <span>价格</span>
+          <span>上下文</span>
+          <span>操作</span>
+        </div>
+        {visible.map((model) => (
+          <div className="cloud-model-row" key={model.id}>
+            <div>
+              <div className="cloud-model-title">
+                {model.isFree ? <span className="engine-badge">免费</span> : null}
+                {model.recommended ? <span className="engine-badge">推荐</span> : null}
+                <strong>{model.name}</strong>
+              </div>
+              <small>{model.id}</small>
+              {model.note || model.description ? <p>{model.note ?? model.description}</p> : null}
+            </div>
+            <span>{model.recommendationScore}</span>
+            <span>{cloudPriceLabel(model)}</span>
+            <span>{model.contextLength ? `${Math.round(model.contextLength / 1000)}k` : '-'}</span>
+            <div className="action-strip">
+              <button className="secondary compact" onClick={() => onUse(model)}>填入</button>
+              <button className="secondary compact" onClick={() => void onTest(model)}>测试云端整理</button>
+              <button className="secondary compact" onClick={() => void onOpen(model)}>打开模型页</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="pager">
+        <button className="secondary compact" onClick={() => onPage(Math.max(0, safePage - 1))} disabled={safePage === 0}>
+          上一页
+        </button>
+        <span>
+          {safePage + 1} / {totalPages}
+        </span>
+        <button className="secondary compact" onClick={() => onPage(Math.min(totalPages - 1, safePage + 1))} disabled={safePage >= totalPages - 1}>
+          下一页
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AsrModelTable({
   rows,
   currentModelId,
@@ -2734,7 +2966,9 @@ function AsrModelTable({
   onTestDownload,
   onBenchmark,
   onActivate,
-  onDelete
+  onDelete,
+  onOpenDownloadUrl,
+  onCopyDownloadUrl
 }: {
   rows: ModelRecommendation[];
   currentModelId?: string;
@@ -2756,10 +2990,13 @@ function AsrModelTable({
   onBenchmark(modelId: string): Promise<void>;
   onActivate(modelId: string): Promise<void>;
   onDelete(modelId: string): Promise<void>;
+  onOpenDownloadUrl(modelId: string): Promise<void>;
+  onCopyDownloadUrl(modelId: string): Promise<void>;
 }) {
   return (
     <section className="comparison-panel" aria-label="ASR 模型统一管理">
       <h3>ASR 模型统一管理</h3>
+      <div className="comparison-table-scroll">
       <div className="comparison-table asr-management-table">
         <div className="comparison-head asr-management-head">
           <span>模型</span>
@@ -2797,14 +3034,19 @@ function AsrModelTable({
                 label={benchmarkResult?.realTimeFactor ?? statusRecord?.benchmarkRealTimeFactor ? `${benchmarkResult?.realTimeFactor ?? statusRecord?.benchmarkRealTimeFactor}x` : '未测速'}
                 max={20}
               />
-              <span>{model.sizeMb}MB · 最低 {model.hardwareRequirements.minMemoryGb}GB · {model.runtime}</span>
+              <span className="resource-cell">
+                <strong>{model.sizeMb}MB · 最低 {model.hardwareRequirements.minMemoryGb}GB</strong>
+                <small>{model.runtime}{model.sherpaModelType ? ` · ${model.sherpaModelType}` : ''}</small>
+              </span>
               <span>{isCurrent ? '当前' : statusLabel(statusRecord)}</span>
               <div className="action-strip table-action-grid">
-                <button onClick={() => void (installed ? onActivate(model.id) : onInstall(model.id))} disabled={installing || isCurrent}>
+                <button className="secondary compact" onClick={() => void (installed ? onActivate(model.id) : onInstall(model.id))} disabled={installing || isCurrent}>
                   {isCurrent ? '当前' : installing ? '安装中' : installed ? '启用' : statusRecord?.status === 'failed' && statusRecord.canResume ? '继续下载' : '安装'}
                 </button>
                 <button className="secondary compact" onClick={() => void onImportArchive(model.id)} disabled={installing}>导入包</button>
                 <button className="secondary compact" onClick={() => void onImportDirectory(model.id)} disabled={installing}>导入目录</button>
+                <button className="secondary compact" onClick={() => void onOpenDownloadUrl(model.id)}>外部下载</button>
+                <button className="secondary compact" onClick={() => void onCopyDownloadUrl(model.id)}>复制链接</button>
                 <button className="secondary compact" onClick={() => void onTestDownload(model.id)} disabled={probingModelId === model.id || installing}>
                   {probingModelId === model.id ? '测速中' : probeResult ? '重测下载' : '下载测速'}
                 </button>
@@ -2827,6 +3069,7 @@ function AsrModelTable({
             </div>
           );
         })}
+      </div>
       </div>
     </section>
   );
@@ -3274,6 +3517,19 @@ function llmEngineName(engine: Settings['providers']['llm']['engine']): string {
   return '本地规则';
 }
 
+function llmEngineBadge(engine: Settings['providers']['llm']['engine']): string {
+  if (engine === 'local') {
+    return 'LOCAL';
+  }
+  if (engine === 'cloud') {
+    return 'CLOUD';
+  }
+  if (engine === 'local-with-cloud-fallback') {
+    return 'HYBRID';
+  }
+  return 'RULES';
+}
+
 function llmEngineHint(engine: Settings['providers']['llm']['engine']): string {
   if (engine === 'local') {
     return '使用 Ollama、LM Studio 或本机兼容服务，不上传文本。';
@@ -3448,6 +3704,15 @@ function formatMetric(metric: ModelEvaluationMetric): string {
     return `${metric.value}`;
   }
   return `${metric.value}% ${metric.metric}`;
+}
+
+function cloudPriceLabel(model: CloudLlmModelView): string {
+  if (model.isFree) {
+    return '免费';
+  }
+  const prompt = model.promptPrice === undefined ? undefined : `$${model.promptPrice}/tok`;
+  const completion = model.completionPrice === undefined ? undefined : `$${model.completionPrice}/tok`;
+  return [prompt, completion].filter(Boolean).join(' / ') || '未知';
 }
 
 function statusLabel(status?: ModelStatusRecord): string {

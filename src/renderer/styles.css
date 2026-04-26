@@ -243,6 +243,10 @@ h2 {
   background: var(--color-success);
 }
 
+.recording-overlay-compact {
+  width: 196px;
+}
+
 .status-dot.starting {
   background: var(--color-warning);
 }
@@ -495,8 +499,14 @@ textarea {
   min-width: 1060px;
 }
 
+.comparison-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
 .asr-management-table {
-  min-width: 1450px;
+  min-width: 1640px;
 }
 
 .comparison-head,
@@ -526,7 +536,7 @@ textarea {
 
 .asr-management-head,
 .asr-management-row {
-  grid-template-columns: 260px 190px 112px 118px 170px 86px minmax(440px, 1fr);
+  grid-template-columns: 260px 190px 112px 118px 180px 86px minmax(620px, 1fr);
 }
 
 .reference-table {
@@ -562,6 +572,23 @@ textarea {
 .action-strip button {
   flex: 0 0 auto;
   white-space: nowrap;
+}
+
+.resource-cell {
+  display: grid;
+  gap: 3px;
+}
+
+.resource-cell strong {
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.resource-cell small {
+  margin-top: 0;
+  color: var(--color-muted-2);
+  font-size: 10.5px;
 }
 
 .model-table-actions {
@@ -1121,6 +1148,26 @@ textarea {
   border-radius: 6px;
 }
 
+.engine-badge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  padding: 2px 6px;
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-success) 24%, transparent);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.engine-card.active .engine-badge {
+  color: var(--color-bg);
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
 .engine-card.active {
   color: var(--color-bg);
   background: var(--color-text);
@@ -1158,6 +1205,78 @@ textarea {
 
 .cloud-quick-actions {
   margin-bottom: 12px;
+}
+
+.cloud-model-browser {
+  display: grid;
+  gap: 12px;
+}
+
+.cloud-model-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 150px auto auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.cloud-model-toolbar input,
+.cloud-model-toolbar select {
+  min-height: 34px;
+}
+
+.cloud-model-table {
+  display: grid;
+  min-width: 980px;
+  overflow-x: auto;
+  border-top: 1px solid var(--color-border);
+}
+
+.cloud-model-head,
+.cloud-model-row {
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) 72px 130px 86px 270px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.cloud-model-head {
+  color: var(--color-muted-2);
+  font-size: 11px;
+}
+
+.cloud-model-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.cloud-model-row p,
+.cloud-model-row small {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-muted-2);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.pager {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.settings-save-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
 }
 
 .subpage-tabs {

@@ -4,6 +4,7 @@ import type {
   AppUpdateState,
   AsrBenchmarkBatchState,
   AutoSyncState,
+  CloudLlmModelCatalogState,
   HardwareProfile,
   InputMode,
   HistoryEntry,
@@ -100,7 +101,12 @@ export interface V2TApi {
   detectLlmProviders(): Promise<LlmProviderDetection[]>;
   enableLlmProvider(detection: LlmProviderDetection, model: string): Promise<LlmEnableResult>;
   testLlmConnection(): Promise<LlmTestResult>;
-  testCloudLlmConnection(): Promise<LlmTestResult>;
+  testCloudLlmConnection(options?: { baseUrl?: string; model?: string }): Promise<LlmTestResult>;
+  getCloudLlmModels(): Promise<CloudLlmModelCatalogState>;
+  refreshCloudLlmModels(): Promise<CloudLlmModelCatalogState>;
+  setOpenAtLogin(openAtLogin: boolean): Promise<{ ok: true; settings: Settings }>;
+  openModelDownloadUrl(modelId: string): Promise<{ ok: boolean; error?: string }>;
+  copyModelDownloadUrl(modelId: string): Promise<{ ok: boolean; error?: string }>;
   processAudio(payload: { bytes: Uint8Array; mode: InputMode }): Promise<VoiceInputPipelineResult>;
   onRecordingCommand(callback: (command: RecordingCommand) => void): () => void;
   onHotkeyStatus(callback: (status: HotkeyStatus) => void): () => void;
@@ -248,7 +254,12 @@ const api: V2TApi = {
   detectLlmProviders: () => ipcRenderer.invoke('v2t:detect-llm-providers'),
   enableLlmProvider: (detection, model) => ipcRenderer.invoke('v2t:enable-llm-provider', detection, model),
   testLlmConnection: () => ipcRenderer.invoke('v2t:test-llm-connection'),
-  testCloudLlmConnection: () => ipcRenderer.invoke('v2t:test-cloud-llm'),
+  testCloudLlmConnection: (options) => ipcRenderer.invoke('v2t:test-cloud-llm', options),
+  getCloudLlmModels: () => ipcRenderer.invoke('v2t:get-cloud-llm-models'),
+  refreshCloudLlmModels: () => ipcRenderer.invoke('v2t:refresh-cloud-llm-models'),
+  setOpenAtLogin: (openAtLogin) => ipcRenderer.invoke('v2t:set-open-at-login', openAtLogin),
+  openModelDownloadUrl: (modelId) => ipcRenderer.invoke('v2t:open-model-download-url', modelId),
+  copyModelDownloadUrl: (modelId) => ipcRenderer.invoke('v2t:copy-model-download-url', modelId),
   processAudio: async (payload) => {
     const response = (await ipcRenderer.invoke('v2t:process-audio', payload)) as ProcessAudioResponse;
     if (!response.ok || !response.result) {

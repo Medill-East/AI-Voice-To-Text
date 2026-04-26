@@ -49,7 +49,7 @@ export function normalizeRecordingOverlayState(update: RecordingOverlayUpdate): 
   };
 }
 
-export function recordingOverlayBounds(bounds: DisplayBounds, size = { width: 220, height: 52 }): DisplayBounds {
+export function recordingOverlayBounds(bounds: DisplayBounds, size = { width: 196, height: 50 }): DisplayBounds {
   return {
     width: size.width,
     height: size.height,

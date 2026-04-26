@@ -18,6 +18,7 @@ interface LocalSherpaProviderOptions {
   tokensPath?: string;
   recognizerFactory?: SherpaRecognizerFactory;
   allowEmptyResult?: boolean;
+  onChunkProgress?: (current: number, total: number) => void;
 }
 
 export interface AsrErrorDiagnostic {
@@ -29,6 +30,14 @@ export interface AsrErrorDiagnostic {
   chunkIndex?: number;
   chunkCount?: number;
   runtimeError?: string;
+  workerExitCode?: number | null;
+  workerSignal?: string | null;
+  workerStderr?: string;
+  heartbeatAt?: string;
+  chunkProgress?: {
+    current: number;
+    total: number;
+  };
 }
 
 type SherpaRecognizerFactory = (config: SherpaOfflineRecognizerConfig) => SherpaRecognizer;
@@ -98,6 +107,7 @@ export class LocalSherpaAsrProvider implements AsrProvider {
   private readonly language: string;
   private readonly recognizerFactory?: SherpaRecognizerFactory;
   private readonly allowEmptyResult: boolean;
+  private readonly onChunkProgress?: (current: number, total: number) => void;
 
   constructor(options: LocalSherpaProviderOptions) {
     this.modelId = options.modelId;
@@ -107,6 +117,7 @@ export class LocalSherpaAsrProvider implements AsrProvider {
     this.language = options.language ?? 'zh';
     this.recognizerFactory = options.recognizerFactory;
     this.allowEmptyResult = options.allowEmptyResult ?? false;
+    this.onChunkProgress = options.onChunkProgress;
   }
 
   async transcribe(audio: Buffer | Uint8Array): Promise<AsrTranscription> {
@@ -147,6 +158,7 @@ export class LocalSherpaAsrProvider implements AsrProvider {
 
       for (const [index, chunkPath] of audioPaths.entries()) {
         try {
+          this.onChunkProgress?.(index + 1, audioPaths.length);
           const recognizer = this.recognizerFactory
             ? this.recognizerFactory(recognizerConfig)
             : createDefaultSherpaRecognizer(recognizerConfig);
