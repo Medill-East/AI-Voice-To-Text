@@ -60,6 +60,7 @@ export function createVoiceInputPipeline(dependencies: PipelineDependencies) {
         outputText: processed.text,
         targetApp: options.targetApp,
         injectionMethod: injection.method,
+        postProcessorEngine: processed.engine,
         error: injection.error
       });
 
@@ -68,7 +69,8 @@ export function createVoiceInputPipeline(dependencies: PipelineDependencies) {
         rawText: asrResult.text,
         outputText: processed.text,
         injection,
-        usedLlm: processed.usedLlm
+        usedLlm: processed.usedLlm,
+        postProcessorEngine: processed.engine
       };
     }
   };

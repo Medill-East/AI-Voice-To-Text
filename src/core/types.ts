@@ -14,6 +14,8 @@ export type ModelInstallStatus =
 	  | 'failed';
 export type RecommendedTier = 'low' | 'medium' | 'high';
 export type AppUpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'installing' | 'error';
+export type PostProcessorEngine = 'local-rules' | 'llm';
+export type LlmProviderKind = 'openai-compatible' | 'ollama' | 'lm-studio';
 
 export interface LexiconTerm {
   phrase: string;
@@ -50,6 +52,9 @@ export interface Settings {
     doubleClickMode: InputMode;
   };
   dataDir?: string;
+  paths?: {
+    modelDir?: string;
+  };
   providers: {
     asr: {
       kind: AsrProviderKind;
@@ -61,7 +66,7 @@ export interface Settings {
     };
     llm: {
       enabled: boolean;
-      kind: 'openai-compatible';
+      kind: LlmProviderKind;
       baseUrl: string;
       model: string;
       apiKeyRef: string;
@@ -345,6 +350,7 @@ export interface HistoryEntry {
   outputText: string;
   targetApp?: string;
   injectionMethod: 'cursor' | 'clipboard';
+  postProcessorEngine?: PostProcessorEngine;
   error?: string;
 }
 
@@ -357,6 +363,7 @@ export interface ProcessTextOptions {
 export interface ProcessedText {
   text: string;
   usedLlm: boolean;
+  engine: PostProcessorEngine;
 }
 
 export interface LlmCompletionRequest {
@@ -394,4 +401,22 @@ export interface VoiceInputPipelineResult {
   outputText: string;
   injection: TextInjectionResult;
   usedLlm: boolean;
+  postProcessorEngine: PostProcessorEngine;
+}
+
+export interface LlmProviderDetection {
+  kind: LlmProviderKind;
+  label: string;
+  baseUrl: string;
+  ok: boolean;
+  models: string[];
+  error?: string;
+}
+
+export interface LlmTestResult {
+  ok: boolean;
+  provider?: LlmProviderKind;
+  model?: string;
+  output?: string;
+  error?: string;
 }

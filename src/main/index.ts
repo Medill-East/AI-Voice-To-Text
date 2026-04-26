@@ -1,8 +1,8 @@
 import { app, BrowserWindow, Menu, Tray, clipboard, dialog, ipcMain, nativeImage, screen, shell, systemPreferences } from 'electron';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { hostname } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { autoUpdater } from 'electron-updater';
 import { FunAsrHttpProvider, LocalSherpaAsrProvider, UserFacingAsrError, WhisperCppAsrProvider } from '../core/asrProviders';
@@ -15,6 +15,7 @@ import { detectHardwareProfile } from '../core/hardware';
 import { ModelManager } from '../core/modelManager';
 import { GitHubSyncService } from '../core/githubSyncService';
 import { OpenAICompatibleClient } from '../core/llmClient';
+import { detectLocalLlmProviders, testLlmClient } from '../core/llmDiscovery';
 import { createVoiceInputPipeline } from '../core/pipeline';
 import { PostProcessor } from '../core/postProcessor';
 import { TextInjectionService } from '../core/textInjection';
@@ -29,6 +30,7 @@ import type {
   ModelStatusRecord,
   ProcessingDiagnostic,
   SyncImportStrategy,
+  LlmProviderDetection,
   Settings
 } from '../core/types';
 import { getFocusedAppName } from './focusedApp';
@@ -97,13 +99,14 @@ app.setName('V2T');
 
 async function bootstrap(): Promise<void> {
   const defaultDataDir = join(app.getPath('userData'), 'sync');
-  modelRoot = join(app.getPath('userData'), 'models');
-  await mkdir(defaultDataDir, { recursive: true });
-  await mkdir(modelRoot, { recursive: true });
+  const dataDir = await readDataDirPointer(defaultDataDir);
+  await mkdir(dataDir, { recursive: true });
   hotkeyLog = new HotkeyDiagnosticLog(join(app.getPath('userData'), 'logs', 'hotkey-helper.log'));
-  store = await UserDataStore.create(defaultDataDir, { deviceId: deviceId() });
+  store = await UserDataStore.create(dataDir, { deviceId: deviceId() });
   settings = await store.loadSettings();
-  settings.dataDir = settings.dataDir ?? defaultDataDir;
+  modelRoot = settings.paths?.modelDir ?? join(app.getPath('userData'), 'models');
+  await mkdir(modelRoot, { recursive: true });
+  settings = normalizeRuntimeSettings(settings);
   await store.saveSettings(settings);
   lastProcessingDiagnostic = await readProcessingMarker();
 
@@ -266,7 +269,7 @@ function registerIpc(): void {
   ipcMain.handle('v2t:get-settings', async () => ({ settings, hotkeyStatus }));
   ipcMain.handle('v2t:get-setup', async () => getSetupPayload());
   ipcMain.handle('v2t:save-settings', async (_event, nextSettings: Settings) => {
-    settings = nextSettings;
+    settings = normalizeRuntimeSettings(nextSettings);
     await store.saveSettings(settings);
     autoUpdater.autoDownload = settings.updates.autoDownload;
     await registerHotkey();
@@ -307,6 +310,19 @@ function registerIpc(): void {
     await new SecretStore().setOpenAICompatibleKey(value);
     return { ok: true };
   });
+  ipcMain.handle('v2t:choose-model-root-path', async () => chooseModelRootPath());
+  ipcMain.handle('v2t:choose-data-dir', async () => chooseDataDir());
+  ipcMain.handle('v2t:open-path', async (_event, targetPath: string) => {
+    const error = await shell.openPath(targetPath);
+    return error ? { ok: false, error } : { ok: true };
+  });
+  ipcMain.handle('v2t:copy-text', async (_event, value: string) => {
+    clipboard.writeText(value);
+    return { ok: true };
+  });
+  ipcMain.handle('v2t:detect-llm-providers', async () => detectLocalLlmProviders());
+  ipcMain.handle('v2t:enable-llm-provider', async (_event, detection: LlmProviderDetection, model: string) => enableLlmProvider(detection, model));
+  ipcMain.handle('v2t:test-llm-connection', async () => testCurrentLlmConnection());
   ipcMain.handle('v2t:update-hotkey', async (_event, accelerator: string) => updateHotkey(accelerator));
   ipcMain.handle('v2t:open-accessibility-settings', async () => {
     if (process.platform !== 'darwin') {
@@ -516,6 +532,53 @@ async function createPipeline() {
       keySender: new OsPasteKeySender()
     }),
     postProcessor: new PostProcessor({ llm })
+  });
+}
+
+async function enableLlmProvider(detection: LlmProviderDetection, model: string) {
+  try {
+    if (!detection.ok) {
+      throw new Error(`${detection.label} 当前不可连接，不能启用。`);
+    }
+    if (!model) {
+      throw new Error('请选择一个 LLM 模型。');
+    }
+    settings = normalizeRuntimeSettings({
+      ...settings,
+      providers: {
+        ...settings.providers,
+        llm: {
+          ...settings.providers.llm,
+          enabled: true,
+          kind: detection.kind,
+          baseUrl: detection.baseUrl,
+          model
+        }
+      }
+    });
+    await store.saveSettings(settings);
+    scheduleAutoSync('settings-save');
+    return { ok: true, settings, setup: await getSetupPayload() };
+  } catch (error) {
+    return { ok: false, settings, setup: await getSetupPayload(), error: readableError(error) };
+  }
+}
+
+async function testCurrentLlmConnection() {
+  if (!settings.providers.llm.enabled) {
+    return {
+      ok: false,
+      provider: settings.providers.llm.kind,
+      model: settings.providers.llm.model,
+      error: '尚未启用 LLM；请先检测本地 LLM 或填写 OpenAI-compatible 配置。'
+    };
+  }
+
+  return testLlmClient({
+    kind: settings.providers.llm.kind,
+    baseUrl: settings.providers.llm.baseUrl,
+    model: settings.providers.llm.model,
+    apiKey: await new SecretStore().getOpenAICompatibleKey()
   });
 }
 
@@ -891,6 +954,151 @@ function createModelManager(): ModelManager {
   });
 }
 
+async function chooseModelRootPath() {
+  try {
+    const selectedPath = await chooseDirectoryPath('选择新的模型目录');
+    if (!selectedPath) {
+      return { ok: false, path: modelRoot, setup: await getSetupPayload(), error: '已取消更改模型目录。' };
+    }
+    await migrateModelRoot(selectedPath);
+    return { ok: true, path: modelRoot, setup: await getSetupPayload() };
+  } catch (error) {
+    return { ok: false, path: modelRoot, setup: await getSetupPayload(), error: readableError(error) };
+  }
+}
+
+async function chooseDataDir() {
+  try {
+    const selectedPath = await chooseDirectoryPath('选择新的同步数据目录');
+    if (!selectedPath) {
+      return { ok: false, path: store.getBaseDir(), setup: await getSetupPayload(), error: '已取消更改同步数据目录。' };
+    }
+    await migrateDataDir(selectedPath);
+    return { ok: true, path: store.getBaseDir(), setup: await getSetupPayload() };
+  } catch (error) {
+    return { ok: false, path: store.getBaseDir(), setup: await getSetupPayload(), error: readableError(error) };
+  }
+}
+
+async function chooseDirectoryPath(title: string): Promise<string | undefined> {
+  const options: Electron.OpenDialogOptions = {
+    title,
+    properties: ['openDirectory', 'createDirectory']
+  };
+  const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? undefined : result.filePaths[0];
+}
+
+async function migrateModelRoot(targetPath: string): Promise<void> {
+  const oldRoot = resolve(modelRoot);
+  const nextRoot = resolve(targetPath);
+  if (oldRoot === nextRoot) {
+    return;
+  }
+  if (isPathInside(oldRoot, nextRoot)) {
+    throw new Error('新的模型目录不能放在当前模型目录内部，避免复制时递归。');
+  }
+
+  await copyDirectoryContents(oldRoot, nextRoot);
+  const currentModelPath = settings.providers.asr.modelPath;
+  const nextModelPath =
+    currentModelPath && isPathInsideOrSame(oldRoot, currentModelPath)
+      ? join(nextRoot, relative(oldRoot, resolve(currentModelPath)))
+      : currentModelPath;
+
+  modelRoot = nextRoot;
+  settings = normalizeRuntimeSettings({
+    ...settings,
+    providers: {
+      ...settings.providers,
+      asr: {
+        ...settings.providers.asr,
+        modelPath: nextModelPath
+      }
+    },
+    paths: {
+      ...settings.paths,
+      modelDir: nextRoot
+    }
+  });
+  await store.saveSettings(settings);
+}
+
+async function migrateDataDir(targetPath: string): Promise<void> {
+  const oldDir = resolve(store.getBaseDir());
+  const nextDir = resolve(targetPath);
+  if (oldDir === nextDir) {
+    return;
+  }
+  if (isPathInside(oldDir, nextDir)) {
+    throw new Error('新的同步数据目录不能放在当前同步数据目录内部，避免复制时递归。');
+  }
+
+  await copyDirectoryContents(oldDir, nextDir);
+  await writeDataDirPointer(nextDir);
+  store = await UserDataStore.create(nextDir, { deviceId: deviceId() });
+  settings = normalizeRuntimeSettings(await store.loadSettings());
+  await store.saveSettings(settings);
+  autoSyncService = createAutoSyncService();
+}
+
+async function copyDirectoryContents(sourcePath: string, targetPath: string): Promise<void> {
+  await mkdir(targetPath, { recursive: true });
+  if (!existsSync(sourcePath)) {
+    return;
+  }
+  const entries = await readdir(sourcePath, { withFileTypes: true });
+  for (const entry of entries) {
+    await cp(join(sourcePath, entry.name), join(targetPath, entry.name), {
+      recursive: true,
+      force: true,
+      errorOnExist: false
+    });
+  }
+}
+
+function isPathInside(parentPath: string, childPath: string): boolean {
+  const relativePath = relative(resolve(parentPath), resolve(childPath));
+  return Boolean(relativePath) && !relativePath.startsWith('..') && !isAbsolute(relativePath);
+}
+
+function isPathInsideOrSame(parentPath: string, childPath: string): boolean {
+  return resolve(parentPath) === resolve(childPath) || isPathInside(parentPath, childPath);
+}
+
+function normalizeRuntimeSettings(nextSettings: Settings): Settings {
+  return {
+    ...nextSettings,
+    dataDir: store.getBaseDir(),
+    paths: {
+      ...nextSettings.paths,
+      modelDir: modelRoot
+    }
+  };
+}
+
+function dataDirPointerPath(): string {
+  return join(app.getPath('userData'), 'data-dir.json');
+}
+
+async function readDataDirPointer(defaultDataDir: string): Promise<string> {
+  const pointerPath = dataDirPointerPath();
+  if (!existsSync(pointerPath)) {
+    return defaultDataDir;
+  }
+  try {
+    const payload = JSON.parse(await readFile(pointerPath, 'utf8')) as { dataDir?: unknown };
+    return typeof payload.dataDir === 'string' && payload.dataDir.trim() ? payload.dataDir : defaultDataDir;
+  } catch {
+    return defaultDataDir;
+  }
+}
+
+async function writeDataDirPointer(dataDir: string): Promise<void> {
+  await mkdir(dirname(dataDirPointerPath()), { recursive: true });
+  await writeFile(dataDirPointerPath(), `${JSON.stringify({ dataDir }, null, 2)}\n`, 'utf8');
+}
+
 async function chooseModelArchivePath(): Promise<string | undefined> {
   const options: Electron.OpenDialogOptions = {
     title: '选择已下载的模型压缩包',
@@ -1158,7 +1366,7 @@ async function pullSync() {
   try {
     ensureSyncRepoPathSelected();
     const status = await createSyncService().pull();
-    settings = {
+    settings = normalizeRuntimeSettings({
       ...(await store.loadSettings()),
       sync: {
         kind: 'github',
@@ -1167,7 +1375,7 @@ async function pullSync() {
           lastSyncAt: new Date().toISOString()
         }
       }
-    };
+    });
     await store.saveSettings(settings);
     return { ok: true, status, setup: await getSetupPayload() };
   } catch (error) {

@@ -31,6 +31,7 @@ describe('voice input pipeline', () => {
 
     expect(result.outputText).toBe('记录 V2T 的目标');
     expect(result.injection.method).toBe('cursor');
+    expect(result.postProcessorEngine).toBe('local-rules');
 
     const entries = await store.readHistoryMonth('device-a', '2026-04');
     expect(entries).toHaveLength(1);
@@ -40,7 +41,8 @@ describe('voice input pipeline', () => {
       rawText: '记录 v to t 的目标',
       outputText: '记录 V2T 的目标',
       targetApp: 'Obsidian',
-      injectionMethod: 'cursor'
+      injectionMethod: 'cursor',
+      postProcessorEngine: 'local-rules'
     });
     expect(JSON.stringify(entries[0])).not.toContain('audio');
   });
@@ -65,7 +67,7 @@ describe('voice input pipeline', () => {
   it('passes the mode prompt into post-processing', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'v2t-pipeline-'));
     const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
-    const process = vi.fn().mockResolvedValue({ text: '整理后文本', usedLlm: true });
+    const process = vi.fn().mockResolvedValue({ text: '整理后文本', usedLlm: true, engine: 'llm' });
     const pipeline = createVoiceInputPipeline({
       store,
       asr: { transcribe: vi.fn().mockResolvedValue({ text: '原文' }) },
@@ -75,11 +77,12 @@ describe('voice input pipeline', () => {
       idFactory: () => 'prompt-1'
     });
 
-    await pipeline.handleAudio(Buffer.from('fake audio'), {
+    const result = await pipeline.handleAudio(Buffer.from('fake audio'), {
       mode: 'structured',
       prompt: '自定义结构输入 Prompt'
     });
 
     expect(process).toHaveBeenCalledWith('原文', expect.objectContaining({ mode: 'structured', prompt: '自定义结构输入 Prompt' }));
+    expect(result.postProcessorEngine).toBe('llm');
   });
 });

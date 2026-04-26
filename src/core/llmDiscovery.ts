@@ -1,0 +1,117 @@
+import type { LlmProviderDetection, LlmProviderKind, LlmTestResult } from './types';
+import { OpenAICompatibleClient } from './llmClient';
+import { structuredPrompt } from './postProcessor';
+
+export interface LlmEndpoint {
+  kind: LlmProviderKind;
+  label: string;
+  baseUrl: string;
+  modelsUrl: string;
+  parseModels(payload: unknown): string[];
+}
+
+const DEFAULT_ENDPOINTS: LlmEndpoint[] = [
+  {
+    kind: 'ollama',
+    label: 'Ollama',
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    modelsUrl: 'http://127.0.0.1:11434/api/tags',
+    parseModels: (payload) => {
+      const models = asRecord(payload).models;
+      return Array.isArray(models) ? models.map((item) => asRecord(item).name).filter(isString) : [];
+    }
+  },
+  {
+    kind: 'lm-studio',
+    label: 'LM Studio',
+    baseUrl: 'http://127.0.0.1:1234/v1',
+    modelsUrl: 'http://127.0.0.1:1234/v1/models',
+    parseModels: (payload) => {
+      const data = asRecord(payload).data;
+      return Array.isArray(data) ? data.map((item) => asRecord(item).id).filter(isString) : [];
+    }
+  }
+];
+
+export async function detectLocalLlmProviders(options: {
+  fetchImpl?: typeof fetch;
+  endpoints?: LlmEndpoint[];
+} = {}): Promise<LlmProviderDetection[]> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const endpoints = options.endpoints ?? DEFAULT_ENDPOINTS;
+  return Promise.all(
+    endpoints.map(async (endpoint) => {
+      try {
+        const response = await fetchImpl(endpoint.modelsUrl, { method: 'GET' });
+        if (!response.ok) {
+          return {
+            kind: endpoint.kind,
+            label: endpoint.label,
+            baseUrl: endpoint.baseUrl,
+            ok: false,
+            models: [],
+            error: `HTTP ${response.status}`
+          };
+        }
+        const models = endpoint.parseModels(await response.json());
+        return {
+          kind: endpoint.kind,
+          label: endpoint.label,
+          baseUrl: endpoint.baseUrl,
+          ok: true,
+          models
+        };
+      } catch (error) {
+        return {
+          kind: endpoint.kind,
+          label: endpoint.label,
+          baseUrl: endpoint.baseUrl,
+          ok: false,
+          models: [],
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    })
+  );
+}
+
+export async function testLlmClient(options: {
+  kind: LlmProviderKind;
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+}): Promise<LlmTestResult> {
+  try {
+    const client = new OpenAICompatibleClient({
+      baseUrl: options.baseUrl,
+      model: options.model,
+      apiKey: options.apiKey
+    });
+    const output = await client.complete({
+      mode: 'structured',
+      input: '嗯我想测试一下结构化整理就是把语音输入变得更清楚',
+      systemPrompt: structuredPrompt()
+    });
+    return {
+      ok: true,
+      provider: options.kind,
+      model: options.model,
+      output
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      provider: options.kind,
+      model: options.model,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}

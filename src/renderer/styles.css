@@ -916,7 +916,57 @@ textarea {
 
 .advanced {
   display: grid;
+  gap: 18px;
+}
+
+.advanced-group {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.advanced-group h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.path-row,
+.llm-detection {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.path-row:first-of-type,
+.llm-detection:first-of-type {
+  border-top: 0;
+}
+
+.path-row span {
+  color: var(--color-muted-2);
+  font-size: 12px;
+}
+
+.path-row p,
+.llm-detection p {
+  overflow-wrap: anywhere;
+  margin-top: 4px;
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.llm-detection-list {
+  display: grid;
   gap: 2px;
+}
+
+.llm-detection.ok strong {
+  color: var(--color-success);
 }
 
 .check {

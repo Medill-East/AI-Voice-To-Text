@@ -8,6 +8,8 @@ import type {
   HistoryEntry,
   InstalledModelView,
   Lexicon,
+  LlmProviderDetection,
+  LlmTestResult,
   ModelCatalogItem,
   ModelCatalogRefreshState,
   ModelDownloadProbeResult,
@@ -75,6 +77,13 @@ export interface V2TApi {
   cleanupStaleHotkeyHelpers(): Promise<{ ok: boolean; setup: SetupPayload; error?: string }>;
   quitApp(): Promise<{ ok: true }>;
   setOpenAIKey(value: string): Promise<{ ok: true }>;
+  chooseModelRootPath(): Promise<PathActionResult>;
+  chooseDataDir(): Promise<PathActionResult>;
+  openPath(path: string): Promise<{ ok: boolean; error?: string }>;
+  copyText(value: string): Promise<{ ok: true }>;
+  detectLlmProviders(): Promise<LlmProviderDetection[]>;
+  enableLlmProvider(detection: LlmProviderDetection, model: string): Promise<LlmEnableResult>;
+  testLlmConnection(): Promise<LlmTestResult>;
   processAudio(payload: { bytes: Uint8Array; mode: InputMode }): Promise<VoiceInputPipelineResult>;
   onRecordingCommand(callback: (command: RecordingCommand) => void): () => void;
   onHotkeyStatus(callback: (status: HotkeyStatus) => void): () => void;
@@ -142,6 +151,20 @@ interface PromptSaveResult {
   error?: string;
 }
 
+interface PathActionResult {
+  ok: boolean;
+  setup: SetupPayload;
+  path?: string;
+  error?: string;
+}
+
+interface LlmEnableResult {
+  ok: boolean;
+  settings: Settings;
+  setup: SetupPayload;
+  error?: string;
+}
+
 const api: V2TApi = {
   getSettings: () => ipcRenderer.invoke('v2t:get-settings'),
   getSetup: () => ipcRenderer.invoke('v2t:get-setup'),
@@ -189,6 +212,13 @@ const api: V2TApi = {
   cleanupStaleHotkeyHelpers: () => ipcRenderer.invoke('v2t:cleanup-stale-hotkey-helpers'),
   quitApp: () => ipcRenderer.invoke('v2t:quit-app'),
   setOpenAIKey: (value) => ipcRenderer.invoke('v2t:set-openai-key', value),
+  chooseModelRootPath: () => ipcRenderer.invoke('v2t:choose-model-root-path'),
+  chooseDataDir: () => ipcRenderer.invoke('v2t:choose-data-dir'),
+  openPath: (path) => ipcRenderer.invoke('v2t:open-path', path),
+  copyText: (value) => ipcRenderer.invoke('v2t:copy-text', value),
+  detectLlmProviders: () => ipcRenderer.invoke('v2t:detect-llm-providers'),
+  enableLlmProvider: (detection, model) => ipcRenderer.invoke('v2t:enable-llm-provider', detection, model),
+  testLlmConnection: () => ipcRenderer.invoke('v2t:test-llm-connection'),
   processAudio: async (payload) => {
     const response = (await ipcRenderer.invoke('v2t:process-audio', payload)) as ProcessAudioResponse;
     if (!response.ok || !response.result) {

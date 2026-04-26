@@ -26,7 +26,7 @@ export class PostProcessor {
     const corrected = normalizeWhitespace(applyLexicon(stripBlockedAndFillers(input, options.lexicon), options.lexicon));
 
     if (options.mode === 'natural') {
-      return { text: corrected, usedLlm: false };
+      return { text: corrected, usedLlm: false, engine: 'local-rules' };
     }
 
     if (this.llm) {
@@ -36,10 +36,10 @@ export class PostProcessor {
         systemPrompt: options.prompt ?? DEFAULT_STRUCTURED_PROMPT
       });
 
-      return { text: text.trim(), usedLlm: true };
+      return { text: text.trim(), usedLlm: true, engine: 'llm' };
     }
 
-    return { text: toReadableMarkdown(corrected), usedLlm: false };
+    return { text: toReadableMarkdown(corrected), usedLlm: false, engine: 'local-rules' };
   }
 }
 

@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS: Settings = {
   appearance: {
     theme: 'system'
   },
+  paths: {},
   hotkey: {
     accelerator: 'CommandOrControl+Shift+Space',
     longPressMs: 350,
@@ -303,6 +304,10 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
     appearance: {
       ...DEFAULT_SETTINGS.appearance,
       ...(raw.appearance ?? {})
+    },
+    paths: {
+      ...DEFAULT_SETTINGS.paths,
+      ...(raw.paths ?? {})
     },
     updates: {
       ...DEFAULT_SETTINGS.updates,

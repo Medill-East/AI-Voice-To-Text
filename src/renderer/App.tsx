@@ -11,6 +11,7 @@ import type {
   InputMode,
   InstalledModelView,
   Lexicon,
+  LlmProviderDetection,
   ModelCatalogItem,
   ModelCatalogRefreshState,
   ModelDownloadProbeResult,
@@ -90,6 +91,10 @@ export function App() {
   const [promptDrafts, setPromptDrafts] = useState<{ natural: string; structured: string }>({ natural: '', structured: '' });
   const [promptDirty, setPromptDirty] = useState<{ natural: boolean; structured: boolean }>({ natural: false, structured: false });
   const [promptMessage, setPromptMessage] = useState<string | null>(null);
+  const [llmDetections, setLlmDetections] = useState<LlmProviderDetection[]>([]);
+  const [llmMessage, setLlmMessage] = useState<string | null>(null);
+  const [llmApiKeyDraft, setLlmApiKeyDraft] = useState('');
+  const [pathMessage, setPathMessage] = useState<string | null>(null);
   const recorderRef = useRef<PcmRecorder | null>(null);
   const modeRef = useRef<InputMode>('natural');
   const recordingStateRef = useRef<RecordingState>('idle');
@@ -731,6 +736,84 @@ export function App() {
     setHotkeyTestMessage('快捷键诊断信息已复制到剪贴板');
   };
 
+  const copyText = async (value?: string) => {
+    if (!value) {
+      return;
+    }
+    await window.v2t.copyText(value);
+    setPathMessage('路径已复制');
+  };
+
+  const openPath = async (value?: string) => {
+    if (!value) {
+      return;
+    }
+    const result = await window.v2t.openPath(value);
+    if (!result.ok) {
+      setError(result.error ?? '打开路径失败');
+    }
+  };
+
+  const chooseModelRootPath = async () => {
+    setPathMessage(null);
+    const result = await window.v2t.chooseModelRootPath();
+    applySetup(result.setup);
+    if (result.ok) {
+      setPathMessage('模型目录已迁移并切换');
+    } else if (result.error) {
+      setError(result.error);
+    }
+  };
+
+  const chooseDataDir = async () => {
+    setPathMessage(null);
+    const result = await window.v2t.chooseDataDir();
+    applySetup(result.setup);
+    if (result.ok) {
+      setPathMessage('同步数据目录已迁移并切换');
+      void window.v2t.getPrompts().then(applyPrompts);
+      void window.v2t.getLexicon().then(setLexicon);
+      void window.v2t.getHistory(30).then((entries) => setHistory(entries.map(historyEntryToLocalItem)));
+    } else if (result.error) {
+      setError(result.error);
+    }
+  };
+
+  const detectLlmProviders = async () => {
+    setLlmMessage('正在检测 Ollama 和 LM Studio');
+    const result = await window.v2t.detectLlmProviders();
+    setLlmDetections(result);
+    const okCount = result.filter((item) => item.ok).length;
+    setLlmMessage(okCount > 0 ? `检测到 ${okCount} 个本地 LLM 服务` : '未检测到 Ollama 或 LM Studio；请先安装并启动，或填写 OpenAI-compatible 配置。');
+  };
+
+  const enableLlmProvider = async (detection: LlmProviderDetection, modelName: string) => {
+    setLlmMessage(null);
+    const result = await window.v2t.enableLlmProvider(detection, modelName);
+    applySetup(result.setup);
+    if (result.ok) {
+      setLlmMessage(`已启用 ${detection.label} · ${modelName}`);
+    } else {
+      setError(result.error ?? '启用 LLM 失败');
+    }
+  };
+
+  const testLlmConnection = async () => {
+    setLlmMessage('正在测试结构化整理');
+    const result = await window.v2t.testLlmConnection();
+    if (result.ok) {
+      setLlmMessage(`LLM 已生效：${result.output ?? '测试通过'}`);
+    } else {
+      setLlmMessage(result.error ?? 'LLM 测试失败');
+    }
+  };
+
+  const saveLlmApiKey = async () => {
+    await window.v2t.setOpenAIKey(llmApiKeyDraft);
+    setLlmApiKeyDraft('');
+    setLlmMessage('API Key 已保存到系统钥匙串，不会写入同步目录。');
+  };
+
   const connectSyncRepo = async () => {
     setError(null);
     setSyncMessage(null);
@@ -920,7 +1003,10 @@ export function App() {
               </button>
             </section>
           ) : null}
-          <p className="hint">结构化引擎：{structuredEngineLabel(settings)}。{settings?.providers.llm.enabled ? '结构输入会使用提示词页的 structured Prompt。' : 'Prompt 仅在启用 LLM 后生效；本地规则会使用内置整理逻辑。'}</p>
+          <p className="hint">
+            当前 ASR：{currentAsrLabel(settings)}，负责把语音转成原始文字。当前结构化引擎：{structuredEngineLabel(settings)}。
+            {settings?.providers.llm.enabled ? '结构输入会使用提示词页的 structured Prompt。' : '未启用 LLM 时，Prompt 不会生效，结构输入只做基础规则整理。'}
+          </p>
           <section className="gesture-settings">
             <div>
               <span>单击快捷键</span>
@@ -1600,7 +1686,7 @@ export function App() {
         <section className="page-section prompts-page">
           <h2>提示词</h2>
           <p className="hint">自然输入 Prompt 和结构输入 Prompt 保存在 prompts/，会随 GitHub 同步推送和拉取。</p>
-          <p className="hint">结构化引擎：{structuredEngineLabel(settings)}。{settings?.providers.llm.enabled ? '当前会把结构输入 Prompt 发送给 OpenAI-compatible LLM。' : 'Prompt 仅在启用 LLM 后生效；未启用时结构输入使用本地规则。'}</p>
+          <p className="hint">结构化引擎：{structuredEngineLabel(settings)}。{settings?.providers.llm.enabled ? '当前会把对应 Prompt 发送给文本整理模型 LLM。' : 'Prompt 仅在启用 LLM 后生效；未启用时结构输入使用本地规则。'}</p>
           {prompts ? (
             <>
               <PromptEditor
@@ -1636,103 +1722,165 @@ export function App() {
           <h2>高级设置</h2>
           {settings ? (
             <>
-              <label>
-                当前模型目录
-                <input className="no-drag" value={setup?.modelRoot ?? ''} readOnly onContextMenu={showEditMenu} />
-              </label>
-              <label>
-                同步数据目录
-                <input className="no-drag" value={settings.dataDir ?? ''} readOnly onContextMenu={showEditMenu} />
-              </label>
-              <label>
-                ASR 模式
-                <select
-                  value={settings.providers.asr.kind}
-                  onChange={(event) =>
-                    setSettings({
-                      ...settings,
-                      providers: {
-                        ...settings.providers,
-                        asr: {
-                          ...settings.providers.asr,
-                          kind: event.target.value as Settings['providers']['asr']['kind']
+              <section className="advanced-group path-management">
+                <h3>路径管理</h3>
+                <p className="hint">模型目录、同步数据目录、GitHub 本地同步仓库是三个不同位置。更改位置会复制旧数据并校验后切换，失败时继续使用旧目录。</p>
+                <PathRow title="模型目录" value={setup?.modelRoot ?? ''} onCopy={copyText} onOpen={openPath} onChange={chooseModelRootPath} />
+                <PathRow title="同步数据目录" value={settings.dataDir ?? ''} onCopy={copyText} onOpen={openPath} onChange={chooseDataDir} />
+                <PathRow
+                  title="GitHub 本地同步仓库"
+                  value={settings.sync.github.localPath ?? '未选择'}
+                  onCopy={copyText}
+                  onOpen={openPath}
+                  onChange={chooseSyncRepoPath}
+                />
+                {pathMessage ? <p className="sync-message">{pathMessage}</p> : null}
+              </section>
+
+              <section className="advanced-group">
+                <h3>语音识别模型 ASR</h3>
+                <p className="hint">ASR 负责把语音转成原始文字。FireRed、SenseVoice、Fun-ASR-Nano 都属于 ASR，不负责高质量结构化整理。</p>
+                <label>
+                  ASR 模式
+                  <select
+                    value={settings.providers.asr.kind}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        providers: {
+                          ...settings.providers,
+                          asr: {
+                            ...settings.providers.asr,
+                            kind: event.target.value as Settings['providers']['asr']['kind']
+                          }
                         }
+                      })
+                    }
+                  >
+                    <option value="local-sherpa-onnx">本地 sherpa-onnx</option>
+                    <option value="funasr-http">FunASR HTTP</option>
+                    <option value="whisper-cpp">Whisper.cpp</option>
+                  </select>
+                </label>
+                <label>
+                  FunASR 服务地址
+                  <input
+                    className="no-drag"
+                    value={settings.providers.asr.endpoint ?? ''}
+                    onContextMenu={showEditMenu}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        providers: {
+                          ...settings.providers,
+                          asr: { ...settings.providers.asr, endpoint: event.target.value }
+                        }
+                      })
+                    }
+                  />
+                </label>
+              </section>
+
+              <section className="advanced-group">
+                <h3>文本整理模型 LLM</h3>
+                <p className="hint">LLM 负责自然输入纠错和结构输入整理。未启用 LLM 时，提示词不会参与处理，只会使用本地基础规则。</p>
+                <div className="button-row">
+                  <button className="secondary" onClick={() => void detectLlmProviders()}>
+                    检测本地 LLM
+                  </button>
+                  <button className="secondary" onClick={() => void testLlmConnection()}>
+                    测试结构化整理
+                  </button>
+                </div>
+                {llmDetections.length > 0 ? (
+                  <div className="llm-detection-list">
+                    {llmDetections.map((detection) => (
+                      <article key={detection.kind} className={detection.ok ? 'llm-detection ok' : 'llm-detection'}>
+                        <div>
+                          <strong>{detection.label}</strong>
+                          <p>{detection.ok ? `${detection.baseUrl} · ${detection.models.length || 0} 个模型` : detection.error ?? '未连接'}</p>
+                        </div>
+                        {detection.ok && detection.models.length > 0 ? (
+                          <div className="inline-actions">
+                            {detection.models.slice(0, 3).map((modelName) => (
+                              <button key={modelName} className="secondary compact" onClick={() => void enableLlmProvider(detection, modelName)}>
+                                启用 {shortModelName(modelName)}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+                <label>
+                  LLM Base URL
+                  <input
+                    className="no-drag"
+                    value={settings.providers.llm.baseUrl}
+                    onContextMenu={showEditMenu}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        providers: {
+                          ...settings.providers,
+                          llm: { ...settings.providers.llm, baseUrl: event.target.value }
+                        }
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  LLM Model
+                  <input
+                    className="no-drag"
+                    value={settings.providers.llm.model}
+                    onContextMenu={showEditMenu}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        providers: {
+                          ...settings.providers,
+                          llm: { ...settings.providers.llm, model: event.target.value }
+                        }
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  API Key
+                  <input
+                    className="no-drag"
+                    type="password"
+                    value={llmApiKeyDraft}
+                    placeholder="只保存到系统钥匙串，不写入同步目录"
+                    onContextMenu={showEditMenu}
+                    onChange={(event) => setLlmApiKeyDraft(event.target.value)}
+                  />
+                </label>
+                <div className="button-row">
+                  <button className="secondary" onClick={() => void saveLlmApiKey()} disabled={!llmApiKeyDraft}>
+                    保存 API Key
+                  </button>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={settings.providers.llm.enabled}
+                      onChange={(event) =>
+                        setSettings({
+                          ...settings,
+                          providers: {
+                            ...settings.providers,
+                            llm: { ...settings.providers.llm, enabled: event.target.checked }
+                          }
+                        })
                       }
-                    })
-                  }
-                >
-                  <option value="local-sherpa-onnx">本地 SenseVoice</option>
-                  <option value="funasr-http">FunASR HTTP</option>
-                  <option value="whisper-cpp">Whisper.cpp</option>
-                </select>
-              </label>
-              <label>
-                FunASR 服务地址
-                <input
-                  className="no-drag"
-                  value={settings.providers.asr.endpoint ?? ''}
-                  onContextMenu={showEditMenu}
-                  onChange={(event) =>
-                    setSettings({
-                      ...settings,
-                      providers: {
-                        ...settings.providers,
-                        asr: { ...settings.providers.asr, endpoint: event.target.value }
-                      }
-                    })
-                  }
-                />
-              </label>
-              <label>
-                LLM Base URL
-                <input
-                  className="no-drag"
-                  value={settings.providers.llm.baseUrl}
-                  onContextMenu={showEditMenu}
-                  onChange={(event) =>
-                    setSettings({
-                      ...settings,
-                      providers: {
-                        ...settings.providers,
-                        llm: { ...settings.providers.llm, baseUrl: event.target.value }
-                      }
-                    })
-                  }
-                />
-              </label>
-              <label>
-                LLM Model
-                <input
-                  className="no-drag"
-                  value={settings.providers.llm.model}
-                  onContextMenu={showEditMenu}
-                  onChange={(event) =>
-                    setSettings({
-                      ...settings,
-                      providers: {
-                        ...settings.providers,
-                        llm: { ...settings.providers.llm, model: event.target.value }
-                      }
-                    })
-                  }
-                />
-              </label>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={settings.providers.llm.enabled}
-                  onChange={(event) =>
-                    setSettings({
-                      ...settings,
-                      providers: {
-                        ...settings.providers,
-                        llm: { ...settings.providers.llm, enabled: event.target.checked }
-                      }
-                    })
-                  }
-                />
-                结构输入使用 LLM
-              </label>
+                    />
+                    启用 LLM 后处理
+                  </label>
+                </div>
+                {llmMessage ? <p className="sync-message">{llmMessage}</p> : null}
+              </section>
               <button className="save" onClick={() => void saveSettings()}>
                 保存高级设置
               </button>
@@ -1883,6 +2031,41 @@ export function App() {
         </section>
       </section>
     </main>
+  );
+}
+
+function PathRow({
+  title,
+  value,
+  onCopy,
+  onOpen,
+  onChange
+}: {
+  title: string;
+  value: string;
+  onCopy(value?: string): Promise<void>;
+  onOpen(value?: string): Promise<void>;
+  onChange(): Promise<void>;
+}) {
+  const usablePath = value && value !== '未选择' ? value : undefined;
+  return (
+    <article className="path-row">
+      <div>
+        <span>{title}</span>
+        <p>{value || '未选择'}</p>
+      </div>
+      <div className="inline-actions">
+        <button className="secondary compact" onClick={() => void onCopy(usablePath)} disabled={!usablePath}>
+          复制
+        </button>
+        <button className="secondary compact" onClick={() => void onOpen(usablePath)} disabled={!usablePath}>
+          打开
+        </button>
+        <button className="secondary compact" onClick={() => void onChange()}>
+          更改位置
+        </button>
+      </div>
+    </article>
   );
 }
 
@@ -2308,7 +2491,8 @@ function historyEntryToLocalItem(entry: HistoryEntry): LocalHistoryItem {
       method: entry.injectionMethod,
       error: entry.error
     },
-    usedLlm: false
+    usedLlm: entry.postProcessorEngine === 'llm',
+    postProcessorEngine: entry.postProcessorEngine ?? 'local-rules'
   };
 }
 
@@ -2344,6 +2528,26 @@ function modeLabel(inputMode: InputMode): string {
 
 function structuredEngineLabel(settings: Settings | null): string {
   return settings?.providers.llm.enabled ? 'LLM Prompt' : '本地规则';
+}
+
+function currentAsrLabel(settings: Settings | null): string {
+  if (!settings) {
+    return '加载中';
+  }
+  if (settings.providers.asr.modelId) {
+    return settings.providers.asr.modelId;
+  }
+  if (settings.providers.asr.kind === 'funasr-http') {
+    return 'FunASR HTTP';
+  }
+  if (settings.providers.asr.kind === 'whisper-cpp') {
+    return 'Whisper.cpp';
+  }
+  return '本地 sherpa-onnx';
+}
+
+function shortModelName(modelName: string): string {
+  return modelName.length > 18 ? `${modelName.slice(0, 15)}...` : modelName;
 }
 
 function oppositeMode(inputMode: InputMode): InputMode {
