@@ -8,6 +8,7 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     releasedAt: '2025-12-30',
     installable: true,
     availability: 'installable',
+    runtimeVerified: true,
     runtime: 'sherpa-onnx',
     sherpaModelType: 'funasrNano',
     sourceUrl:
@@ -34,6 +35,16 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
       note: '官方评测同源模型参考；V2T 先按中文适配、本机速度和硬件匹配推荐。'
     },
     evaluationSources: {
+      chineseBenchmark: {
+        sourceLabel: 'FunAudioLLM/Fun-ASR-Nano-2512 model card',
+        sourceUrl: 'https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-2512',
+        note: '中文优先刷新数据；同源模型参考，不代表当前 ONNX int8 实测。',
+        metrics: [
+          { label: 'AIShell1', metric: 'WER', value: 1.8, lowerIsBetter: true, dataset: 'Open-source Mandarin dataset' },
+          { label: 'Fleurs-zh', metric: 'WER', value: 2.56, lowerIsBetter: true, dataset: 'Open-source Mandarin dataset' },
+          { label: 'Dialect', metric: 'WER', value: 28.18, lowerIsBetter: true, dataset: 'Industry Chinese dialect dataset' }
+        ]
+      },
       openAsrLeaderboard: {
         sourceLabel: 'Open ASR Leaderboard',
         sourceUrl: 'https://github.com/huggingface/open_asr_leaderboard',
@@ -65,6 +76,7 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     releasedAt: '2026-02-26',
     installable: true,
     availability: 'installable',
+    runtimeVerified: true,
     runtime: 'sherpa-onnx',
     sherpaModelType: 'fireRedAsr',
     sourceUrl:
@@ -84,6 +96,15 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
       note: '官方评测同源模型参考；V2T 先按中文适配、本机速度和硬件匹配推荐。'
     },
     evaluationSources: {
+      chineseBenchmark: {
+        sourceLabel: 'FireRedASR2S official Chinese benchmark',
+        sourceUrl: 'https://github.com/FireRedTeam/FireRedASR2S',
+        note: '中文优先刷新数据；同源模型参考，不代表当前 ONNX int8 实测。',
+        metrics: [
+          { label: 'Mandarin public avg', metric: 'CER', value: 2.89, lowerIsBetter: true, dataset: '4 public Mandarin benchmarks' },
+          { label: 'Dialect public avg', metric: 'CER', value: 11.55, lowerIsBetter: true, dataset: '19 Chinese dialect/accent benchmarks' }
+        ]
+      },
       openAsrLeaderboard: {
         sourceLabel: 'Open ASR Leaderboard',
         sourceUrl: 'https://github.com/huggingface/open_asr_leaderboard',
@@ -112,6 +133,7 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     releasedAt: '2025-09-09',
     installable: true,
     availability: 'installable',
+    runtimeVerified: true,
     runtime: 'sherpa-onnx',
     sherpaModelType: 'senseVoice',
     sourceUrl:
@@ -131,6 +153,16 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
       note: '官方评测同源模型参考；V2T 先按中文适配、本机速度和硬件匹配推荐。'
     },
     evaluationSources: {
+      chineseBenchmark: {
+        sourceLabel: 'SenseVoice / sherpa-onnx Chinese coverage',
+        sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/sense-voice/pretrained.html',
+        note: '中文优先刷新数据；官方重点说明中文、英文、日文、韩文和粤语覆盖。',
+        metrics: [
+          { label: '模型体积', metric: 'Rank', value: 240, lowerIsBetter: true, dataset: 'MB' },
+          { label: '覆盖语言', metric: 'Rank', value: 5, lowerIsBetter: false, dataset: 'zh/en/ja/ko/yue' },
+          { label: '粤语覆盖', metric: 'Rank', value: 1, lowerIsBetter: false, dataset: 'yue support' }
+        ]
+      },
       openAsrLeaderboard: {
         sourceLabel: 'Open ASR Leaderboard',
         sourceUrl: 'https://github.com/huggingface/open_asr_leaderboard',
@@ -304,6 +336,15 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     primaryModelFile: '',
     requiredFiles: [],
     evaluationSources: {
+      chineseBenchmark: {
+        sourceLabel: 'Qwen3-ASR Chinese and dialect coverage',
+        sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/qwen3-asr/index.html',
+        note: 'Qwen3-ASR 覆盖中文、英文、粤语和多种中文方言；V2T 尚未完成一键运行验证。',
+        metrics: [
+          { label: '中文/英文/粤语覆盖', metric: 'Rank', value: 3, lowerIsBetter: false, dataset: 'language coverage' },
+          { label: '中文方言覆盖', metric: 'Rank', value: 1, lowerIsBetter: false, dataset: 'dialect coverage' }
+        ]
+      },
       openAsrLeaderboard: {
         sourceLabel: 'Open ASR Leaderboard scripts/data/en_shortform.csv',
         sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
@@ -412,6 +453,15 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     primaryModelFile: '',
     requiredFiles: [],
     evaluationSources: {
+      chineseBenchmark: {
+        sourceLabel: 'Qwen3-ASR sherpa-onnx documentation',
+        sourceUrl: 'https://k2-fsa.github.io/sherpa/onnx/qwen3-asr/index.html',
+        note: 'Qwen3-ASR 0.6B ONNX 文档说明支持中文、英文、粤语和多种中文方言；V2T 尚未完成一键运行验证。',
+        metrics: [
+          { label: '中文/英文/粤语覆盖', metric: 'Rank', value: 3, lowerIsBetter: false, dataset: 'language coverage' },
+          { label: '中文方言覆盖', metric: 'Rank', value: 1, lowerIsBetter: false, dataset: 'dialect coverage' }
+        ]
+      },
       openAsrLeaderboard: {
         sourceLabel: 'Open ASR Leaderboard scripts/data/en_shortform.csv',
         sourceUrl: 'https://raw.githubusercontent.com/huggingface/open_asr_leaderboard/main/scripts/data/en_shortform.csv',
@@ -541,13 +591,19 @@ export function recommendModels(
 export function referenceModels(catalog: ModelCatalogItem[]): ModelCatalogItem[] {
   return catalog
     .filter((model) => (model.availability ?? (model.installable ? 'installable' : 'reference')) !== 'installable')
-    .sort((left, right) => (left.evaluationSources?.openAsrLeaderboard?.rank ?? 9999) - (right.evaluationSources?.openAsrLeaderboard?.rank ?? 9999));
+    .sort((left, right) => {
+      const chineseDelta = scoreChineseReference(right) - scoreChineseReference(left);
+      if (chineseDelta !== 0) {
+        return chineseDelta;
+      }
+      return (left.evaluationSources?.openAsrLeaderboard?.rank ?? 9999) - (right.evaluationSources?.openAsrLeaderboard?.rank ?? 9999);
+    });
 }
 
 function latestInstallableByFamily(catalog: ModelCatalogItem[]): ModelCatalogItem[] {
   const latest = new Map<string, ModelCatalogItem>();
   for (const model of catalog) {
-    if (!model.installable) {
+    if (!isOneClickInstallable(model)) {
       continue;
     }
     const current = latest.get(model.family);
@@ -562,11 +618,13 @@ function scoreModel(model: ModelCatalogItem, hardware: HardwareProfile, status: 
   let rawScore = 0;
   const reasons: string[] = [];
   const scoreBreakdown = [
-    scoreChineseFit(model),
+    scoreMandarinFit(model),
+    scoreDialectFit(model),
+    scoreCodeSwitchFit(model),
+    scoreEnglishReferenceFit(model),
     scoreRuntimeFit(model, hardware),
     scoreHardwareFit(model, hardware),
-    scoreSize(model, hardware),
-    scoreLanguageCoverage(model)
+    scoreSize(model, hardware)
   ];
 
   rawScore += scoreBreakdown.reduce((sum, item) => sum + item.value, 0);
@@ -577,11 +635,6 @@ function scoreModel(model: ModelCatalogItem, hardware: HardwareProfile, status: 
 
   if (model.qualityTags.includes('方言增强')) {
     reasons.push('方言支持更强');
-  }
-
-  if (model.id === 'funasr-nano-int8-2025-12-30') {
-    rawScore += 12;
-    reasons.push('当前默认精选模型');
   }
 
   if (hardware.recommendedTier === 'low' && model.sizeMb < 500) {
@@ -607,14 +660,67 @@ function scoreModel(model: ModelCatalogItem, hardware: HardwareProfile, status: 
   return { model, score: clampScore(rawScore), scoreBreakdown, reasons, status };
 }
 
-function scoreChineseFit(model: ModelCatalogItem) {
-  const value = 10 + (model.qualityTags.includes('中文优先') ? 24 : 0) + (model.qualityTags.includes('方言增强') ? 6 : 0);
-  return { label: '中文适配', value, reason: model.qualityTags.includes('中文优先') ? '中文优先模型' : '通用识别' };
+export function isOneClickInstallable(model: ModelCatalogItem): boolean {
+  if (!model.installable || (model.availability ?? 'installable') !== 'installable') {
+    return false;
+  }
+  if (model.runtimeVerified === false) {
+    return false;
+  }
+  if (model.runtime === 'sherpa-onnx' && !model.sherpaModelType) {
+    return false;
+  }
+  return model.requiredFiles.length > 0 && Boolean(model.sourceUrl);
+}
+
+function scoreMandarinFit(model: ModelCatalogItem) {
+  const best = bestMetricValue(model, (metric) => /mandarin|aishell|fleurs-zh|wenetspeech|普通话|中文/i.test(metric.label));
+  let value = model.languages.includes('中文') ? 8 : 0;
+  value += model.qualityTags.includes('中文优先') ? 5 : 0;
+  value += metricScore(best, 13, 5);
+  return { label: '普通话', value: Math.round(value), reason: best ? `公开中文指标 ${best.value}% ${best.metric}` : '按中文覆盖和模型说明估算' };
+}
+
+function scoreDialectFit(model: ModelCatalogItem) {
+  const best = bestMetricValue(model, (metric) => /dialect|方言|粤语|cantonese|yue/i.test(metric.label));
+  let value = model.languages.some((language) => /方言|粤语|yue/i.test(language)) ? 6 : 0;
+  value += model.qualityTags.includes('方言增强') ? 5 : 0;
+  value += model.qualityTags.includes('粤语增强') ? 4 : 0;
+  value += metricScore(best, 9, 3);
+  return { label: '方言/粤语', value: Math.round(value), reason: best ? `方言/粤语指标 ${best.value}% ${best.metric}` : '按方言/粤语覆盖估算' };
+}
+
+function scoreCodeSwitchFit(model: ModelCatalogItem) {
+  const hasChinese = model.languages.includes('中文') || model.languages.some((language) => language.includes('中文'));
+  const hasEnglish = model.languages.includes('英文') || model.languages.some((language) => language.includes('English'));
+  let value = hasChinese && hasEnglish ? 10 : hasChinese ? 6 : 0;
+  if (model.qualityTags.includes('中英混输') || model.name.toLowerCase().includes('zh_en')) {
+    value += 6;
+  }
+  if (model.languages.includes('多语言')) {
+    value += 2;
+  }
+  return { label: '中英混输', value, reason: hasChinese && hasEnglish ? '覆盖中文和英文' : '语言覆盖有限' };
+}
+
+function scoreEnglishReferenceFit(model: ModelCatalogItem) {
+  const rank = model.evaluationSources?.openAsrLeaderboard?.rank;
+  if (!model.evaluationSources?.openAsrLeaderboard?.exactModelMatch || !rank) {
+    return { label: '英文参考', value: 0, reason: '无 exact Open ASR 英文榜匹配' };
+  }
+  const value = Math.max(0, Math.round(55 - rank * 1.6));
+  return { label: '英文参考', value, reason: `Open ASR 英文短音频 Rank ${rank}` };
 }
 
 function scoreRuntimeFit(model: ModelCatalogItem, hardware: HardwareProfile) {
-  const value = hardware.platform === 'darwin' && hardware.arch === 'arm64' && model.runtime === 'sherpa-onnx' ? 18 : 12;
-  return { label: '本机速度', value, reason: model.runtime === 'sherpa-onnx' ? '本地 sherpa-onnx 可运行' : '本地 runtime 待验证' };
+  let value = model.runtime === 'sherpa-onnx' ? 10 : 4;
+  if (model.runtimeVerified) {
+    value += 4;
+  }
+  if (hardware.platform === 'darwin' && hardware.arch === 'arm64' && model.runtime === 'sherpa-onnx') {
+    value += 2;
+  }
+  return { label: '本机运行', value, reason: model.runtimeVerified ? 'V2T 已验证一键运行链路' : '本地 runtime 待验证' };
 }
 
 function scoreHardwareFit(model: ModelCatalogItem, hardware: HardwareProfile) {
@@ -633,9 +739,55 @@ function scoreSize(model: ModelCatalogItem, hardware: HardwareProfile) {
   return { label: '体积', value, reason: `${model.sizeMb}MB` };
 }
 
-function scoreLanguageCoverage(model: ModelCatalogItem) {
-  const value = Math.min(16, model.languages.length * 3 + (model.qualityTags.includes('粤语增强') ? 4 : 0));
-  return { label: '语言覆盖', value, reason: model.languages.join('/') };
+function bestMetricValue(model: ModelCatalogItem, predicate: (metric: { label: string }) => boolean) {
+  const metrics = [
+    ...(model.evaluationSources?.chineseBenchmark?.metrics ?? []),
+    ...(model.evaluationSources?.officialBenchmark?.metrics ?? [])
+  ].filter((metric) => (metric.metric === 'CER' || metric.metric === 'WER') && predicate(metric));
+  return metrics.sort((left, right) => left.value - right.value)[0];
+}
+
+function metricScore(metric: ReturnType<typeof bestMetricValue>, maxScore: number, fallbackScore: number): number {
+  if (!metric) {
+    return fallbackScore;
+  }
+  if (metric.value <= 3) {
+    return maxScore;
+  }
+  if (metric.value <= 6) {
+    return maxScore - 3;
+  }
+  if (metric.value <= 12) {
+    return maxScore - 4;
+  }
+  if (metric.value <= 25) {
+    return Math.max(4, maxScore - 11);
+  }
+  return Math.max(0, maxScore - 14);
+}
+
+function scoreChineseReference(model: ModelCatalogItem): number {
+  let score = 0;
+  if (model.languages.some((language) => /中文|粤语|方言/i.test(language))) {
+    score += 40;
+  }
+  if (model.qualityTags.some((tag) => /中文|方言|粤语|中英/i.test(tag))) {
+    score += 35;
+  }
+  if (model.evaluationSources?.chineseBenchmark) {
+    score += 30;
+  }
+  if (model.runtime === 'sherpa-onnx') {
+    score += 10;
+  }
+  if (model.availability === 'manual') {
+    score += 8;
+  }
+  const rank = model.evaluationSources?.openAsrLeaderboard?.rank;
+  if (rank) {
+    score += Math.max(0, 12 - rank / 4);
+  }
+  return score;
 }
 
 function clampScore(score: number): number {

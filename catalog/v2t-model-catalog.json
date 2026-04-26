@@ -1,0 +1,92 @@
+{
+  "version": "2026-04-26.zh",
+  "updatedAt": "2026-04-26T00:00:00.000Z",
+  "sourceUrl": "https://raw.githubusercontent.com/Medill-East/AI-Voice-To-Text/main/catalog/v2t-model-catalog.json",
+  "models": [
+    {
+      "id": "firered-asr2-zh-en-int8-2026-02-26",
+      "evaluationSources": {
+        "chineseBenchmark": {
+          "sourceLabel": "FireRedASR2S official Chinese benchmark",
+          "sourceUrl": "https://github.com/FireRedTeam/FireRedASR2S",
+          "note": "中文优先刷新数据；同源模型参考，不代表当前 ONNX int8 实测。",
+          "metrics": [
+            {
+              "label": "Mandarin public avg",
+              "metric": "CER",
+              "value": 2.89,
+              "lowerIsBetter": true,
+              "dataset": "4 public Mandarin benchmarks"
+            },
+            {
+              "label": "Dialect public avg",
+              "metric": "CER",
+              "value": 11.55,
+              "lowerIsBetter": true,
+              "dataset": "19 Chinese dialect/accent benchmarks"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "funasr-nano-int8-2025-12-30",
+      "evaluationSources": {
+        "chineseBenchmark": {
+          "sourceLabel": "FunAudioLLM/Fun-ASR-Nano-2512 model card",
+          "sourceUrl": "https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-2512",
+          "note": "中文优先刷新数据；同源模型参考，不代表当前 ONNX int8 实测。",
+          "metrics": [
+            {
+              "label": "AIShell1",
+              "metric": "WER",
+              "value": 1.8,
+              "lowerIsBetter": true,
+              "dataset": "Open-source Mandarin dataset"
+            },
+            {
+              "label": "Fleurs-zh",
+              "metric": "WER",
+              "value": 2.56,
+              "lowerIsBetter": true,
+              "dataset": "Open-source Mandarin dataset"
+            },
+            {
+              "label": "Dialect",
+              "metric": "WER",
+              "value": 28.18,
+              "lowerIsBetter": true,
+              "dataset": "Industry Chinese dialect dataset"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "qwen3-asr-0.6b",
+      "evaluationSources": {
+        "chineseBenchmark": {
+          "sourceLabel": "Qwen3-ASR sherpa-onnx documentation",
+          "sourceUrl": "https://k2-fsa.github.io/sherpa/onnx/qwen3-asr/index.html",
+          "note": "Qwen3-ASR 0.6B ONNX 文档说明支持中文、英文、粤语和多种中文方言；V2T 尚未完成一键运行验证。",
+          "metrics": [
+            {
+              "label": "中文/英文/粤语覆盖",
+              "metric": "Rank",
+              "value": 3,
+              "lowerIsBetter": false,
+              "dataset": "language coverage"
+            },
+            {
+              "label": "中文方言覆盖",
+              "metric": "Rank",
+              "value": 1,
+              "lowerIsBetter": false,
+              "dataset": "dialect coverage"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

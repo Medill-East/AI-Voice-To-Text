@@ -8,6 +8,7 @@ import type {
   InstalledModelView,
   Lexicon,
   ModelCatalogItem,
+  ModelCatalogRefreshState,
   ModelRecommendation,
   ModelStatusRecord,
   PromptFiles,
@@ -26,6 +27,7 @@ export interface RecordingCommand {
 export interface V2TApi {
   getSettings(): Promise<{ settings: Settings; hotkeyStatus?: HotkeyStatus }>;
   getSetup(): Promise<SetupPayload>;
+  refreshModelCatalog(): Promise<SetupPayload>;
   saveSettings(settings: Settings): Promise<{ settings: Settings; hotkeyStatus?: HotkeyStatus }>;
   getLexicon(): Promise<Lexicon>;
   saveLexicon(lexicon: Lexicon): Promise<LexiconSaveResult>;
@@ -54,6 +56,7 @@ export interface V2TApi {
   onRecordingCommand(callback: (command: RecordingCommand) => void): () => void;
   onHotkeyStatus(callback: (status: HotkeyStatus) => void): () => void;
   onModelInstallProgress(callback: (status: ModelStatusRecord) => void): () => void;
+  onModelCatalogRefresh(callback: (setup: SetupPayload) => void): () => void;
   onAutoSyncStatus(callback: (status: AutoSyncState) => void): () => void;
 }
 
@@ -64,6 +67,7 @@ export interface SetupPayload {
   hardware: HardwareProfile;
   modelRoot: string;
   catalog: ModelCatalogItem[];
+  modelCatalogRefresh: ModelCatalogRefreshState;
   modelStatuses: Record<string, ModelStatusRecord>;
   recommendations: ModelRecommendation[];
   installedModels: InstalledModelView[];
@@ -115,6 +119,7 @@ interface PromptSaveResult {
 const api: V2TApi = {
   getSettings: () => ipcRenderer.invoke('v2t:get-settings'),
   getSetup: () => ipcRenderer.invoke('v2t:get-setup'),
+  refreshModelCatalog: () => ipcRenderer.invoke('v2t:refresh-model-catalog'),
   saveSettings: (settings) => ipcRenderer.invoke('v2t:save-settings', settings),
   getLexicon: () => ipcRenderer.invoke('v2t:get-lexicon'),
   saveLexicon: (lexicon) => ipcRenderer.invoke('v2t:save-lexicon', lexicon),
@@ -160,6 +165,11 @@ const api: V2TApi = {
     const listener = (_event: Electron.IpcRendererEvent, status: ModelStatusRecord) => callback(status);
     ipcRenderer.on('v2t:model-install-progress', listener);
     return () => ipcRenderer.off('v2t:model-install-progress', listener);
+  },
+  onModelCatalogRefresh: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, setup: SetupPayload) => callback(setup);
+    ipcRenderer.on('v2t:model-catalog-refresh', listener);
+    return () => ipcRenderer.off('v2t:model-catalog-refresh', listener);
   },
   onAutoSyncStatus: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, status: AutoSyncState) => callback(status);

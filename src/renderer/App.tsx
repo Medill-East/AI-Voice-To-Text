@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { referenceModels } from '../core/modelCatalog';
+import { hotkeyLabelForPlatform } from '../core/hotkeyLabels';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
 import type {
   AutoSyncState,
@@ -8,6 +9,7 @@ import type {
   InstalledModelView,
   Lexicon,
   ModelCatalogItem,
+  ModelCatalogRefreshState,
   ModelEvaluationMetric,
   ModelRecommendation,
   ModelStatusRecord,
@@ -58,6 +60,7 @@ export function App() {
   const [hotkeyStatus, setHotkeyStatus] = useState<HotkeyStatus | undefined>();
   const [capturingHotkey, setCapturingHotkey] = useState(false);
   const [installingModelId, setInstallingModelId] = useState<string | null>(null);
+  const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [installProgressById, setInstallProgressById] = useState<Record<string, ModelStatusRecord>>({});
   const [activatingModelId, setActivatingModelId] = useState<string | null>(null);
   const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
@@ -144,6 +147,13 @@ export function App() {
   useEffect(() => {
     void window.v2t.getSetup().then(applySetup);
     return window.v2t.onHotkeyStatus(setHotkeyStatus);
+  }, [applySetup]);
+
+  useEffect(() => {
+    return window.v2t.onModelCatalogRefresh((nextSetup) => {
+      applySetup(nextSetup);
+      setCatalogRefreshing(nextSetup.modelCatalogRefresh.status === 'refreshing');
+    });
   }, [applySetup]);
 
   useEffect(() => {
@@ -525,6 +535,17 @@ export function App() {
     applySetup(await window.v2t.refreshHotkeyPermissions());
   };
 
+  const refreshModelCatalog = async () => {
+    setCatalogRefreshing(true);
+    try {
+      applySetup(await window.v2t.refreshModelCatalog());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setCatalogRefreshing(false);
+    }
+  };
+
   const testHotkey = async () => {
     if (!settings?.hotkey.accelerator) {
       return;
@@ -751,7 +772,21 @@ export function App() {
               <p className="hint">
                 {setup.hardware.cpuName} · {setup.hardware.memoryGb}GB · {tierLabel(setup.hardware.recommendedTier)}
               </p>
-              <p className="hint">公开榜单看 Open ASR Leaderboard，官方评测看模型卡；V2T 本机适配分只表示这台设备上的推荐优先级。WER/CER 越低越好，RTFx 越高越快。</p>
+              <p className="hint">中文推荐分优先看普通话、方言/粤语、中英混输和本机可运行性；Open ASR 英文榜只作参考。V2T 本机适配分只表示这台设备上的推荐优先级。WER/CER 越低越好，RTFx 越高越快。</p>
+              <section className="catalog-refresh">
+                <div>
+                  <span>模型榜单</span>
+                  <strong>{catalogRefreshLabel(setup.modelCatalogRefresh)}</strong>
+                  <p>
+                    上次刷新 {setup.modelCatalogRefresh.lastRefreshAt ? new Date(setup.modelCatalogRefresh.lastRefreshAt).toLocaleString() : '尚未刷新'} · 版本{' '}
+                    {setup.modelCatalogRefresh.catalogVersion ?? '内置'}
+                  </p>
+                  {setup.modelCatalogRefresh.error ? <p className="error-text">{setup.modelCatalogRefresh.error}</p> : null}
+                </div>
+                <button className="secondary compact" onClick={() => void refreshModelCatalog()} disabled={catalogRefreshing}>
+                  {catalogRefreshing ? '刷新中' : '刷新模型榜单'}
+                </button>
+              </section>
               <ModelComparisonTable recommendations={setup.recommendations} referenceModels={referenceCatalog} />
               <div className="model-list">
                 {setup.recommendations.map((recommendation) => (
@@ -919,12 +954,16 @@ export function App() {
             ) : null}
           </dl>
           <div className="button-row three">
-            <button className="secondary" onClick={() => void openAccessibilitySettings()}>
-              打开权限
-            </button>
-            <button className="secondary" onClick={() => void showNativeHelper()}>
-              显示组件
-            </button>
+            {hotkeyStatus?.permissionKind === 'macos-accessibility' ? (
+              <button className="secondary" onClick={() => void openAccessibilitySettings()}>
+                打开权限
+              </button>
+            ) : null}
+            {hotkeyStatus?.nativeHelperPath ? (
+              <button className="secondary" onClick={() => void showNativeHelper()}>
+                显示组件
+              </button>
+            ) : null}
             <button className="secondary" onClick={() => void refreshHotkeyPermissions()}>
               重新检测
             </button>
@@ -1554,19 +1593,22 @@ function ModelComparisonTable({
       <div className="comparison-table">
         <div className="comparison-head">
           <span>模型</span>
-          <span>公开 WER</span>
+          <span>中文推荐分</span>
+          <span>中文/方言指标</span>
+          <span>英文公开榜参考</span>
           <span>RTFx</span>
-          <span>V2T 分</span>
           <span>状态</span>
         </div>
         {rows.map(({ model, score, status }) => {
           const openAsr = model.evaluationSources?.openAsrLeaderboard;
+          const chineseMetric = bestChineseMetricLabel(model);
           return (
             <div className="comparison-row" key={model.id}>
               <strong>{model.name}</strong>
-              <ComparisonMetric value={openAsr?.avgWer} label={openAsr?.avgWer ? `${openAsr.avgWer}%` : '暂无'} lowerIsBetter max={10} />
+              <ComparisonMetric value={score} label={score ? `${score}` : '参考'} max={100} />
+              <ComparisonMetric value={chineseMetric.value} label={chineseMetric.label} lowerIsBetter={chineseMetric.lowerIsBetter} max={chineseMetric.max} />
+              <ComparisonMetric value={openAsr?.avgWer} label={openAsr?.avgWer ? `WER ${openAsr.avgWer}%` : '无英文榜'} lowerIsBetter max={10} />
               <ComparisonMetric value={openAsr?.rtfx} label={openAsr?.rtfx ? `${Math.round(openAsr.rtfx)}` : '暂无'} max={3500} />
-              <ComparisonMetric value={score} label={score ? `${score}` : '未评分'} max={100} />
               <span>{status}</span>
             </div>
           );
@@ -1697,7 +1739,24 @@ function EvaluationSummary({ recommendation }: { recommendation: ModelRecommenda
   return (
     <div className="evaluation-summary">
       <section>
-        <h4>公开榜单</h4>
+        <h4>中文评测</h4>
+        {sources?.chineseBenchmark ? (
+          <>
+            <p>{sources.chineseBenchmark.note}</p>
+            <div className="metric-list">
+              {sources.chineseBenchmark.metrics.slice(0, 5).map((metric) => (
+                <span key={`${metric.label}-${metric.metric}`}>
+                  {metric.label} {formatMetric(metric)}
+                </span>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p>暂无统一中文公开评测。</p>
+        )}
+      </section>
+      <section>
+        <h4>英文公开榜参考</h4>
         {sources?.openAsrLeaderboard ? (
           <p>
             {sources.openAsrLeaderboard.exactModelMatch
@@ -1849,6 +1908,37 @@ function formatMetric(metric: ModelEvaluationMetric): string {
   return `${metric.value}% ${metric.metric}`;
 }
 
+function bestChineseMetricLabel(model: ModelCatalogItem): { value?: number; label: string; max: number; lowerIsBetter: boolean } {
+  const metrics = model.evaluationSources?.chineseBenchmark?.metrics ?? [];
+  const cerOrWer = metrics.find((metric) => metric.metric === 'CER' || metric.metric === 'WER');
+  if (cerOrWer) {
+    return {
+      value: cerOrWer.value,
+      label: `${cerOrWer.label} ${formatMetric(cerOrWer)}`,
+      max: cerOrWer.metric === 'CER' ? 20 : 30,
+      lowerIsBetter: true
+    };
+  }
+  const rank = metrics.find((metric) => metric.metric === 'Rank');
+  if (rank) {
+    return { value: rank.value, label: `${rank.label} ${formatMetric(rank)}`, max: 5, lowerIsBetter: false };
+  }
+  return { label: '暂无中文指标', max: 1, lowerIsBetter: false };
+}
+
+function catalogRefreshLabel(state: ModelCatalogRefreshState): string {
+  if (state.status === 'refreshing') {
+    return '刷新中';
+  }
+  if (state.status === 'success') {
+    return state.message ?? '已刷新';
+  }
+  if (state.status === 'failed') {
+    return state.message ?? '刷新失败，使用内置榜单';
+  }
+  return state.message ?? '使用内置模型榜单';
+}
+
 function autoSyncStatusLabel(state: AutoSyncState | null, settings: Settings): string {
   if (!settings.sync.github.autoSync) {
     return '未开启';
@@ -1908,6 +1998,12 @@ function hotkeyHelperStateLabel(status: HotkeyStatus): string {
 }
 
 function hotkeyPermissionHint(status?: HotkeyStatus): string {
+  if (status?.permissionKind === 'windows-native-hook') {
+    return 'Windows 系统键盘监听不需要 macOS 辅助功能权限；如果检测失败，请重新检测，或确认安全软件没有拦截 V2T。';
+  }
+  if (status?.permissionKind === 'none') {
+    return '当前快捷键使用系统组合键注册，不需要额外权限。';
+  }
   if (status?.nativeHelperPath) {
     return `纯修饰键需要 macOS 辅助功能权限；请给监听组件 ${status.nativeHelperPath} 开启权限。如果已添加权限但仍无效，请完全退出 V2T 后重新打开；如果仍失败，移除 MacKeyServer 和 V2T 后重新添加。`;
   }
@@ -1974,20 +2070,7 @@ function sideSpecificModifierFromCode(code: string): string | null {
 }
 
 function hotkeyLabel(accelerator: string): string {
-  return accelerator
-    .replaceAll('RightAlt', '右 Option')
-    .replaceAll('LeftAlt', '左 Option')
-    .replaceAll('Alt', '任意 Option')
-    .replaceAll('RightCommand', '右 Command')
-    .replaceAll('LeftCommand', '左 Command')
-    .replaceAll('CommandOrControl', 'Command/Ctrl')
-    .replaceAll('Command', '任意 Command')
-    .replaceAll('RightControl', '右 Control')
-    .replaceAll('LeftControl', '左 Control')
-    .replaceAll('Control', '任意 Control')
-    .replaceAll('RightShift', '右 Shift')
-    .replaceAll('LeftShift', '左 Shift')
-    .replaceAll('Shift', '任意 Shift');
+  return hotkeyLabelForPlatform(accelerator, hotkeyPlatform());
 }
 
 function hotkeyPlatform(): NodeJS.Platform {

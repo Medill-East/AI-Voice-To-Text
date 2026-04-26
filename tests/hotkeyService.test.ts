@@ -122,6 +122,78 @@ describe('HotkeyService', () => {
     );
   });
 
+  it('uses Electron globalShortcut for Windows combination hotkeys', async () => {
+    const { HotkeyService } = await import('../src/main/hotkeyService');
+    const nativeFactory: NativeKeyListenerFactory = {
+      addListener: vi.fn(async () => ({
+        remove: vi.fn(),
+        kill: vi.fn()
+      }))
+    };
+    const service = new HotkeyService({ nativeFactory });
+
+    const status = await service.register({
+      accelerator: 'CommandOrControl+Shift+Space',
+      fallbackAccelerator: 'CommandOrControl+Alt+Space',
+      longPressMs: 350,
+      platform: 'win32',
+      accessibilityTrusted: true,
+      onAction: vi.fn()
+    });
+
+    expect(nativeFactory.addListener).not.toHaveBeenCalled();
+    expect(register).toHaveBeenCalledWith('CommandOrControl+Shift+Space', expect.any(Function));
+    expect(status).toMatchObject({
+      backend: 'electron-shortcut',
+      registered: true,
+      platform: 'win32',
+      permissionKind: 'none',
+      activeAccelerator: 'CommandOrControl+Shift+Space',
+      fallbackRegistered: false
+    });
+  });
+
+  it('uses Windows native listener for pure modifier hotkeys without macOS permission wording', async () => {
+    const { HotkeyService } = await import('../src/main/hotkeyService');
+    const onStatus = vi.fn();
+    let reportNativeError: ((error: unknown) => void) | undefined;
+    const nativeFactory: NativeKeyListenerFactory = {
+      addListener: vi.fn(async (_callback, onError) => {
+        reportNativeError = onError;
+        return {
+          remove: vi.fn(),
+          kill: vi.fn()
+        };
+      })
+    };
+    const service = new HotkeyService({ nativeFactory });
+
+    await service.register({
+      accelerator: 'RightAlt',
+      fallbackAccelerator: 'CommandOrControl+Alt+Space',
+      longPressMs: 350,
+      platform: 'win32',
+      accessibilityTrusted: true,
+      onAction: vi.fn(),
+      onStatus
+    });
+
+    expect(nativeFactory.addListener).toHaveBeenCalledWith(expect.any(Function), expect.any(Function), expect.any(Function), undefined);
+    reportNativeError?.(new Error('Windows hook failed'));
+
+    expect(onStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        platform: 'win32',
+        permissionKind: 'windows-native-hook',
+        backend: 'electron-shortcut',
+        activeAccelerator: 'CommandOrControl+Alt+Space',
+        diagnosticMessage: expect.stringContaining('Windows 系统键盘监听')
+      })
+    );
+    expect(onStatus.mock.calls.at(-1)?.[0].diagnosticMessage).not.toContain('macOS');
+    expect(onStatus.mock.calls.at(-1)?.[0].diagnosticMessage).not.toContain('MacKeyServer');
+  });
+
   it('keeps primary hotkey pending when helper starts but no events arrive yet', async () => {
     vi.useFakeTimers();
     const { HotkeyService } = await import('../src/main/hotkeyService');

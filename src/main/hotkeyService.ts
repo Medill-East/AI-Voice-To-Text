@@ -10,6 +10,7 @@ interface HotkeyServiceOptions {
   longPressMs: number;
   singleClickMode?: 'natural' | 'structured';
   doubleClickMode?: 'natural' | 'structured';
+  platform?: NodeJS.Platform;
   accessibilityTrusted?: boolean;
   nativeHelperPath?: string;
   nativeHelperSignature?: string;
@@ -21,6 +22,8 @@ interface HotkeyServiceOptions {
 export interface HotkeyStatus {
   backend: 'native-listener' | 'electron-shortcut';
   registered: boolean;
+  platform?: NodeJS.Platform;
+  permissionKind?: 'macos-accessibility' | 'windows-native-hook' | 'none';
   requestedAccelerator?: string;
   activeAccelerator?: string;
   fallbackAccelerator?: string;
@@ -141,6 +144,12 @@ export class HotkeyService {
       this.registerFallbackShortcut(options);
     }
 
+    if (!nativeRequired) {
+      const status = this.registerElectronShortcut(options, options.accelerator, false);
+      options.onStatus?.(status);
+      return status;
+    }
+
     try {
       await this.registerNativeListener(options);
       this.lastError = undefined;
@@ -159,21 +168,7 @@ export class HotkeyService {
         options.onStatus?.(status);
         return status;
       }
-      const shortcutRegistered = globalShortcut.register(options.accelerator, () => {
-        this.handleShortcutActivation(options);
-      });
-      const status = {
-        backend: 'electron-shortcut' as const,
-        registered: shortcutRegistered,
-        requestedAccelerator: options.accelerator,
-        activeAccelerator: options.accelerator,
-        fallbackAccelerator: options.fallbackAccelerator,
-        fallbackRegistered: false,
-        nativeActive: false,
-        accessibilityTrusted: options.accessibilityTrusted,
-        lastError: this.lastError,
-        message: this.lastError
-      };
+      const status = this.registerElectronShortcut(options, options.accelerator, false, this.lastError);
       options.onStatus?.(status);
       return status;
     }
@@ -323,6 +318,27 @@ export class HotkeyService {
     this.emitActions(actions, options.onAction);
   }
 
+  private registerElectronShortcut(options: HotkeyServiceOptions, accelerator: string, fallbackRegistered: boolean, error?: string): HotkeyStatus {
+    const shortcutRegistered = globalShortcut.register(accelerator, () => {
+      this.handleShortcutActivation(options);
+    });
+    return {
+      backend: 'electron-shortcut',
+      registered: shortcutRegistered,
+      platform: options.platform ?? process.platform,
+      permissionKind: permissionKindFor(options.platform, options.accelerator),
+      requestedAccelerator: options.accelerator,
+      activeAccelerator: accelerator,
+      fallbackAccelerator: options.fallbackAccelerator,
+      fallbackRegistered,
+      nativeActive: false,
+      appAccessibilityTrusted: options.accessibilityTrusted,
+      accessibilityTrusted: options.accessibilityTrusted,
+      lastError: error,
+      message: error
+    };
+  }
+
   private scheduleSingleClickTimer(options: HotkeyServiceOptions): void {
     if (!this.detector) {
       return;
@@ -353,7 +369,7 @@ export class HotkeyService {
       this.helperEventTapCreated = false;
     }
     const nativeRequired = requiresNativeListener(options.accelerator);
-    const diagnosticMessage = helperFailureDiagnostic(options.nativeHelperPath, this.nativeLastInfo);
+    const diagnosticMessage = helperFailureDiagnostic(options.platform, options.nativeHelperPath, this.nativeLastInfo);
     this.logDiagnostic('helper-error', options, { stderr: this.nativeLastInfo, exitCode: this.nativeExitCode, message: this.lastError });
     const status: HotkeyStatus =
       nativeRequired && this.fallbackRegistered
@@ -361,7 +377,7 @@ export class HotkeyService {
             lastError: this.lastError,
             nativeExitCode: this.nativeExitCode,
             diagnosticMessage,
-            recommendedAction: 'grant-native-helper-accessibility',
+            recommendedAction: (options.platform ?? process.platform) === 'darwin' ? 'grant-native-helper-accessibility' : 'try-fallback-shortcut',
             message: '系统监听不可用，备用快捷键生效中。'
           })
         : {
@@ -371,7 +387,7 @@ export class HotkeyService {
             nativeExitCode: this.nativeExitCode,
             lastError: this.lastError,
             diagnosticMessage: this.lastError,
-            recommendedAction: 'grant-native-helper-accessibility',
+            recommendedAction: (options.platform ?? process.platform) === 'darwin' ? 'grant-native-helper-accessibility' : 'try-fallback-shortcut',
             message: this.lastError
           };
     options.onStatus?.(status);
@@ -389,6 +405,8 @@ export class HotkeyService {
     return {
       backend: 'native-listener',
       registered: true,
+      platform: options.platform ?? process.platform,
+      permissionKind: permissionKindFor(options.platform, options.accelerator),
       requestedAccelerator: options.accelerator,
       activeAccelerator,
       fallbackAccelerator: this.fallbackAccelerator ?? options.fallbackAccelerator,
@@ -410,7 +428,7 @@ export class HotkeyService {
       appAccessibilityTrusted: options.accessibilityTrusted,
       accessibilityTrusted: options.accessibilityTrusted,
       lastError: this.lastError,
-      diagnosticMessage: waitingForNativeEvent ? helperPendingDiagnostic() : undefined,
+      diagnosticMessage: waitingForNativeEvent ? helperPendingDiagnostic(options.platform) : undefined,
       recommendedAction: waitingForNativeEvent ? 'none' : undefined,
       message: waitingForNativeEvent ? '监听组件已启动，按一次快捷键完成验证；备用快捷键待命。' : undefined
     };
@@ -431,6 +449,8 @@ export class HotkeyService {
     return {
       backend: 'electron-shortcut',
       registered: this.fallbackRegistered,
+      platform: options.platform ?? process.platform,
+      permissionKind: permissionKindFor(options.platform, options.accelerator),
       requestedAccelerator: options.accelerator,
       activeAccelerator,
       fallbackAccelerator: this.fallbackAccelerator ?? options.fallbackAccelerator,
@@ -463,6 +483,7 @@ export class HotkeyService {
     timeoutMs: number;
     accessibilityTrusted?: boolean;
     nativeHelperPath?: string;
+    platform?: NodeJS.Platform;
   }): Promise<HotkeyTestResult> {
     this.unregister();
     const matcher = createShortcutMatcher(options.accelerator);
@@ -494,8 +515,8 @@ export class HotkeyService {
           helperStarted,
           helperVerified: false,
           helperLastStderr: nativeLastInfo,
-          diagnosticMessage: helperPermissionDiagnostic(options.nativeHelperPath),
-          recommendedAction: 'grant-native-helper-accessibility'
+          diagnosticMessage: helperPermissionDiagnostic(options.platform, options.nativeHelperPath),
+          recommendedAction: (options.platform ?? process.platform) === 'darwin' ? 'grant-native-helper-accessibility' : 'try-fallback-shortcut'
         });
       }, options.timeoutMs);
 
@@ -529,8 +550,8 @@ export class HotkeyService {
               helperLastStderr: nativeLastInfo,
               nativeExitCode: exitCodeFromError(error),
               error: stringifyError(error),
-              diagnosticMessage: `系统监听组件不可用。${helperPermissionDiagnostic(options.nativeHelperPath)}`,
-              recommendedAction: 'grant-native-helper-accessibility'
+              diagnosticMessage: `系统监听组件不可用。${helperPermissionDiagnostic(options.platform, options.nativeHelperPath)}`,
+              recommendedAction: (options.platform ?? process.platform) === 'darwin' ? 'grant-native-helper-accessibility' : 'try-fallback-shortcut'
             });
           },
           (info) => {
@@ -550,8 +571,8 @@ export class HotkeyService {
             helperStarted: false,
             helperVerified: false,
             error: stringifyError(error),
-            diagnosticMessage: `系统监听组件启动失败。${helperPermissionDiagnostic(options.nativeHelperPath)}`,
-            recommendedAction: 'grant-native-helper-accessibility'
+            diagnosticMessage: `系统监听组件启动失败。${helperPermissionDiagnostic(options.platform, options.nativeHelperPath)}`,
+            recommendedAction: (options.platform ?? process.platform) === 'darwin' ? 'grant-native-helper-accessibility' : 'try-fallback-shortcut'
           });
         });
     });
@@ -613,22 +634,50 @@ function exitCodeFromError(error: unknown): number | null | undefined {
   return undefined;
 }
 
-function helperPermissionDiagnostic(nativeHelperPath?: string): string {
+function helperPermissionDiagnostic(platform?: NodeJS.Platform, nativeHelperPath?: string): string {
+  const resolvedPlatform = platform ?? process.platform;
+  if (resolvedPlatform === 'win32') {
+    return '未收到 Windows 系统键盘事件。请重新检测，或确认安全软件没有拦截 V2T 键盘监听。';
+  }
+  if (resolvedPlatform !== 'darwin') {
+    return '未收到系统键盘事件；请重新检测，或改用备用组合键。';
+  }
   const target = nativeHelperPath ? `监听组件 ${nativeHelperPath}` : 'V2T Keyboard Listener/MacKeyServer';
   return `未收到系统按键事件，请给 ${target} 开启 macOS 辅助功能权限。`;
 }
 
-function helperPendingDiagnostic(): string {
+function helperPendingDiagnostic(platform?: NodeJS.Platform): string {
+  const resolvedPlatform = platform ?? process.platform;
+  if (resolvedPlatform === 'win32') {
+    return 'Windows 系统键盘监听已启动，按一次快捷键完成验证；备用快捷键待命。';
+  }
   return '监听组件已启动，按一次快捷键完成验证；如果仍无反应，请完全退出 V2T 后重新打开。';
 }
 
-function helperFailureDiagnostic(nativeHelperPath?: string, stderr?: string): string {
+function helperFailureDiagnostic(platform?: NodeJS.Platform, nativeHelperPath?: string, stderr?: string): string {
+  const resolvedPlatform = platform ?? process.platform;
+  if (resolvedPlatform === 'win32') {
+    return stderr?.trim()
+      ? `Windows 系统键盘监听不可用：${stderr.trim()}`
+      : `Windows 系统键盘监听不可用。${helperPermissionDiagnostic(platform, nativeHelperPath)}`;
+  }
   const base = isEventTapFailure(stderr)
     ? `系统监听组件 event tap 权限失败：${stderr?.trim()}`
     : stderr?.trim()
       ? `系统监听组件不可用：${stderr.trim()}`
-      : `系统监听组件不可用。${helperPermissionDiagnostic(nativeHelperPath)}`;
+      : `系统监听组件不可用。${helperPermissionDiagnostic(platform, nativeHelperPath)}`;
   return `${base} 如果已添加权限但仍无效，请完全退出 V2T 后重新打开；如果仍失败，移除 MacKeyServer 和 V2T 后重新添加。`;
+}
+
+function permissionKindFor(platform: NodeJS.Platform | undefined, accelerator: string): HotkeyStatus['permissionKind'] {
+  const resolvedPlatform = platform ?? process.platform;
+  if (resolvedPlatform === 'darwin') {
+    return 'macos-accessibility';
+  }
+  if (resolvedPlatform === 'win32' && requiresNativeListener(accelerator)) {
+    return 'windows-native-hook';
+  }
+  return 'none';
 }
 
 function parseNativeInfo(info: string): Pick<HotkeyStatus, 'helperListenAccess' | 'helperEventTapCreated'> {

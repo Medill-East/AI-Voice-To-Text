@@ -14,13 +14,17 @@ describe('lexicon IPC surface', () => {
     expect(preload).toContain('getPrompts(): Promise<PromptFiles>');
     expect(preload).toContain('savePrompt(mode: InputMode, content: string)');
     expect(preload).toContain('onAutoSyncStatus');
+    expect(preload).toContain('refreshModelCatalog(): Promise<SetupPayload>');
+    expect(preload).toContain('onModelCatalogRefresh');
     expect(preload).toContain("ipcRenderer.invoke('v2t:sync-all')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:refresh-model-catalog')");
     expect(main).toContain("ipcMain.handle('v2t:get-lexicon'");
     expect(main).toContain("ipcMain.handle('v2t:save-lexicon'");
     expect(main).toContain("ipcMain.handle('v2t:copy-hotkey-diagnostics'");
     expect(main).toContain("ipcMain.handle('v2t:get-prompts'");
     expect(main).toContain("ipcMain.handle('v2t:save-prompt'");
     expect(main).toContain("ipcMain.handle('v2t:sync-all'");
+    expect(main).toContain("ipcMain.handle('v2t:refresh-model-catalog'");
     expect(main).toContain("scheduleAutoSync('voice-input')");
     expect(main).toContain('store.saveLexicon');
   });

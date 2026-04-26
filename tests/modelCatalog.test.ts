@@ -18,9 +18,9 @@ describe('model catalog recommendation', () => {
     const recommendations = recommendModels(DEFAULT_MODEL_CATALOG, hardware);
 
     expect(recommendations.map((item) => item.model.id)).toEqual([
+      'firered-asr2-zh-en-int8-2026-02-26',
       'funasr-nano-int8-2025-12-30',
-      'sensevoice-onnx-int8-2025-09-09',
-      'firered-asr2-zh-en-int8-2026-02-26'
+      'sensevoice-onnx-int8-2025-09-09'
     ]);
     expect(recommendations.every((item) => item.model.installable)).toBe(true);
     expect(recommendations.some((item) => item.model.id.includes('2024'))).toBe(false);
@@ -28,13 +28,52 @@ describe('model catalog recommendation', () => {
     expect(recommendations[0].reasons.join(' ')).toContain('中文');
     expect(recommendations[0].score).toBeLessThanOrEqual(100);
     expect(recommendations[0].scoreBreakdown.map((item) => item.label)).toEqual(
-      expect.arrayContaining(['中文适配', '本机速度', '硬件匹配', '体积', '语言覆盖'])
+      expect.arrayContaining(['普通话', '方言/粤语', '中英混输', '本机运行', '硬件匹配', '体积'])
     );
-    expect(recommendations[0].model.evaluationSources?.officialBenchmark?.metrics).toEqual(
-      expect.arrayContaining([expect.objectContaining({ label: 'AIShell1', metric: 'WER', value: 1.8 })])
+    expect(recommendations[0].model.evaluationSources?.chineseBenchmark?.metrics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: 'Mandarin public avg', metric: 'CER', value: 2.89 })])
     );
-    expect(recommendations[0].model.evaluationSources?.officialBenchmark?.note).toContain('同源模型参考');
+    expect(recommendations[0].model.evaluationSources?.chineseBenchmark?.note).toContain('中文优先');
     expect(recommendations[0].model.evaluationSources?.openAsrLeaderboard?.exactModelMatch).toBe(false);
+  });
+
+  it('does not let English Open ASR rank override Chinese relevance', () => {
+    const hardware: HardwareProfile = {
+      platform: 'darwin',
+      arch: 'arm64',
+      cpuName: 'Apple M5',
+      cpuCores: 10,
+      memoryGb: 32,
+      recommendedTier: 'high'
+    };
+    const catalog = DEFAULT_MODEL_CATALOG.map((model) =>
+      model.id === 'openai-whisper-large-v3'
+        ? {
+            ...model,
+            installable: true,
+            availability: 'installable' as const,
+            requiredFiles: ['ggml-large-v3.bin'],
+            qualityTags: ['英文榜单高分', '本地离线'],
+            evaluationSources: {
+              ...model.evaluationSources,
+              openAsrLeaderboard: {
+                sourceLabel: 'Open ASR Leaderboard',
+                sourceUrl: 'https://github.com/huggingface/open_asr_leaderboard',
+                track: 'English short-form',
+                rank: 1,
+                avgWer: 4.1,
+                rtfx: 500,
+                exactModelMatch: true
+              }
+            }
+          }
+        : model
+    );
+
+    const recommendations = recommendModels(catalog, hardware);
+
+    expect(recommendations[0].model.id).toBe('firered-asr2-zh-en-int8-2026-02-26');
+    expect(recommendations.map((item) => item.model.id).indexOf('openai-whisper-large-v3')).toBeGreaterThan(0);
   });
 
   it('prefers smaller models on low-memory devices', () => {
@@ -64,26 +103,12 @@ describe('model catalog recommendation', () => {
   it('separates one-click installable models from public high-score reference models', () => {
     const references = referenceModels(DEFAULT_MODEL_CATALOG);
 
-    expect(references.map((model) => model.id)).toEqual(
-      expect.arrayContaining([
-        'cohere-transcribe-03-2026',
-        'zoom-scribe-v1',
-        'ibm-granite-4.0-1b-speech',
-        'nvidia-canary-qwen-2.5b',
-        'qwen3-asr-1.7b',
-        'elevenlabs-scribe-v2',
-        'nvidia-parakeet-tdt-0.6b-v3',
-        'qwen3-asr-0.6b',
-        'google-chirp-2',
-        'zai-glm-asr-nano-2512',
-        'openai-whisper-large-v3'
-      ])
-    );
+    expect(references.map((model) => model.id)).toEqual(expect.arrayContaining(['qwen3-asr-1.7b', 'qwen3-asr-0.6b', 'cohere-transcribe-03-2026']));
+    expect(references.slice(0, 2).map((model) => model.id)).toEqual(['qwen3-asr-1.7b', 'qwen3-asr-0.6b']);
     expect(references.every((model) => model.availability !== 'installable')).toBe(true);
     expect(references.every((model) => model.unavailableReason)).toBe(true);
     expect(references.some((model) => model.manualSetup)).toBe(true);
-    expect(references[0].evaluationSources?.openAsrLeaderboard?.exactModelMatch).toBe(true);
-    expect(references[0].evaluationSources?.openAsrLeaderboard?.rank).toBe(1);
+    expect(references[0].evaluationSources?.chineseBenchmark?.sourceLabel).toContain('Qwen3-ASR');
     expect(references.find((model) => model.id === 'zoom-scribe-v1')?.license).toBe('Proprietary');
   });
 });

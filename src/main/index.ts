@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { FunAsrHttpProvider, LocalSherpaAsrProvider, UserFacingAsrError, WhisperCppAsrProvider } from '../core/asrProviders';
 import { AutoSyncService } from '../core/autoSyncService';
 import { DEFAULT_MODEL_CATALOG, recommendModels } from '../core/modelCatalog';
+import { DEFAULT_REMOTE_MODEL_CATALOG_URL, ModelCatalogRefreshService } from '../core/modelCatalogRefresh';
 import { detectHardwareProfile } from '../core/hardware';
 import { ModelManager } from '../core/modelManager';
 import { GitHubSyncService } from '../core/githubSyncService';
@@ -15,7 +16,7 @@ import { createVoiceInputPipeline } from '../core/pipeline';
 import { PostProcessor } from '../core/postProcessor';
 import { TextInjectionService } from '../core/textInjection';
 import { UserDataStore } from '../core/userDataStore';
-import type { AutoSyncState, InputMode, ModelInstallStatus, ModelStatusRecord, Settings } from '../core/types';
+import type { AutoSyncState, InputMode, ModelCatalogItem, ModelCatalogRefreshState, ModelInstallStatus, ModelStatusRecord, Settings } from '../core/types';
 import { getFocusedAppName } from './focusedApp';
 import { createCheckingHotkeyStatus } from './hotkeyDiagnostics';
 import { HotkeyDiagnosticLog } from './hotkeyDiagnosticLog';
@@ -48,6 +49,13 @@ let nativeHelperSignature: string | undefined;
 let hotkeyLog: HotkeyDiagnosticLog;
 let autoSyncService: AutoSyncService;
 let autoSyncState: AutoSyncState = { status: 'idle', updatedAt: new Date().toISOString() };
+let modelCatalog: ModelCatalogItem[] = DEFAULT_MODEL_CATALOG;
+let modelCatalogRefreshService: ModelCatalogRefreshService;
+let modelCatalogRefreshState: ModelCatalogRefreshState = {
+  status: 'idle',
+  sourceUrl: DEFAULT_REMOTE_MODEL_CATALOG_URL,
+  message: '使用内置模型榜单'
+};
 
 app.setName('V2T');
 
@@ -64,6 +72,12 @@ async function bootstrap(): Promise<void> {
 
   nativeHelperPath = await setupNativeKeyHelper();
   nativeHelperSignature = nativeHelperPath ? readCodeSignature(nativeHelperPath) : undefined;
+  modelCatalogRefreshService = new ModelCatalogRefreshService({
+    cachePath: join(app.getPath('userData'), 'model-catalog-cache.json')
+  });
+  const cachedCatalog = await modelCatalogRefreshService.loadCachedCatalog(DEFAULT_MODEL_CATALOG);
+  modelCatalog = cachedCatalog.catalog;
+  modelCatalogRefreshState = cachedCatalog.state;
   hotkeyService = new HotkeyService({
     onDiagnostic: (event) => {
       void hotkeyLog.write(event).catch((error) => console.warn(`Unable to write hotkey diagnostic log: ${readableError(error)}`));
@@ -75,6 +89,7 @@ async function bootstrap(): Promise<void> {
   createTray();
   registerIpc();
   await registerHotkey();
+  void refreshModelCatalog('startup');
 }
 
 function createWindow(): void {
@@ -230,6 +245,9 @@ function registerIpc(): void {
   });
   ipcMain.handle('v2t:update-hotkey', async (_event, accelerator: string) => updateHotkey(accelerator));
   ipcMain.handle('v2t:open-accessibility-settings', async () => {
+    if (process.platform !== 'darwin') {
+      return { ok: false };
+    }
     await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
     return { ok: true };
   });
@@ -238,6 +256,7 @@ function registerIpc(): void {
     return getSetupPayload();
   });
   ipcMain.handle('v2t:test-hotkey', async (_event, accelerator?: string) => testHotkey(accelerator ?? settings.hotkey.accelerator));
+  ipcMain.handle('v2t:refresh-model-catalog', async () => refreshModelCatalog('manual'));
   ipcMain.handle('v2t:copy-hotkey-diagnostics', async () => {
     clipboard.writeText(createHotkeyDiagnosticText());
     return { ok: true };
@@ -431,6 +450,7 @@ async function registerHotkey(): Promise<void> {
     longPressMs: settings.hotkey.longPressMs,
     singleClickMode: settings.hotkey.singleClickMode,
     doubleClickMode: settings.hotkey.doubleClickMode,
+    platform: process.platform,
     accessibilityTrusted: getAccessibilityTrusted(),
     nativeHelperPath,
     nativeHelperSignature,
@@ -447,6 +467,7 @@ function refreshHotkeyPermissions(): void {
     createCheckingHotkeyStatus({
       accelerator: settings.hotkey.accelerator,
       fallbackAccelerator: settings.hotkey.fallbackAccelerator,
+      platform: process.platform,
       accessibilityTrusted: getAccessibilityTrusted(),
       nativeHelperPath,
       nativeHelperSignature,
@@ -461,6 +482,8 @@ function refreshHotkeyPermissions(): void {
       activeAccelerator: settings.hotkey.fallbackAccelerator ?? settings.hotkey.accelerator,
       fallbackAccelerator: settings.hotkey.fallbackAccelerator,
       fallbackRegistered: false,
+      platform: process.platform,
+      permissionKind: hotkeyPermissionKind(process.platform, settings.hotkey.accelerator),
       helperAttempted: false,
       helperStarted: false,
       helperVerified: false,
@@ -483,6 +506,7 @@ async function testHotkey(accelerator: string): Promise<HotkeyTestResult> {
     createCheckingHotkeyStatus({
       accelerator,
       fallbackAccelerator: settings.hotkey.fallbackAccelerator,
+      platform: process.platform,
       accessibilityTrusted: getAccessibilityTrusted(),
       nativeHelperPath,
       nativeHelperSignature,
@@ -493,6 +517,7 @@ async function testHotkey(accelerator: string): Promise<HotkeyTestResult> {
   const result = await hotkeyService.testAccelerator({
     accelerator,
     timeoutMs: 5000,
+    platform: process.platform,
     accessibilityTrusted: getAccessibilityTrusted(),
     nativeHelperPath
   });
@@ -511,6 +536,8 @@ function hotkeyStatusFromTestResult(result: HotkeyTestResult): HotkeyStatus {
       activeAccelerator: result.accelerator,
       fallbackAccelerator: settings.hotkey.fallbackAccelerator,
       fallbackRegistered: true,
+      platform: process.platform,
+      permissionKind: hotkeyPermissionKind(process.platform, result.accelerator),
       helperAttempted: true,
       helperStarted: true,
       helperVerified: true,
@@ -536,6 +563,8 @@ function hotkeyStatusFromTestResult(result: HotkeyTestResult): HotkeyStatus {
     activeAccelerator: settings.hotkey.fallbackAccelerator ?? result.accelerator,
     fallbackAccelerator: settings.hotkey.fallbackAccelerator,
     fallbackRegistered: Boolean(settings.hotkey.fallbackAccelerator),
+    platform: process.platform,
+    permissionKind: hotkeyPermissionKind(process.platform, result.accelerator),
     helperAttempted: true,
     helperStarted: result.helperStarted,
     helperVerified: false,
@@ -566,7 +595,7 @@ async function getSetupPayload() {
   const manager = createModelManager();
   const rawStatuses = await manager.getStatuses();
   const statusMap: Record<string, ModelInstallStatus> = {};
-  for (const model of DEFAULT_MODEL_CATALOG) {
+  for (const model of modelCatalog) {
     const status = rawStatuses[model.id]?.status;
     statusMap[model.id] = status ?? 'not-installed';
   }
@@ -582,9 +611,10 @@ async function getSetupPayload() {
     appInfo: getAppInfo(),
     hardware,
     modelRoot,
-    catalog: DEFAULT_MODEL_CATALOG,
+    catalog: modelCatalog,
+    modelCatalogRefresh: modelCatalogRefreshState,
     modelStatuses: rawStatuses,
-    recommendations: recommendModels(DEFAULT_MODEL_CATALOG, hardware, statusMap),
+    recommendations: recommendModels(modelCatalog, hardware, statusMap),
     installedModels: await manager.listInstalledModelViews(settings)
   };
 }
@@ -593,8 +623,30 @@ function createModelManager(): ModelManager {
   return new ModelManager({
     modelRoot,
     store,
-    catalog: DEFAULT_MODEL_CATALOG
+    catalog: modelCatalog
   });
+}
+
+async function refreshModelCatalog(trigger: 'startup' | 'manual') {
+  modelCatalogRefreshState = {
+    ...modelCatalogRefreshState,
+    status: 'refreshing',
+    message: trigger === 'startup' ? '正在后台刷新中文模型榜单' : '正在刷新中文模型榜单'
+  };
+  void emitModelCatalogRefresh();
+
+  const result = await modelCatalogRefreshService.refresh(DEFAULT_MODEL_CATALOG);
+  if (result.state.status === 'success') {
+    modelCatalog = result.catalog;
+  }
+  modelCatalogRefreshState = result.state;
+  return emitModelCatalogRefresh();
+}
+
+async function emitModelCatalogRefresh() {
+  const setup = await getSetupPayload();
+  mainWindow?.webContents.send('v2t:model-catalog-refresh', setup);
+  return setup;
 }
 
 function createSyncService(repoUrl = settings.sync.github.repoUrl): GitHubSyncService {
@@ -755,6 +807,7 @@ async function updateHotkey(accelerator: string) {
     longPressMs: settings.hotkey.longPressMs,
     singleClickMode: settings.hotkey.singleClickMode,
     doubleClickMode: settings.hotkey.doubleClickMode,
+    platform: process.platform,
     accessibilityTrusted: getAccessibilityTrusted(),
     nativeHelperPath,
     nativeHelperSignature,
@@ -778,6 +831,20 @@ async function updateHotkey(accelerator: string) {
 
 function getAccessibilityTrusted(): boolean {
   return process.platform !== 'darwin' || systemPreferences.isTrustedAccessibilityClient(false);
+}
+
+function hotkeyPermissionKind(platform: NodeJS.Platform, accelerator: string): HotkeyStatus['permissionKind'] {
+  if (platform === 'darwin') {
+    return 'macos-accessibility';
+  }
+  if (platform === 'win32' && requiresNativeHotkey(accelerator)) {
+    return 'windows-native-hook';
+  }
+  return 'none';
+}
+
+function requiresNativeHotkey(accelerator: string): boolean {
+  return !accelerator.includes('+') || accelerator.split('+').every((part) => ['CommandOrControl', 'Command', 'Control', 'LeftControl', 'RightControl', 'Alt', 'LeftAlt', 'RightAlt', 'Shift', 'LeftShift', 'RightShift'].includes(part));
 }
 
 async function setupNativeKeyHelper(): Promise<string | undefined> {
@@ -804,9 +871,11 @@ function readCodeSignature(filePath: string): string | undefined {
 
 function createHotkeyDiagnosticText(): string {
   const status = hotkeyStatus;
-  return [
+  const lines = [
     'V2T hotkey diagnostics',
     `version: ${app.getVersion()}`,
+    `platform: ${process.platform}`,
+    `permissionKind: ${status?.permissionKind ?? hotkeyPermissionKind(process.platform, status?.requestedAccelerator ?? settings.hotkey.accelerator)}`,
     `requested: ${status?.requestedAccelerator ?? settings.hotkey.accelerator}`,
     `active: ${status?.activeAccelerator ?? 'unknown'}`,
     `fallback: ${status?.fallbackAccelerator ?? settings.hotkey.fallbackAccelerator ?? 'none'}`,
@@ -819,10 +888,17 @@ function createHotkeyDiagnosticText(): string {
     `lastNativeEventAt: ${status?.lastNativeEventAt ? new Date(status.lastNativeEventAt).toISOString() : 'none'}`,
     `exitCode: ${String(status?.nativeExitCode ?? 'none')}`,
     `stderr: ${status?.helperLastStderr ?? status?.nativeLastInfo ?? 'none'}`,
-    `logPath: ${hotkeyLog.getPath()}`,
-    'tccCommand: log stream --debug --predicate \'subsystem == "com.apple.TCC" AND eventMessage CONTAINS "V2T"\'',
-    'nextAction: 完全退出 V2T；在 Accessibility 中移除 V2T 和 MacKeyServer 后重新添加；再打开新版 V2T。'
-  ].join('\n');
+    `logPath: ${hotkeyLog.getPath()}`
+  ];
+  if (process.platform === 'darwin') {
+    lines.push(
+      'tccCommand: log stream --debug --predicate \'subsystem == "com.apple.TCC" AND eventMessage CONTAINS "V2T"\'',
+      'nextAction: 完全退出 V2T；在 Accessibility 中移除 V2T 和 MacKeyServer 后重新添加；再打开新版 V2T。'
+    );
+  } else if (process.platform === 'win32') {
+    lines.push('nextAction: 重新检测 Windows 系统键盘监听；如果被安全软件拦截，请允许 V2T 或改用备用组合键。');
+  }
+  return lines.join('\n');
 }
 
 function getAppInfo(): { version: string; buildCommit: string } {

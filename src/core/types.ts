@@ -101,6 +101,7 @@ export interface ModelCatalogItem {
   availability?: ModelAvailability;
   unavailableReason?: string;
   manualSetup?: string;
+  runtimeVerified?: boolean;
   runtime: ModelRuntime;
   sherpaModelType?: SherpaModelType;
   sourceUrl: string;
@@ -154,12 +155,33 @@ export interface OfficialBenchmarkEvaluation {
   note?: string;
 }
 
+export interface ChineseBenchmarkEvaluation {
+  sourceLabel: string;
+  sourceUrl: string;
+  metrics: ModelEvaluationMetric[];
+  note?: string;
+}
+
 export interface ModelEvaluationSources {
+  chineseBenchmark?: ChineseBenchmarkEvaluation;
   openAsrLeaderboard?: OpenAsrLeaderboardEvaluation;
   officialBenchmark?: OfficialBenchmarkEvaluation;
   localRecommendation?: {
     note: string;
   };
+}
+
+export type ModelCatalogRefreshStatus = 'idle' | 'refreshing' | 'success' | 'failed';
+
+export interface ModelCatalogRefreshState {
+  status: ModelCatalogRefreshStatus;
+  catalogVersion?: string;
+  sourceUrl?: string;
+  updatedAt?: string;
+  lastRefreshAt?: string;
+  addedModelIds?: string[];
+  error?: string;
+  message?: string;
 }
 
 export interface ModelScoreItem {

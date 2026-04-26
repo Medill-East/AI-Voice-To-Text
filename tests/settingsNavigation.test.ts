@@ -30,6 +30,12 @@ describe('settings navigation structure', () => {
     expect(app).toContain('深色');
     expect(app).toContain('公开高分参考');
     expect(app).toContain('ModelComparisonTable');
+    expect(app).toContain('中文推荐分');
+    expect(app).toContain('英文公开榜参考');
+    expect(app).toContain('刷新模型榜单');
+    expect(app).toContain('上次刷新');
+    expect(app).toContain("permissionKind === 'macos-accessibility'");
+    expect(app).toContain('Windows 系统键盘监听');
     expect(app).not.toContain('className=\"mode-switch\"');
     expect(app).toContain('单独的私有仓库');
     expect(app).toContain('settings.json、lexicon.json、prompts/natural.md、prompts/structured.md');

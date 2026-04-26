@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../src/core/hotkeyRecorder';
+import { hotkeyLabelForPlatform } from '../src/core/hotkeyLabels';
 
 describe('hotkey recorder', () => {
   it('normalizes recorded macOS keys to an Electron accelerator', () => {
@@ -29,5 +30,16 @@ describe('hotkey recorder', () => {
     expect(shortcutFromRecordedKeys(['AltLeft'], 'darwin')).toBe('LeftAlt');
     expect(shortcutFromRecordedKeys(['MetaRight'], 'darwin')).toBe('RightCommand');
     expect(shortcutFromRecordedKeys(['MetaLeft', 'AltRight'], 'darwin')).toBe('LeftCommand+RightAlt');
+  });
+
+  it('normalizes and labels Windows trigger keys without macOS wording', () => {
+    expect(shortcutFromRecordedKeys(['AltRight'], 'win32')).toBe('RightAlt');
+    expect(shortcutFromRecordedKeys(['ControlLeft'], 'win32')).toBe('LeftControl');
+    expect(normalizeAccelerator('RightAlt', 'win32')).toBe('RightAlt');
+    expect(normalizeAccelerator('F9', 'win32')).toBe('F9');
+    expect(normalizeAccelerator('CapsLock', 'win32')).toBe('CapsLock');
+    expect(hotkeyLabelForPlatform('RightAlt', 'win32')).toBe('右 Alt');
+    expect(hotkeyLabelForPlatform('CommandOrControl+Alt+Space', 'win32')).toBe('Ctrl+Alt+Space');
+    expect(hotkeyLabelForPlatform('RightAlt', 'darwin')).toBe('右 Option');
   });
 });
