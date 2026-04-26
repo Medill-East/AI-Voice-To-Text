@@ -61,19 +61,48 @@ describe('PostProcessor', () => {
   it('separates clear topic changes into paragraphs in structured fallback', async () => {
     const processor = new PostProcessor();
 
-    const result = await processor.process('今天先记录语音输入的体验。换个话题，现在是独立游戏的黄金时代。接下来我想整理模型推荐。', {
+    const result = await processor.process('今天先记录语音输入的体验。换个话题，现在是独立游戏的黄金时代。另一个问题是我想整理模型推荐。', {
       mode: 'structured',
       lexicon
     });
 
     expect(result.text).toContain('今天先记录语音输入的体验。');
     expect(result.text).toContain('\n\n换个话题，现在是独立游戏的黄金时代。');
-    expect(result.text).toContain('\n\n接下来我想整理模型推荐。');
+    expect(result.text).toContain('\n\n另一个问题是我想整理模型推荐。');
+  });
+
+  it('cleans ASR silence markers and embedded filler words in structured fallback', async () => {
+    const processor = new PostProcessor();
+
+    const result = await processor.process('/sil 呃 我觉得这个就是模型下载速度很慢 <|nospeech|> 你懂我意思吧。模型下载速度很慢。', {
+      mode: 'structured',
+      lexicon
+    });
+
+    expect(result.text).not.toContain('/sil');
+    expect(result.text).not.toContain('<|nospeech|>');
+    expect(result.text).not.toContain('呃');
+    expect(result.text).not.toContain('就是');
+    expect(result.text).not.toContain('你懂我意思吧');
+    expect(result.text).toBe('我觉得模型下载速度很慢。');
+  });
+
+  it('keeps one topic in a compact paragraph instead of repeatedly splitting sentences', async () => {
+    const processor = new PostProcessor();
+
+    const result = await processor.process('我想优化结构化输入。它现在会过度分段。相同主题应该合并。不要因为停顿就另起一段。', {
+      mode: 'structured',
+      lexicon
+    });
+
+    expect(result.text).toBe('我想优化结构化输入。它现在会过度分段。相同主题应该合并。不要因为停顿就另起一段。');
   });
 
   it('instructs LLM structured mode not to force every sentence into a list', () => {
     expect(structuredPrompt()).toContain('不要默认把每一句都变成列表');
-    expect(structuredPrompt()).toContain('话题边界');
+    expect(structuredPrompt()).toContain('/sil');
+    expect(structuredPrompt()).toContain('同一主题内不要因为停顿');
+    expect(structuredPrompt()).toContain('只输出整理后的正文');
   });
 
   it('uses an OpenAI-compatible LLM client for structured mode when configured', async () => {
@@ -92,7 +121,7 @@ describe('PostProcessor', () => {
     expect(llm.complete).toHaveBeenCalledWith(
       expect.objectContaining({
         mode: 'structured',
-        input: '把这个内容整理一下'
+        input: '把内容整理一下'
       })
     );
   });

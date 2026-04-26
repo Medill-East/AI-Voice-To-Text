@@ -138,7 +138,8 @@ describe('UserDataStore', () => {
     expect(paths.structured).toBe(join(dir, 'prompts', 'structured.md'));
 
     await store.resetPrompt('structured');
-    await expect(store.readPrompt('structured')).resolves.toContain('易读 Markdown');
+    await expect(store.readPrompt('structured')).resolves.toContain('结构化整理器');
+    await expect(store.readPrompt('structured')).resolves.toContain('/sil');
   });
 
   it('keeps natural and structured prompts independent when saving one file', async () => {

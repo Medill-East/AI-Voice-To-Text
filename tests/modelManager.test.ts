@@ -96,6 +96,72 @@ describe('ModelManager', () => {
     );
   });
 
+  it('probes a model source with a 1MB range request and reports speed diagnostics', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({ Range: 'bytes=0-1048575' });
+      return new Response(new Uint8Array(512 * 1024), {
+        status: 206,
+        headers: {
+          'content-length': `${512 * 1024}`,
+          'content-range': `bytes 0-${512 * 1024 - 1}/${1024 * 1024}`,
+          'accept-ranges': 'bytes'
+        }
+      });
+    });
+    const manager = new ModelManager({
+      modelRoot: join(baseDir, 'models'),
+      store,
+      catalog: DEFAULT_MODEL_CATALOG,
+      probeFetch: fetchImpl,
+      nowMs: (() => {
+        let value = 1_000;
+        return () => {
+          value += 1_000;
+          return value;
+        };
+      })()
+    });
+
+    const result = await manager.probeModelDownload('funasr-nano-int8-2025-12-30');
+
+    expect(result).toMatchObject({
+      modelId: 'funasr-nano-int8-2025-12-30',
+      ok: true,
+      supportsRange: true,
+      downloadedBytes: 512 * 1024,
+      totalBytes: 1024 * 1024,
+      bytesPerSecond: 512 * 1024
+    });
+    expect(result.sourceLabel).toBeTruthy();
+    expect(result.url).toContain('github.com');
+  });
+
+  it('returns a readable source diagnostic when the model speed probe fails', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    const manager = new ModelManager({
+      modelRoot: join(baseDir, 'models'),
+      store,
+      catalog: DEFAULT_MODEL_CATALOG,
+      probeFetch: vi.fn(async () => ({
+        ok: false,
+        status: 504,
+        statusText: 'Gateway Timeout',
+        headers: new Headers(),
+        arrayBuffer: async () => new ArrayBuffer(0)
+      } as Response))
+    });
+
+    const result = await manager.probeModelDownload('funasr-nano-int8-2025-12-30');
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(504);
+    expect(result.error).toContain('HTTP 504');
+    expect(result.sourceLabel).toBeTruthy();
+  });
+
   it('keeps the previous active model when download fails', async () => {
     const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
     const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });

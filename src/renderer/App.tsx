@@ -11,6 +11,7 @@ import type {
   Lexicon,
   ModelCatalogItem,
   ModelCatalogRefreshState,
+  ModelDownloadProbeResult,
   ModelEvaluationMetric,
   ModelRecommendation,
   ModelStatusRecord,
@@ -62,7 +63,10 @@ export function App() {
   const [capturingHotkey, setCapturingHotkey] = useState(false);
   const [installingModelId, setInstallingModelId] = useState<string | null>(null);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
+  const [catalogMessage, setCatalogMessage] = useState<string | null>(null);
   const [installProgressById, setInstallProgressById] = useState<Record<string, ModelStatusRecord>>({});
+  const [downloadProbeById, setDownloadProbeById] = useState<Record<string, ModelDownloadProbeResult>>({});
+  const [probingModelId, setProbingModelId] = useState<string | null>(null);
   const [activatingModelId, setActivatingModelId] = useState<string | null>(null);
   const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
   const [syncRepoUrl, setSyncRepoUrl] = useState('');
@@ -602,6 +606,7 @@ export function App() {
 
   const refreshModelCatalog = async () => {
     setCatalogRefreshing(true);
+    setCatalogMessage(null);
     try {
       applySetup(await window.v2t.refreshModelCatalog());
     } catch (caught) {
@@ -609,6 +614,19 @@ export function App() {
     } finally {
       setCatalogRefreshing(false);
     }
+  };
+
+  const copyModelCatalogDiagnostics = async () => {
+    await window.v2t.copyModelCatalogDiagnostics();
+    setCatalogMessage('模型榜单诊断信息已复制到剪贴板');
+  };
+
+  const testModelDownload = async (modelId: string) => {
+    setError(null);
+    setProbingModelId(modelId);
+    const result = await window.v2t.testModelDownload(modelId);
+    setDownloadProbeById((current) => ({ ...current, [modelId]: result }));
+    setProbingModelId(null);
   };
 
   const testHotkey = async () => {
@@ -782,6 +800,7 @@ export function App() {
           <p className="hint mode-hint">
             单击快捷键 {modeLabel(settings?.hotkey.singleClickMode ?? 'natural')}，双击快捷键 {modeLabel(settings?.hotkey.doubleClickMode ?? 'structured')}；窗口内录音默认使用单击模式。
           </p>
+          <p className="hint">结构化引擎：{structuredEngineLabel(settings)}。{settings?.providers.llm.enabled ? '结构输入会使用提示词页的 structured Prompt。' : 'Prompt 仅在启用 LLM 后生效；本地规则会使用内置整理逻辑。'}</p>
           <section className="gesture-settings">
             <div>
               <span>单击快捷键</span>
@@ -861,10 +880,27 @@ export function App() {
                     {setup.modelCatalogRefresh.catalogVersion ?? '内置'}
                   </p>
                   {setup.modelCatalogRefresh.error ? <p className="error-text">{setup.modelCatalogRefresh.error}</p> : null}
+                  {setup.modelCatalogRefresh.cacheUsed ? (
+                    <p className="hint">当前使用本地缓存，缓存时间 {setup.modelCatalogRefresh.cacheUpdatedAt ? new Date(setup.modelCatalogRefresh.cacheUpdatedAt).toLocaleString() : '未知'}</p>
+                  ) : null}
+                  {setup.modelCatalogRefresh.attempts?.length ? (
+                    <p className="hint">
+                      最近尝试：
+                      {setup.modelCatalogRefresh.attempts
+                        .map((attempt) => `${attempt.method} ${attempt.status ?? '-'} ${attempt.ok ? '成功' : '失败'}`)
+                        .join('；')}
+                    </p>
+                  ) : null}
+                  {catalogMessage ? <p className="sync-message">{catalogMessage}</p> : null}
                 </div>
-                <button className="secondary compact" onClick={() => void refreshModelCatalog()} disabled={catalogRefreshing}>
-                  {catalogRefreshing ? '刷新中' : '刷新模型榜单'}
-                </button>
+                <div className="inline-actions">
+                  <button className="secondary compact" onClick={() => void copyModelCatalogDiagnostics()}>
+                    复制榜单诊断
+                  </button>
+                  <button className="secondary compact" onClick={() => void refreshModelCatalog()} disabled={catalogRefreshing}>
+                    {catalogRefreshing ? '刷新中' : '刷新模型榜单'}
+                  </button>
+                </div>
               </section>
               <ModelComparisonTable recommendations={setup.recommendations} referenceModels={referenceCatalog} />
               <div className="model-list">
@@ -874,11 +910,14 @@ export function App() {
                     recommendation={recommendation}
                     currentModelId={settings?.providers.asr.modelId}
                     statusRecord={installProgressById[recommendation.model.id] ?? setup.modelStatuses[recommendation.model.id]}
+                    probeResult={downloadProbeById[recommendation.model.id]}
+                    probing={probingModelId === recommendation.model.id}
                     installingModelId={installingModelId}
                     deletingModelId={deletingModelId}
                     onInstall={installModel}
                     onReinstall={reinstallModel}
                     onCancelInstall={cancelModelInstall}
+                    onTestDownload={testModelDownload}
                     onActivate={activateModel}
                     onDelete={deleteModel}
                   />
@@ -1402,6 +1441,7 @@ export function App() {
         <section className="page-section prompts-page">
           <h2>提示词</h2>
           <p className="hint">自然输入 Prompt 和结构输入 Prompt 保存在 prompts/，会随 GitHub 同步推送和拉取。</p>
+          <p className="hint">结构化引擎：{structuredEngineLabel(settings)}。{settings?.providers.llm.enabled ? '当前会把结构输入 Prompt 发送给 OpenAI-compatible LLM。' : 'Prompt 仅在启用 LLM 后生效；未启用时结构输入使用本地规则。'}</p>
           {prompts ? (
             <>
               <PromptEditor
@@ -1838,22 +1878,28 @@ function ModelRow({
   recommendation,
   currentModelId,
   statusRecord,
+  probeResult,
+  probing,
   installingModelId,
   deletingModelId,
   onInstall,
   onReinstall,
   onCancelInstall,
+  onTestDownload,
   onActivate,
   onDelete
 }: {
   recommendation: ModelRecommendation;
   currentModelId?: string;
   statusRecord?: ModelStatusRecord;
+  probeResult?: ModelDownloadProbeResult;
+  probing: boolean;
   installingModelId: string | null;
   deletingModelId: string | null;
   onInstall(modelId: string): Promise<void>;
   onReinstall(modelId: string): Promise<void>;
   onCancelInstall(modelId: string): Promise<void>;
+  onTestDownload(modelId: string): Promise<void>;
   onActivate(modelId: string): Promise<void>;
   onDelete(modelId: string): Promise<void>;
 }) {
@@ -1883,6 +1929,7 @@ function ModelRow({
         <small>
           {recommendation.model.sizeMb}MB · {recommendation.model.languages.join('/')}
         </small>
+        <DownloadProbeSummary result={probeResult} />
         {statusRecord ? <InstallProgress status={statusRecord} /> : null}
       </div>
       <button
@@ -1896,6 +1943,9 @@ function ModelRow({
           重新安装
         </button>
       ) : null}
+      <button className="secondary" onClick={() => void onTestDownload(recommendation.model.id)} disabled={probing || installing}>
+        {probing ? '测速中' : probeResult ? '重新测速' : '下载测速'}
+      </button>
       {installing ? (
         <button className="secondary" onClick={() => void onCancelInstall(recommendation.model.id)}>
           取消
@@ -2018,6 +2068,31 @@ function InstallProgress({ status }: { status: ModelStatusRecord }) {
   );
 }
 
+function DownloadProbeSummary({ result }: { result?: ModelDownloadProbeResult }) {
+  if (!result) {
+    return <p className="progress-meta">下载测速可检测当前源速度、耗时和是否支持断点续传。</p>;
+  }
+
+  return (
+    <div className={`download-probe ${result.ok ? 'ok' : 'failed'}`}>
+      <p className="progress-meta">
+        {[
+          result.sourceLabel,
+          result.ok ? '测速成功' : '测速失败',
+          result.bytesPerSecond ? `${formatBytes(result.bytesPerSecond)}/s` : undefined,
+          result.downloadedBytes ? `测试 ${formatBytes(result.downloadedBytes)}` : undefined,
+          `${Math.max(1, Math.round(result.durationMs / 1000))} 秒`,
+          result.supportsRange ? '支持断点续传' : '未确认断点续传'
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+      </p>
+      {result.error ? <p className="progress-error">{result.error}</p> : null}
+      <small>{result.url}</small>
+    </div>
+  );
+}
+
 function historyEntryToLocalItem(entry: HistoryEntry): LocalHistoryItem {
   return {
     id: entry.id,
@@ -2061,6 +2136,10 @@ function tierLabel(tier: string): string {
 
 function modeLabel(inputMode: InputMode): string {
   return inputMode === 'natural' ? '自然输入' : '结构输入';
+}
+
+function structuredEngineLabel(settings: Settings | null): string {
+  return settings?.providers.llm.enabled ? 'LLM Prompt' : '本地规则';
 }
 
 function oppositeMode(inputMode: InputMode): InputMode {

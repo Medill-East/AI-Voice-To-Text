@@ -546,7 +546,7 @@ textarea {
 
 .model-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) repeat(4, auto);
   gap: 14px;
   align-items: center;
   padding: 14px 0;
@@ -670,6 +670,17 @@ textarea {
   display: grid;
   gap: 6px;
   margin-top: 9px;
+}
+
+.download-probe {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.download-probe.failed .progress-meta,
+.download-probe.failed small {
+  color: var(--color-danger);
 }
 
 .install-progress > div:first-child {

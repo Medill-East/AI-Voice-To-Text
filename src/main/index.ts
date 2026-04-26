@@ -296,6 +296,10 @@ function registerIpc(): void {
   });
   ipcMain.handle('v2t:test-hotkey', async (_event, accelerator?: string) => testHotkey(accelerator ?? settings.hotkey.accelerator));
   ipcMain.handle('v2t:refresh-model-catalog', async () => refreshModelCatalog('manual'));
+  ipcMain.handle('v2t:copy-model-catalog-diagnostics', async () => {
+    clipboard.writeText(createModelCatalogDiagnosticText());
+    return { ok: true };
+  });
   ipcMain.handle('v2t:check-for-updates', async () => checkForAppUpdates());
   ipcMain.handle('v2t:download-update', async () => downloadAppUpdate());
   ipcMain.handle('v2t:install-update', async () => installAppUpdate());
@@ -377,6 +381,7 @@ function registerIpc(): void {
       return { ok: false, error: readableError(error), setup: await getSetupPayload() };
     }
   });
+  ipcMain.handle('v2t:test-model-download', async (_event, modelId: string) => createModelManager().probeModelDownload(modelId));
   ipcMain.handle('v2t:activate-model', async (_event, modelId: string) => {
     const manager = createModelManager();
     try {
@@ -415,7 +420,7 @@ function registerIpc(): void {
 async function createPipeline() {
   const apiKey = await new SecretStore().getOpenAICompatibleKey();
   const llm =
-    settings.providers.llm.enabled || apiKey
+    settings.providers.llm.enabled
       ? new OpenAICompatibleClient({
           baseUrl: settings.providers.llm.baseUrl,
           model: settings.providers.llm.model,
@@ -1177,6 +1182,34 @@ function createHotkeyDiagnosticText(): string {
       'windowsBackend: V2T Raw Input listener',
       'defenderNote: 如果 Defender 已隔离 WinKeyServer.exe，不要恢复；新版不再分发或启动该旧 helper。',
       'nextAction: 重新检测 Windows Raw Input 键盘监听；如 V2TKeyboardListener.exe 缺失，请重新安装新版 V2T 或检查 release 包。'
+    );
+  }
+  return lines.join('\n');
+}
+
+function createModelCatalogDiagnosticText(): string {
+  const state = modelCatalogRefreshState;
+  const lines = [
+    'V2T model catalog diagnostics',
+    `version: ${app.getVersion()}`,
+    `platform: ${process.platform}`,
+    `status: ${state.status}`,
+    `message: ${state.message ?? 'none'}`,
+    `sourceUrl: ${state.sourceUrl ?? DEFAULT_REMOTE_MODEL_CATALOG_URL}`,
+    `catalogVersion: ${state.catalogVersion ?? 'builtin'}`,
+    `updatedAt: ${state.updatedAt ?? 'none'}`,
+    `lastRefreshAt: ${state.lastRefreshAt ?? 'none'}`,
+    `cacheUsed: ${String(state.cacheUsed ?? false)}`,
+    `cacheUpdatedAt: ${state.cacheUpdatedAt ?? 'none'}`,
+    `error: ${state.error ?? 'none'}`
+  ];
+  for (const attempt of state.attempts ?? []) {
+    lines.push(
+      `attempt.${attempt.method}.url: ${attempt.url}`,
+      `attempt.${attempt.method}.ok: ${String(attempt.ok)}`,
+      `attempt.${attempt.method}.status: ${String(attempt.status ?? 'none')}`,
+      `attempt.${attempt.method}.elapsedMs: ${String(attempt.elapsedMs ?? 'none')}`,
+      `attempt.${attempt.method}.error: ${attempt.error ?? 'none'}`
     );
   }
   return lines.join('\n');

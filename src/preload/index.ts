@@ -10,6 +10,7 @@ import type {
   Lexicon,
   ModelCatalogItem,
   ModelCatalogRefreshState,
+  ModelDownloadProbeResult,
   ModelRecommendation,
   ModelStatusRecord,
   PromptFiles,
@@ -29,6 +30,8 @@ export interface V2TApi {
   getSettings(): Promise<{ settings: Settings; hotkeyStatus?: HotkeyStatus }>;
   getSetup(): Promise<SetupPayload>;
   refreshModelCatalog(): Promise<SetupPayload>;
+  copyModelCatalogDiagnostics(): Promise<{ ok: true }>;
+  testModelDownload(modelId: string): Promise<ModelDownloadProbeResult>;
   checkForUpdates(): Promise<AppUpdateState>;
   downloadUpdate(): Promise<AppUpdateState>;
   installUpdate(): Promise<AppUpdateState>;
@@ -130,6 +133,8 @@ const api: V2TApi = {
   getSettings: () => ipcRenderer.invoke('v2t:get-settings'),
   getSetup: () => ipcRenderer.invoke('v2t:get-setup'),
   refreshModelCatalog: () => ipcRenderer.invoke('v2t:refresh-model-catalog'),
+  copyModelCatalogDiagnostics: () => ipcRenderer.invoke('v2t:copy-model-catalog-diagnostics'),
+  testModelDownload: (modelId) => ipcRenderer.invoke('v2t:test-model-download', modelId),
   checkForUpdates: () => ipcRenderer.invoke('v2t:check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('v2t:download-update'),
   installUpdate: () => ipcRenderer.invoke('v2t:install-update'),

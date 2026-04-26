@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import type {
   InstalledModelView,
   ModelCatalogItem,
+  ModelDownloadProbeResult,
   ModelDownloadSource,
   ModelInstallStatus,
   ModelStatusRecord,
@@ -53,6 +54,8 @@ interface ModelManagerOptions {
   ) => Promise<void>;
   extractor?: (model: ModelCatalogItem, archivePath: string, installDir: string) => Promise<void>;
   verifier?: (model: ModelCatalogItem, installDir: string) => Promise<void>;
+  probeFetch?: typeof fetch;
+  nowMs?: () => number;
 }
 
 export class ModelManager {
@@ -67,6 +70,8 @@ export class ModelManager {
   ) => Promise<void>;
   private readonly extractor: (model: ModelCatalogItem, archivePath: string, installDir: string) => Promise<void>;
   private readonly verifier: (model: ModelCatalogItem, installDir: string) => Promise<void>;
+  private readonly probeFetch: typeof fetch;
+  private readonly nowMs: () => number;
 
   constructor(options: ModelManagerOptions) {
     this.modelRoot = options.modelRoot;
@@ -75,6 +80,8 @@ export class ModelManager {
     this.downloader = options.downloader ?? downloadModelArchive;
     this.extractor = options.extractor ?? extractModelArchive;
     this.verifier = options.verifier ?? verifyModelFiles;
+    this.probeFetch = options.probeFetch ?? fetch;
+    this.nowMs = options.nowMs ?? (() => Date.now());
   }
 
   async installAndActivate(modelId: string, onProgress?: ModelInstallProgressCallback): Promise<ModelStatusRecord> {
@@ -293,6 +300,24 @@ export class ModelManager {
   getModelPath(modelId: string): string {
     const model = this.getModel(modelId);
     return join(this.modelInstallDir(model), model.extractedDir, model.primaryModelFile);
+  }
+
+  async probeModelDownload(modelId: string): Promise<ModelDownloadProbeResult> {
+    const model = this.getModel(modelId);
+    const source = selectDownloadSources(model)[0];
+    if (!source) {
+      return {
+        modelId,
+        sourceLabel: '未配置下载源',
+        url: model.sourceUrl,
+        ok: false,
+        supportsRange: false,
+        durationMs: 0,
+        error: '这个模型没有可测速的下载源。'
+      };
+    }
+
+    return probeDownloadSource(model.id, source, this.probeFetch, this.nowMs);
   }
 
   private getModel(modelId: string): ModelCatalogItem {
@@ -519,6 +544,66 @@ function selectDownloadSources(model: ModelCatalogItem): ModelDownloadSource[] {
     sources.push({ label: 'GitHub Release', url: model.sourceUrl, priority: 100 });
   }
   return sources;
+}
+
+async function probeDownloadSource(
+  modelId: string,
+  source: ModelDownloadSource,
+  fetchImpl: typeof fetch,
+  nowMs: () => number
+): Promise<ModelDownloadProbeResult> {
+  const startedAt = nowMs();
+  try {
+    const response = await fetchImpl(source.url, {
+      headers: { Range: 'bytes=0-1048575' },
+      cache: 'no-store'
+    });
+    const buffer = await response.arrayBuffer();
+    const durationMs = Math.max(1, nowMs() - startedAt);
+    const downloadedBytes = buffer.byteLength;
+    const supportsRange = response.status === 206 || response.headers.get('accept-ranges')?.toLowerCase() === 'bytes';
+    const totalBytes = totalBytesFromResponse(response, 0);
+    const bytesPerSecond = Math.round(downloadedBytes / (durationMs / 1000));
+
+    if (!response.ok) {
+      return {
+        modelId,
+        sourceLabel: source.label,
+        url: source.url,
+        ok: false,
+        status: response.status,
+        supportsRange,
+        downloadedBytes,
+        totalBytes,
+        bytesPerSecond,
+        durationMs,
+        error: `下载源测速失败：${source.label} HTTP ${response.status} ${response.statusText}`
+      };
+    }
+
+    return {
+      modelId,
+      sourceLabel: source.label,
+      url: source.url,
+      ok: true,
+      status: response.status,
+      supportsRange,
+      downloadedBytes,
+      totalBytes,
+      bytesPerSecond,
+      durationMs
+    };
+  } catch (error) {
+    return {
+      modelId,
+      sourceLabel: source.label,
+      url: source.url,
+      ok: false,
+      supportsRange: false,
+      durationMs: Math.max(1, nowMs() - startedAt),
+      error: `下载源测速失败：${error instanceof Error ? error.message : String(error)}`
+    };
+  }
 }
 
 function totalBytesFromResponse(response: Response, initialBytes: number): number | undefined {

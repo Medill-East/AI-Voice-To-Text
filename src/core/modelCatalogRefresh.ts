@@ -1,8 +1,10 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import type { ModelCatalogItem, ModelCatalogRefreshState } from './types';
+import type { ModelCatalogItem, ModelCatalogRefreshAttempt, ModelCatalogRefreshState } from './types';
 
 export const DEFAULT_REMOTE_MODEL_CATALOG_URL =
   'https://raw.githubusercontent.com/Medill-East/AI-Voice-To-Text/main/catalog/v2t-model-catalog.json';
+const DEFAULT_GITHUB_API_CATALOG_URL =
+  'https://api.github.com/repos/Medill-East/AI-Voice-To-Text/contents/catalog/v2t-model-catalog.json?ref=main';
 
 export interface RemoteModelCatalog {
   version: string;
@@ -73,37 +75,151 @@ export class ModelCatalogRefreshService {
   }
 
   async refresh(baseCatalog: ModelCatalogItem[]): Promise<{ catalog: ModelCatalogItem[]; state: ModelCatalogRefreshState }> {
+    const attempts: ModelCatalogRefreshAttempt[] = [];
+    const lastRefreshAt = this.now().toISOString();
+
     try {
-      const response = await this.fetchImpl(this.remoteUrl, { cache: 'no-store' });
-      if (!response.ok) {
-        throw new Error(`远程模型榜单请求失败：HTTP ${response.status} ${this.remoteUrl}`);
-      }
-      const remote = parseRemoteCatalog(await response.json());
+      const remote = await this.fetchRemoteCatalog(attempts);
       await writeFile(this.cachePath, JSON.stringify(remote, null, 2), 'utf8');
       const merged = mergeRemoteModelCatalog(baseCatalog, remote);
+      const lastAttempt = [...attempts].reverse().find((attempt) => attempt.ok);
       return {
         catalog: merged.catalog,
         state: {
           status: 'success',
           catalogVersion: remote.version,
-          sourceUrl: remote.sourceUrl ?? this.remoteUrl,
+          sourceUrl: remote.sourceUrl ?? lastAttempt?.url ?? this.remoteUrl,
           updatedAt: remote.updatedAt,
-          lastRefreshAt: this.now().toISOString(),
+          lastRefreshAt,
+          attempts,
           addedModelIds: merged.addedModelIds,
           message: merged.addedModelIds.length > 0 ? `新增 ${merged.addedModelIds.length} 个模型参考` : '模型榜单已是最新'
         }
       };
     } catch (error) {
+      const cached = await this.tryLoadCachedCatalog(baseCatalog);
+      if (cached) {
+        return {
+          catalog: cached.catalog,
+          state: {
+            ...cached.state,
+            status: 'failed',
+            lastRefreshAt,
+            attempts,
+            cacheUsed: true,
+            cacheUpdatedAt: cached.state.updatedAt,
+            error: readableError(error),
+            message: '刷新失败，已使用本地缓存的模型榜单'
+          }
+        };
+      }
+
       return {
         catalog: baseCatalog,
         state: {
           status: 'failed',
           sourceUrl: this.remoteUrl,
-          lastRefreshAt: this.now().toISOString(),
+          lastRefreshAt,
+          attempts,
           error: readableError(error),
           message: '刷新失败，继续使用内置模型榜单'
         }
       };
+    }
+  }
+
+  private async fetchRemoteCatalog(attempts: ModelCatalogRefreshAttempt[]): Promise<RemoteModelCatalog> {
+    try {
+      return await this.fetchRawCatalog(attempts);
+    } catch (rawError) {
+      try {
+        return await this.fetchGitHubApiCatalog(attempts);
+      } catch (apiError) {
+        throw new Error(`模型榜单刷新失败：${readableError(rawError)}；GitHub API fallback 也失败：${readableError(apiError)}`);
+      }
+    }
+  }
+
+  private async fetchRawCatalog(attempts: ModelCatalogRefreshAttempt[]): Promise<RemoteModelCatalog> {
+    const startedAt = Date.now();
+    let response: Awaited<ReturnType<CatalogFetch>>;
+    try {
+      response = await this.fetchImpl(this.remoteUrl, { cache: 'no-store' });
+    } catch (error) {
+      const attempt: ModelCatalogRefreshAttempt = {
+        method: 'raw',
+        url: this.remoteUrl,
+        ok: false,
+        elapsedMs: Date.now() - startedAt,
+        error: readableError(error)
+      };
+      attempts.push(attempt);
+      throw new Error(`远程模型榜单请求失败：${attempt.error}`);
+    }
+    const attempt: ModelCatalogRefreshAttempt = {
+      method: 'raw',
+      url: this.remoteUrl,
+      ok: response.ok,
+      status: response.status,
+      elapsedMs: Date.now() - startedAt
+    };
+    attempts.push(attempt);
+    if (!response.ok) {
+      attempt.error = `HTTP ${response.status ?? 'unknown'} ${this.remoteUrl}`;
+      throw new Error(`远程模型榜单请求失败：${attempt.error}`);
+    }
+    return parseRemoteCatalog(await response.json());
+  }
+
+  private async fetchGitHubApiCatalog(attempts: ModelCatalogRefreshAttempt[]): Promise<RemoteModelCatalog> {
+    const url = githubApiCatalogUrlForRawUrl(this.remoteUrl) ?? DEFAULT_GITHUB_API_CATALOG_URL;
+    const startedAt = Date.now();
+    let response: Awaited<ReturnType<CatalogFetch>>;
+    try {
+      response = await this.fetchImpl(url, { cache: 'no-store' });
+    } catch (error) {
+      const attempt: ModelCatalogRefreshAttempt = {
+        method: 'github-api',
+        url,
+        ok: false,
+        elapsedMs: Date.now() - startedAt,
+        error: readableError(error)
+      };
+      attempts.push(attempt);
+      throw new Error(`GitHub Contents API 请求失败：${attempt.error}`);
+    }
+    const attempt: ModelCatalogRefreshAttempt = {
+      method: 'github-api',
+      url,
+      ok: response.ok,
+      status: response.status,
+      elapsedMs: Date.now() - startedAt
+    };
+    attempts.push(attempt);
+    if (!response.ok) {
+      attempt.error = `HTTP ${response.status ?? 'unknown'} ${url}`;
+      throw new Error(`GitHub Contents API 请求失败：${attempt.error}`);
+    }
+    return parseGitHubContentsCatalog(await response.json());
+  }
+
+  private async tryLoadCachedCatalog(baseCatalog: ModelCatalogItem[]): Promise<{ catalog: ModelCatalogItem[]; state: ModelCatalogRefreshState } | null> {
+    try {
+      const cached = parseRemoteCatalog(JSON.parse(await readFile(this.cachePath, 'utf8')));
+      const merged = mergeRemoteModelCatalog(baseCatalog, cached);
+      return {
+        catalog: merged.catalog,
+        state: {
+          status: 'success',
+          catalogVersion: cached.version,
+          sourceUrl: cached.sourceUrl ?? this.remoteUrl,
+          updatedAt: cached.updatedAt,
+          addedModelIds: merged.addedModelIds,
+          message: '已加载本地缓存的模型榜单'
+        }
+      };
+    } catch {
+      return null;
     }
   }
 }
@@ -192,6 +308,27 @@ function parseRemoteCatalog(value: unknown): RemoteModelCatalog {
     sourceUrl: candidate.sourceUrl,
     models: candidate.models
   };
+}
+
+function parseGitHubContentsCatalog(value: unknown): RemoteModelCatalog {
+  if (!value || typeof value !== 'object') {
+    throw new Error('GitHub Contents API 响应格式无效');
+  }
+  const payload = value as { content?: unknown; encoding?: unknown };
+  if (payload.encoding !== 'base64' || typeof payload.content !== 'string') {
+    throw new Error('GitHub Contents API 响应缺少 base64 content');
+  }
+  const content = Buffer.from(payload.content.replace(/\s/g, ''), 'base64').toString('utf8');
+  return parseRemoteCatalog(JSON.parse(content));
+}
+
+function githubApiCatalogUrlForRawUrl(rawUrl: string): string | undefined {
+  const match = rawUrl.match(/^https:\/\/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/);
+  if (!match) {
+    return undefined;
+  }
+  const [, owner, repo, ref, path] = match;
+  return `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${ref}`;
 }
 
 function isCompleteCatalogItem(value: Partial<ModelCatalogItem> & { id: string }): value is ModelCatalogItem {

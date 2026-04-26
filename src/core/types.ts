@@ -188,12 +188,24 @@ export interface ModelEvaluationSources {
 
 export type ModelCatalogRefreshStatus = 'idle' | 'refreshing' | 'success' | 'failed';
 
+export interface ModelCatalogRefreshAttempt {
+  method: 'raw' | 'github-api';
+  url: string;
+  ok: boolean;
+  status?: number;
+  error?: string;
+  elapsedMs?: number;
+}
+
 export interface ModelCatalogRefreshState {
   status: ModelCatalogRefreshStatus;
   catalogVersion?: string;
   sourceUrl?: string;
   updatedAt?: string;
   lastRefreshAt?: string;
+  cacheUsed?: boolean;
+  cacheUpdatedAt?: string;
+  attempts?: ModelCatalogRefreshAttempt[];
   addedModelIds?: string[];
   error?: string;
   message?: string;
@@ -254,6 +266,20 @@ export interface ModelStatusRecord {
   modelPath?: string;
   error?: string;
   updatedAt: string;
+}
+
+export interface ModelDownloadProbeResult {
+  modelId: string;
+  sourceLabel: string;
+  url: string;
+  ok: boolean;
+  supportsRange: boolean;
+  status?: number;
+  downloadedBytes?: number;
+  totalBytes?: number;
+  bytesPerSecond?: number;
+  durationMs: number;
+  error?: string;
 }
 
 export interface InstalledModelView {

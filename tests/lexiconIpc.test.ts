@@ -17,6 +17,8 @@ describe('lexicon IPC surface', () => {
     expect(preload).toContain('savePrompt(mode: InputMode, content: string)');
     expect(preload).toContain('onAutoSyncStatus');
     expect(preload).toContain('refreshModelCatalog(): Promise<SetupPayload>');
+    expect(preload).toContain('copyModelCatalogDiagnostics(): Promise<{ ok: true }>');
+    expect(preload).toContain('testModelDownload(modelId: string): Promise<ModelDownloadProbeResult>');
     expect(preload).toContain('onModelCatalogRefresh');
     expect(preload).toContain('checkForUpdates(): Promise<AppUpdateState>');
     expect(preload).toContain('downloadUpdate(): Promise<AppUpdateState>');
@@ -24,6 +26,8 @@ describe('lexicon IPC surface', () => {
     expect(preload).toContain('onAppUpdateStatus');
     expect(preload).toContain("ipcRenderer.invoke('v2t:sync-all')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:refresh-model-catalog')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:copy-model-catalog-diagnostics')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:test-model-download', modelId)");
     expect(preload).toContain("ipcRenderer.invoke('v2t:check-for-updates')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:download-update')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:install-update')");
@@ -36,6 +40,8 @@ describe('lexicon IPC surface', () => {
     expect(main).toContain("ipcMain.handle('v2t:save-prompt'");
     expect(main).toContain("ipcMain.handle('v2t:sync-all'");
     expect(main).toContain("ipcMain.handle('v2t:refresh-model-catalog'");
+    expect(main).toContain("ipcMain.handle('v2t:copy-model-catalog-diagnostics'");
+    expect(main).toContain("ipcMain.handle('v2t:test-model-download'");
     expect(main).toContain("ipcMain.handle('v2t:check-for-updates'");
     expect(main).toContain("ipcMain.handle('v2t:download-update'");
     expect(main).toContain("ipcMain.handle('v2t:install-update'");

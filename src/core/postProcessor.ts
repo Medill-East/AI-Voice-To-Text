@@ -3,8 +3,17 @@ import type { Lexicon, LlmClient, ProcessTextOptions, ProcessedText } from './ty
 const DEFAULT_NATURAL_PROMPT =
   '你是保守的中文语音输入纠错器。只修正明显识别错误、专有名词、标点和少量口头禅，不改变语序、观点或文风。';
 
-const DEFAULT_STRUCTURED_PROMPT =
-  '把用户口述内容整理为易读 Markdown。保留原意，按话题边界自动使用段落、空行、编号或列表；不同话题之间用空行分隔。不要默认把每一句都变成列表；只有在步骤、清单、并列观点明显时才使用列表或编号。不强行添加背景、目标、约束等固定模板。';
+const DEFAULT_STRUCTURED_PROMPT = `你是中文语音输入的结构化整理器。
+
+目标：把口述内容整理成适合阅读和继续交给 AI 处理的 Markdown，保留原意，不添加新事实，不改变用户立场。
+
+处理规则：
+1. 删除明显口头噪声和识别残留：/sil、<|...|>、嗯、呃、啊、就是、那个、这个、对、你懂我意思吧、你懂我意思吗，以及明显重复的短词或短句。
+2. 同一主题内不要因为停顿、重复表达或普通连接词反复分段；优先合并成 1-3 个自然段。
+3. 只有出现明确的新话题、问题编号、步骤、任务清单或并列观点时，才使用空行、编号或列表。
+4. 不默认每句加项目符号，不要默认把每一句都变成列表，不强行添加“背景/目标/约束/总结”等模板标题。
+5. 保留中文、英文、产品名、模型名和代码词；中英混排不要翻译专有名词。
+6. 只输出整理后的正文，不解释你做了什么。`;
 
 export class PostProcessor {
   private readonly llm?: LlmClient;
@@ -69,14 +78,21 @@ function stripBlockedAndFillers(input: string, lexicon: Lexicon): string {
   }
 
   return output
-    .replace(/(^|[\s，,。.!！?？；;])(?:嗯+|呃+|啊+|那个|这个)(?=$|[\s，,。.!！?？；;])/g, '$1')
+    .replace(/\/sil\b/gi, '')
+    .replace(/<\|[^>]+?\|>/g, '')
+    .replace(/你懂我意思[吧吗]?/g, '')
+    .replace(/(^|[\s，,。.!！?？；;、])(?:嗯+|呃+|额+|啊+|唔+)(?=$|[\s，,。.!！?？；;、])/g, '$1')
+    .replace(/(就是|那个|这个)/g, '')
+    .replace(/(^|[\s，,。.!！?？；;、])对(?=$|[\s，,。.!！?？；;、])/g, '$1')
+    .replace(/\s+([，,。.!！?？；;])/g, '$1')
+    .replace(/([，,。.!！?？；;])\s+/g, '$1')
     .replace(/[，,。.!！?？；;]\s*$/g, '');
 }
 
 function toReadableMarkdown(input: string): string {
-  const normalized = markTopicBoundaries(input);
-  const parts = normalized
-    .split(/(?:。|！|!|？|\?|；|;|\n)+/)
+  const blocks = splitIntoTopicBlocks(input);
+  const parts = blocks
+    .flatMap((block) => sentenceParts(block))
     .map((part) => part.trim())
     .filter(Boolean);
 
@@ -92,7 +108,10 @@ function toReadableMarkdown(input: string): string {
     return parts.map((part) => `- ${part}`).join('\n');
   }
 
-  return parts.map((part) => ensureSentencePunctuation(part)).join('\n\n');
+  return blocks
+    .map((block) => compactRepeatedSentences(sentenceParts(block)).map((part) => ensureSentencePunctuation(part)).join(''))
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function looksLikeOrderedSteps(parts: string[]): boolean {
@@ -113,8 +132,41 @@ function ensureSentencePunctuation(input: string): string {
   return /[，,。.!！?？；;]$/.test(input) ? input : `${input}。`;
 }
 
-function markTopicBoundaries(input: string): string {
-  return input.replace(/(换个话题|另外|接下来|说回到|第二点|第三点|第四点|第五点|还有一件事)/g, '\n$1');
+function splitIntoTopicBlocks(input: string): string[] {
+  return input
+    .replace(
+      /(换个话题|另一个问题(?:是)?|另外(?:一个)?(?:问题|话题)(?:是)?|第[一二三四五六七八九十\d]+个?问题(?:是)?|第[一二三四五六七八九十\d]+点|接下来(?:讲|说|处理|看)|说回到|还有一件事)/g,
+      '\n$1'
+    )
+    .split(/\n+/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+}
+
+function sentenceParts(input: string): string[] {
+  return (
+    input
+      .match(/[^。.!！?？；;]+[。.!！?？；;]?/g)
+      ?.map((part) => part.trim().replace(/[。.!！?？；;]+$/, '')) ?? []
+  ).filter(Boolean);
+}
+
+function compactRepeatedSentences(parts: string[]): string[] {
+  const output: string[] = [];
+  for (const part of parts) {
+    const normalized = normalizeComparableText(part);
+    const previous = output[output.length - 1];
+    const previousNormalized = previous ? normalizeComparableText(previous) : '';
+    if (previousNormalized && (previousNormalized === normalized || (normalized.length >= 5 && previousNormalized.includes(normalized)))) {
+      continue;
+    }
+    output.push(part);
+  }
+  return output;
+}
+
+function normalizeComparableText(input: string): string {
+  return input.replace(/[\s，,。.!！?？；;、]/g, '');
 }
 
 function replaceAll(input: string, from: string, to: string, caseSensitive = false): string {

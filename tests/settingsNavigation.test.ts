@@ -35,6 +35,12 @@ describe('settings navigation structure', () => {
     expect(app).toContain('中文推荐分');
     expect(app).toContain('英文公开榜参考');
     expect(app).toContain('刷新模型榜单');
+    expect(app).toContain('复制榜单诊断');
+    expect(app).toContain('下载测速');
+    expect(app).toContain('重新测速');
+    expect(app).toContain('结构化引擎');
+    expect(app).toContain('本地规则');
+    expect(app).toContain('Prompt 仅在启用 LLM 后生效');
     expect(app).toContain('上次刷新');
     expect(app).toContain("permissionKind === 'macos-accessibility'");
     expect(app).toContain('Windows Raw Input');
