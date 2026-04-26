@@ -1844,6 +1844,7 @@ export function App() {
                       </button>
                     </div>
                     <div className="cloud-model-workspace">
+                      <CloudTestResultPanel result={latestCloudTestResultId ? cloudTestResultsById[latestCloudTestResultId] : latestCloudResult(cloudTestResultsById)} />
                       <CloudModelTable
                         state={cloudLlmCatalog}
                         search={cloudModelSearch}
@@ -1886,7 +1887,6 @@ export function App() {
                         }}
                         onOpen={openCloudModelPage}
                       />
-                      <CloudTestResultPanel result={latestCloudTestResultId ? cloudTestResultsById[latestCloudTestResultId] : latestCloudResult(cloudTestResultsById)} />
                     </div>
                   </section>
                   <section className="advanced-group llm-manual-config">
@@ -3067,18 +3067,27 @@ function CloudModelTable({
   onToggleSelected(modelId: string): void;
 }) {
   const query = search.trim().toLowerCase();
-  const filtered = sortCloudLlmModels(state?.models ?? [], sortKey, sortDirection).filter((model) => {
+  const sortedModels = sortCloudLlmModels(state?.models ?? [], sortKey, sortDirection);
+  const matchesQuery = (model: CloudLlmModelView) => {
+    if (!query) {
+      return true;
+    }
+    return `${model.name} ${model.id} ${model.description ?? ''} ${cloudLlmTags(model).join(' ')}`.toLowerCase().includes(query);
+  };
+  const filtered = sortedModels.filter((model) => {
     if (onlyFree && !model.isFree) {
       return false;
     }
     if (onlyRecommended && !model.recommended) {
       return false;
     }
-    if (!query) {
-      return true;
-    }
-    return `${model.name} ${model.id} ${model.description ?? ''} ${cloudLlmTags(model).join(' ')}`.toLowerCase().includes(query);
+    return matchesQuery(model);
   });
+  const freeRecommendedCount = sortedModels.filter((model) => model.recommended && model.isFree).length;
+  const paidRecommendedCount = sortedModels.filter((model) => model.recommended && !model.isFree).length;
+  const hiddenPaidRecommendedCount = onlyFree
+    ? sortedModels.filter((model) => model.recommended && !model.isFree && (!onlyRecommended || model.recommended) && matchesQuery(model)).length
+    : 0;
   const totalPages = Math.max(1, Math.ceil(filtered.length / CLOUD_MODELS_PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
   const visible = filtered.slice(safePage * CLOUD_MODELS_PAGE_SIZE, safePage * CLOUD_MODELS_PAGE_SIZE + CLOUD_MODELS_PAGE_SIZE);
@@ -3115,8 +3124,18 @@ function CloudModelTable({
       </div>
       <p className="progress-meta">
         {state?.status === 'failed' ? `刷新失败：${state.error ?? '未知错误'}；正在显示缓存或内置推荐。` : `共 ${filtered.length} 个模型`}
+        {` · 免费推荐 ${freeRecommendedCount} · 付费推荐 ${paidRecommendedCount}`}
         {sortKey === 'releasedAt' ? ` · ${sortDirection === 'desc' ? '按发布时间倒序' : '按发布时间正序'}` : ''}
         {state?.updatedAt ? ` · 上次刷新 ${new Date(state.updatedAt).toLocaleString()}` : ''}
+      </p>
+      {hiddenPaidRecommendedCount > 0 ? (
+        <div className="cloud-paid-hidden-notice">
+          <span>已隐藏 {hiddenPaidRecommendedCount} 个付费推荐模型，包括 Qwen 3.6 Plus。免费候选仍保留 Ling-2.6-flash free；免费不等于更推荐，可能限流或波动。</span>
+          <button className="secondary compact" onClick={() => onOnlyFree(false)}>显示全部推荐</button>
+        </div>
+      ) : null}
+      <p className="progress-meta">
+        Qwen 3.6 Plus 是付费稳定主力，适合中文/中英混合和较长整理；Ling-2.6-flash free 是免费快速候选，适合短文本试用。
       </p>
       {filtered.length === 0 ? (
         <div className="cloud-empty-state">
@@ -3129,46 +3148,43 @@ function CloudModelTable({
           </div>
         </div>
       ) : (
-        <div className="cloud-model-table">
-          <div className="cloud-model-head">
-            <span>选择</span>
-            <span>模型</span>
-            <span>TAG</span>
-            <span>适配</span>
-            <span>价格</span>
-            <span>发布时间</span>
-            <span>上下文</span>
-          </div>
+        <div className="cloud-model-list-rows">
           {visible.map((model) => (
-          <div className="cloud-model-row" key={model.id}>
-            <label className="row-check" aria-label={`选择 ${model.name}`}>
-              <input type="checkbox" checked={selectedModelIds.includes(model.id)} onChange={() => onToggleSelected(model.id)} />
-            </label>
-            <div>
-              <div className="cloud-model-title">
-                <strong>{model.name}</strong>
+            <article className="cloud-model-row" key={model.id}>
+              <div className="cloud-model-row-main">
+                <label className="row-check" aria-label={`选择 ${model.name}`}>
+                  <input type="checkbox" checked={selectedModelIds.includes(model.id)} onChange={() => onToggleSelected(model.id)} />
+                </label>
+                <div className="cloud-model-title-block">
+                  <div className="cloud-model-title">
+                    <strong>{model.name}</strong>
+                  </div>
+                  <small>{model.id}</small>
+                  {model.note ? <p>{model.note}</p> : null}
+                </div>
+                <div className="cloud-model-tags">
+                  {cloudLlmTags(model).map((tag) => (
+                    <span key={tag}>{tag}</span>
+                  ))}
+                </div>
               </div>
-              <small>{model.id}</small>
-              {model.note ? <p>{model.note}</p> : null}
-            </div>
-            <div className="cloud-model-tags">
-              {cloudLlmTags(model).map((tag) => (
-                <span key={tag}>{tag}</span>
-              ))}
-            </div>
-            <span>{model.recommendationScore}</span>
-            <span>{cloudPriceLabel(model)}</span>
-            <span>{model.createdAt ? new Date(model.createdAt).toLocaleDateString() : '未知'}</span>
-            <span>{model.contextLength ? `${Math.round(model.contextLength / 1000)}k` : '-'}</span>
-            <div className="action-strip">
-              <button className="secondary compact" onClick={() => onUse(model)}>填入</button>
-              <button className="secondary compact" onClick={() => void onTest(model)} disabled={testingModelId === model.id}>
-                {testingModelId === model.id ? '测试中' : testResultsById[model.id] ? '重测' : '测试'}
-              </button>
-              <button className="secondary compact" onClick={() => void onOpen(model)}>打开模型页</button>
-            </div>
-            {testResultsById[model.id] ? <small className="cloud-test-inline">{cloudTestInlineLabel(testResultsById[model.id])}</small> : null}
-          </div>
+              <div className="cloud-model-meta-line">
+                <span>适配 {model.recommendationScore}</span>
+                <span>{cloudPriceLabel(model)}</span>
+                <span>发布 {model.createdAt ? new Date(model.createdAt).toLocaleDateString() : '未知'}</span>
+                <span>上下文 {model.contextLength ? `${Math.round(model.contextLength / 1000)}k` : '-'}</span>
+              </div>
+              <div className="cloud-model-row-actions">
+                <div className="action-strip">
+                  <button className="secondary compact" onClick={() => onUse(model)}>填入</button>
+                  <button className="secondary compact" onClick={() => void onTest(model)} disabled={testingModelId === model.id}>
+                    {testingModelId === model.id ? '测试中' : testResultsById[model.id] ? '重测' : '测试'}
+                  </button>
+                  <button className="secondary compact" onClick={() => void onOpen(model)}>打开模型页</button>
+                </div>
+                {testResultsById[model.id] ? <small className="cloud-test-inline">{cloudTestInlineLabel(testResultsById[model.id])}</small> : null}
+              </div>
+            </article>
           ))}
         </div>
       )}
@@ -3189,36 +3205,29 @@ function CloudModelTable({
 
 function CloudTestResultPanel({ result }: { result?: CloudLlmTestResultView }) {
   return (
-    <aside className="cloud-test-panel">
-      <h3>云端测试结果</h3>
+    <section className="cloud-test-summary">
+      <div className="cloud-test-summary-head">
+        <h3>云端测试结果</h3>
+        {result ? <small>{new Date(result.testedAt).toLocaleString()}</small> : null}
+      </div>
       {result ? (
         <>
-          <strong>{result.modelName}</strong>
-          <dl>
-            <div>
-              <dt>状态</dt>
-              <dd>{result.ok ? '可用' : '失败'}</dd>
-            </div>
-            <div>
-              <dt>耗时</dt>
-              <dd>{result.latencyMs ? `${Math.round(result.latencyMs / 100) / 10}s` : '-'}</dd>
-            </div>
-            <div>
-              <dt>输出字数</dt>
-              <dd>{result.outputChars}</dd>
-            </div>
-            <div>
-              <dt>完成原因</dt>
-              <dd>{result.finishReason ?? '-'}</dd>
-            </div>
-          </dl>
-          <pre>{result.ok ? result.preview ?? '测试通过' : result.error ?? '测试失败'}</pre>
-          <small>{new Date(result.testedAt).toLocaleString()}</small>
+          <div className="cloud-test-summary-line">
+            <strong>{result.modelName}</strong>
+            <span>{result.ok ? '可用' : '失败'}</span>
+            <span>{result.latencyMs ? `${Math.round(result.latencyMs / 100) / 10}s` : '-'}</span>
+            <span>{result.outputChars} 字</span>
+            <span>{result.finishReason ?? '-'}</span>
+          </div>
+          <details>
+            <summary>{result.ok ? result.preview ?? '测试通过' : result.error ?? '测试失败'}</summary>
+            <pre>{result.ok ? result.preview ?? '测试通过' : result.error ?? '测试失败'}</pre>
+          </details>
         </>
       ) : (
         <p className="empty">还没有测试结果。选择模型后点击“测试”或“测试已选模型”。</p>
       )}
-    </aside>
+    </section>
   );
 }
 

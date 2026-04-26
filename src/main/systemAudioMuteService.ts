@@ -42,7 +42,7 @@ export class SystemAudioMuteService {
       return { ok: false, error: '当前系统暂不支持自动静音。' };
     } catch (error) {
       this.snapshot = undefined;
-      return { ok: false, error: readableError(error) };
+      return { ok: false, error: this.platform === 'win32' ? readableWindowsAudioError(error) : readableError(error) };
     }
   }
 
@@ -75,7 +75,7 @@ export class SystemAudioMuteService {
 
       return { ok: true };
     } catch (error) {
-      return { ok: false, error: readableError(error) };
+      return { ok: false, error: snapshot.platform === 'win32' ? readableWindowsAudioError(error) : readableError(error) };
     }
   }
 
@@ -111,15 +111,15 @@ function windowsAudioScript(action: 'read' | 'mute' | 'restore', volume = 1, mut
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
-[Guid("BCDE0395-E52F-467C-8E3D-C4579291692E"), ComImport] class MMDeviceEnumerator {}
-enum EDataFlow { eRender, eCapture, eAll }
-enum ERole { eConsole, eMultimedia, eCommunications }
+[Guid("BCDE0395-E52F-467C-8E3D-C4579291692E"), ComImport] public class MMDeviceEnumerator {}
+public enum EDataFlow { eRender, eCapture, eAll }
+public enum ERole { eConsole, eMultimedia, eCommunications }
 [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IMMDeviceEnumerator { int NotImpl1(); int GetDefaultAudioEndpoint(EDataFlow dataFlow, ERole role, out IMMDevice endpoint); }
+public interface IMMDeviceEnumerator { int NotImpl1(); int GetDefaultAudioEndpoint(EDataFlow dataFlow, ERole role, out IMMDevice endpoint); }
 [Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IMMDevice { int Activate(ref Guid iid, int dwClsCtx, IntPtr pActivationParams, out IAudioEndpointVolume endpointVolume); }
+public interface IMMDevice { int Activate(ref Guid iid, int dwClsCtx, IntPtr pActivationParams, out IAudioEndpointVolume endpointVolume); }
 [Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IAudioEndpointVolume {
+public interface IAudioEndpointVolume {
  int RegisterControlChangeNotify(IntPtr pNotify); int UnregisterControlChangeNotify(IntPtr pNotify);
  int GetChannelCount(out int channelCount); int SetMasterVolumeLevel(float level, Guid eventContext);
  int SetMasterVolumeLevelScalar(float level, Guid eventContext); int GetMasterVolumeLevel(out float level);
@@ -147,4 +147,23 @@ ${action === 'restore' ? `[void]$endpoint.SetMasterVolumeLevelScalar(${restoreVo
 
 function readableError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function readableWindowsAudioError(error: unknown): string {
+  const text = readableError(error);
+  const compact = text.replace(/\s+/g, ' ').trim().slice(0, 220);
+
+  if (/Add-Type|SOURCE_CODE_ERROR|COMPILER_ERRORS|CS0050|可访问性|inconsistent accessibility/i.test(text)) {
+    return `Windows 系统声音静音失败：音频控制脚本编译失败。${compact}`;
+  }
+
+  if (/GetDefaultAudioEndpoint|0x88890004|找不到默认|default audio endpoint|playback device|播放设备/i.test(text)) {
+    return `Windows 系统声音静音失败：找不到默认播放设备。${compact}`;
+  }
+
+  if (/SetMute|InvokeMethodOnNull|Null 值|endpoint/i.test(text)) {
+    return `Windows 系统声音静音失败：无法切换默认播放设备静音。${compact}`;
+  }
+
+  return `Windows 系统声音静音失败：${compact || '未知错误'}`;
 }

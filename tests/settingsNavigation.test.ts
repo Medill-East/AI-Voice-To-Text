@@ -88,6 +88,10 @@ describe('settings navigation structure', () => {
     expect(app).toContain('只看推荐');
     expect(app).toContain('CloudModelTable');
     expect(app).toContain('CloudTestResultPanel');
+    expect(app).toContain('Qwen 3.6 Plus 是付费稳定主力');
+    expect(app).toContain('Ling-2.6-flash free 是免费快速候选');
+    expect(app).toContain('已隐藏');
+    expect(app).toContain('显示全部推荐');
     expect(app).toContain('测试已选模型');
     expect(app).toContain('词库试运行');
     expect(app).toContain('复制词库诊断');
@@ -174,7 +178,10 @@ describe('settings navigation structure', () => {
     expect(styles).toContain('.subpage-tabs');
     expect(styles).toContain('.cloud-model-card');
     expect(styles).toContain('.cloud-model-workspace');
-    expect(styles).toContain('.cloud-test-panel');
+    expect(styles).toContain('.cloud-test-summary');
+    expect(styles).toContain('.cloud-paid-hidden-notice');
+    expect(styles).toContain('.cloud-model-list-rows');
+    expect(styles).not.toContain('min-width: 1120px');
     expect(styles).toContain('.row-check input[type="checkbox"]');
     expect(styles).toContain('.voice-options');
     expect(styles).toContain('.lexicon-trial-result');

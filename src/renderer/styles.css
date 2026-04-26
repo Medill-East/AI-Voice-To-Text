@@ -1347,21 +1347,20 @@ textarea {
 
 .cloud-model-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  gap: 16px;
-  align-items: start;
+  gap: 12px;
+  min-width: 0;
 }
 
 .cloud-model-browser {
   display: grid;
   gap: 12px;
   min-width: 0;
-  overflow-x: auto;
+  overflow-x: visible;
 }
 
 .cloud-model-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 150px 96px auto auto;
+  grid-template-columns: minmax(180px, 1fr) minmax(132px, max-content) 92px auto auto;
   gap: 10px;
   align-items: center;
 }
@@ -1371,25 +1370,45 @@ textarea {
   min-height: 34px;
 }
 
-.cloud-model-table {
+.cloud-paid-hidden-notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  color: var(--color-text);
+  background: var(--color-control);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.cloud-paid-hidden-notice span {
+  min-width: min(100%, 360px);
+  flex: 1;
+}
+
+.cloud-model-list-rows {
   display: grid;
-  min-width: 1120px;
   border-top: 1px solid var(--color-border);
 }
 
-.cloud-model-head,
 .cloud-model-row {
   display: grid;
-  grid-template-columns: 48px minmax(240px, 1fr) minmax(170px, 220px) 72px 130px 110px 86px minmax(260px, auto);
-  gap: 12px;
-  align-items: center;
-  padding: 10px 0;
+  gap: 8px;
+  padding: 12px 0;
   border-bottom: 1px solid var(--color-border);
 }
 
-.cloud-model-head {
-  color: var(--color-muted-2);
-  font-size: 11px;
+.cloud-model-row-main {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) minmax(160px, 32%);
+  gap: 10px;
+  align-items: start;
+}
+
+.cloud-model-title-block {
+  min-width: 0;
 }
 
 .cloud-model-title {
@@ -1403,17 +1422,29 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
+  justify-content: flex-end;
+}
+
+.cloud-model-meta-line,
+.cloud-model-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  padding-left: 34px;
+  color: var(--color-muted);
+  font-size: 12px;
 }
 
 .cloud-model-row .action-strip {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   justify-content: flex-start;
-  overflow-x: auto;
-  white-space: nowrap;
+  overflow: visible;
+  white-space: normal;
 }
 
 .cloud-test-inline {
-  grid-column: 8;
+  color: var(--color-muted-2);
 }
 
 .row-check {
@@ -1435,45 +1466,53 @@ textarea {
   border-radius: 4px;
 }
 
-.cloud-test-panel {
-  position: sticky;
-  top: 0;
+.cloud-test-summary {
   display: grid;
-  gap: 10px;
-  padding: 14px;
+  gap: 8px;
+  padding: 10px 12px;
   border: 1px solid var(--color-border);
   border-radius: 6px;
   background: var(--color-surface);
 }
 
-.cloud-test-panel h3 {
+.cloud-test-summary-head,
+.cloud-test-summary-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+}
+
+.cloud-test-summary-head {
+  justify-content: space-between;
+}
+
+.cloud-test-summary h3 {
   margin: 0;
   font-size: 13px;
 }
 
-.cloud-test-panel dl {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-}
-
-.cloud-test-panel dl div {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.cloud-test-panel dt {
+.cloud-test-summary-line span,
+.cloud-test-summary-head small {
   color: var(--color-muted);
 }
 
-.cloud-test-panel dd {
-  margin: 0;
+.cloud-test-summary details {
+  min-width: 0;
 }
 
-.cloud-test-panel pre {
-  max-height: 160px;
+.cloud-test-summary summary {
+  overflow: hidden;
+  color: var(--color-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cloud-test-summary pre {
+  max-height: 120px;
   margin: 0;
+  margin-top: 8px;
   white-space: pre-wrap;
 }
 
@@ -1485,6 +1524,21 @@ textarea {
   font-size: 11px;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+@media (max-width: 980px) {
+  .cloud-model-toolbar {
+    grid-template-columns: minmax(0, 1fr) minmax(132px, max-content);
+  }
+
+  .cloud-model-row-main {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .cloud-model-tags {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
 }
 
 .cloud-empty-state {
