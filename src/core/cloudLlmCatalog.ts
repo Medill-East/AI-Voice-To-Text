@@ -126,6 +126,19 @@ export function builtinCloudLlmModels(): CloudLlmModelView[] {
       note: '中文和中英混合整理优先候选。'
     },
     {
+      id: 'inclusionai/ling-2.6-flash:free',
+      name: 'Ling-2.6-flash Free',
+      isFree: true,
+      recommended: true,
+      recommendationScore: 88,
+      performanceScore: 84,
+      promptPrice: 0,
+      completionPrice: 0,
+      contextLength: 262144,
+      modelUrl: 'https://openrouter.ai/models/inclusionai/ling-2.6-flash:free',
+      note: '免费快速候选，适合先测试短文本整理；免费端点可能限流或下线。'
+    },
+    {
       id: 'google/gemma-4-31b-it:free',
       name: 'Gemma 4 31B Free',
       isFree: true,

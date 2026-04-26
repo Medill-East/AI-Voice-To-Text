@@ -175,6 +175,7 @@ describe('settings navigation structure', () => {
     expect(styles).toContain('.cloud-model-card');
     expect(styles).toContain('.cloud-model-workspace');
     expect(styles).toContain('.cloud-test-panel');
+    expect(styles).toContain('.row-check input[type="checkbox"]');
     expect(styles).toContain('.voice-options');
     expect(styles).toContain('.lexicon-trial-result');
     expect(styles).toContain('.engine-card.active span');

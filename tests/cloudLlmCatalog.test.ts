@@ -36,7 +36,9 @@ describe('CloudLlmCatalogService', () => {
       isFree: true,
       contextLength: 131072
     });
-    expect(state.models.map((model) => model.id)).toEqual(expect.arrayContaining(['openrouter/free', 'google/gemma-4-31b-it:free']));
+    expect(state.models.map((model) => model.id)).toEqual(
+      expect.arrayContaining(['openrouter/free', 'inclusionai/ling-2.6-flash:free', 'google/gemma-4-31b-it:free'])
+    );
     expect(await readFile(cachePath, 'utf8')).toContain('qwen/qwen3.6-plus');
   });
 
