@@ -525,8 +525,12 @@ function registerIpc(): void {
 async function createPipeline() {
   const primaryKey = await new SecretStore().getOpenAICompatibleKey();
   const fallbackKey = await new SecretStore('v2t-llm-fallback').getOpenAICompatibleKey();
+  const engine = settings.providers.llm.engine;
+  const localEnabled = engine === 'local' || engine === 'local-with-cloud-fallback';
+  const cloudEnabled = engine === 'cloud';
+  const cloudFallbackEnabled = engine === 'local-with-cloud-fallback';
   const llm =
-    settings.providers.llm.enabled
+    localEnabled
       ? new OpenAICompatibleClient({
           baseUrl: settings.providers.llm.baseUrl,
           model: settings.providers.llm.model,
@@ -534,9 +538,17 @@ async function createPipeline() {
           timeoutMs: settings.providers.llm.timeoutMs,
           fastMode: settings.providers.llm.fastMode
         })
+      : cloudEnabled && settings.providers.llm.fallback.baseUrl && settings.providers.llm.fallback.model
+        ? new OpenAICompatibleClient({
+            baseUrl: settings.providers.llm.fallback.baseUrl,
+            model: settings.providers.llm.fallback.model,
+            apiKey: fallbackKey,
+            timeoutMs: settings.providers.llm.fallback.timeoutMs,
+            fastMode: true
+          })
       : undefined;
   const fallbackLlm =
-    settings.providers.llm.fallback.enabled && settings.providers.llm.fallback.baseUrl && settings.providers.llm.fallback.model
+    cloudFallbackEnabled && settings.providers.llm.fallback.baseUrl && settings.providers.llm.fallback.model
       ? new OpenAICompatibleClient({
           baseUrl: settings.providers.llm.fallback.baseUrl,
           model: settings.providers.llm.fallback.model,
@@ -553,7 +565,7 @@ async function createPipeline() {
       clipboard,
       keySender: new OsPasteKeySender()
     }),
-    postProcessor: new PostProcessor({ llm, fallbackLlm })
+    postProcessor: new PostProcessor({ llm, fallbackLlm, primaryEngine: cloudEnabled ? 'llm-cloud' : 'llm-local' })
   });
 }
 
@@ -571,6 +583,7 @@ async function enableLlmProvider(detection: LlmProviderDetection, model: string)
         ...settings.providers,
         llm: {
           ...settings.providers.llm,
+          engine: 'local',
           enabled: true,
           kind: detection.kind,
           baseUrl: detection.baseUrl,
@@ -604,13 +617,24 @@ async function openLlmInstaller(kind: LlmProviderKind, target: 'download' | 'doc
 }
 
 async function testCurrentLlmConnection() {
-  if (!settings.providers.llm.enabled) {
+  if (settings.providers.llm.engine === 'off') {
     return {
       ok: false,
       provider: settings.providers.llm.kind,
       model: settings.providers.llm.model,
       error: '尚未启用 LLM；请先检测本地 LLM 或填写 OpenAI-compatible 配置。'
     };
+  }
+
+  if (settings.providers.llm.engine === 'cloud') {
+    return testLlmClient({
+      kind: 'openai-compatible',
+      baseUrl: settings.providers.llm.fallback.baseUrl,
+      model: settings.providers.llm.fallback.model,
+      apiKey: await new SecretStore('v2t-llm-fallback').getOpenAICompatibleKey(),
+      timeoutMs: settings.providers.llm.fallback.timeoutMs,
+      fastMode: true
+    });
   }
 
   return testLlmClient({

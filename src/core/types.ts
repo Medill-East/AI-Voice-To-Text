@@ -14,8 +14,9 @@ export type ModelInstallStatus =
 	  | 'failed';
 export type RecommendedTier = 'low' | 'medium' | 'high';
 export type AppUpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'installing' | 'error';
-export type PostProcessorEngine = 'local-rules' | 'llm' | 'llm-local' | 'llm-fallback';
+export type PostProcessorEngine = 'local-rules' | 'llm' | 'llm-local' | 'llm-cloud' | 'llm-fallback';
 export type LlmProviderKind = 'openai-compatible' | 'ollama' | 'lm-studio';
+export type LlmEngineMode = 'off' | 'local' | 'cloud' | 'local-with-cloud-fallback';
 export type LlmInstallStatus = 'not-installed' | 'installed-not-running' | 'service-available' | 'checking' | 'error';
 
 export interface LexiconTerm {
@@ -66,6 +67,7 @@ export interface Settings {
       language: 'zh' | 'auto' | 'en' | 'yue' | 'ja' | 'ko';
     };
     llm: {
+      engine: LlmEngineMode;
       enabled: boolean;
       kind: LlmProviderKind;
       baseUrl: string;

@@ -128,6 +128,24 @@ describe('PostProcessor', () => {
     );
   });
 
+  it('marks cloud LLM output when cloud is the primary engine', async () => {
+    const llm: LlmClient = {
+      complete: vi.fn().mockResolvedValue('云端整理结果')
+    };
+    const processor = new PostProcessor({ llm, primaryEngine: 'llm-cloud' });
+
+    const result = await processor.process('嗯 我想测试云端结构化整理', {
+      mode: 'structured',
+      lexicon
+    });
+
+    expect(result).toMatchObject({
+      text: '云端整理结果',
+      usedLlm: true,
+      engine: 'llm-cloud'
+    });
+  });
+
   it('uses fallback LLM when the local LLM only produces reasoning or times out', async () => {
     const local: LlmClient = {
       complete: vi.fn().mockRejectedValue(new Error('本地 LLM 只生成了推理内容，请关闭 Thinking 或启用云端兜底。'))

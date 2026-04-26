@@ -29,6 +29,7 @@ import type { RecordingCommand, SetupPayload } from '../preload';
 
 type RecordingState = 'idle' | 'starting' | 'recording' | 'processing' | 'error';
 type AppPage = 'voice' | 'asrModels' | 'llmModels' | 'hotkey' | 'lexicon' | 'prompts' | 'sync' | 'advanced' | 'app';
+type LlmSettingsPage = 'local' | 'cloud';
 
 const APP_PAGES: Array<{ id: AppPage; label: string }> = [
   { id: 'voice', label: '语音输入' },
@@ -40,6 +41,43 @@ const APP_PAGES: Array<{ id: AppPage; label: string }> = [
   { id: 'sync', label: 'GitHub 同步' },
   { id: 'advanced', label: '高级设置' },
   { id: 'app', label: '应用' }
+];
+const CLOUD_LLM_RECOMMENDATIONS = [
+  {
+    name: 'OpenRouter Free Router',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'openrouter/free',
+    tag: '免费',
+    note: '自动选择当前可用免费模型；成本最低，但模型可能变化，输出风格不够稳定。'
+  },
+  {
+    name: 'Qwen3.6 Plus / OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'qwen/qwen3.6-plus',
+    tag: '中文优先',
+    note: '适合中文和中英混合整理；是否免费、限流和具体路由以 OpenRouter 当前模型页为准。'
+  },
+  {
+    name: 'Gemma 4 31B Free',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'google/gemma-4-31b-it:free',
+    tag: '免费多语言',
+    note: 'OpenRouter 免费项，支持多语言和长上下文；结构化整理可试，但中文稳定性需实际验证。'
+  },
+  {
+    name: 'Nemotron 3 Nano Free',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'nvidia/nemotron-3-nano-30b-a3b:free',
+    tag: '免费高速',
+    note: 'OpenRouter 免费项，适合低成本尝试；如果出现 reasoning-only，可继续使用快速模式或换 Qwen。'
+  },
+  {
+    name: 'Qwen Plus / DashScope',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen-plus',
+    tag: '中文稳定',
+    note: '中文整理稳定性通常更好；需要阿里云百炼/DashScope API Key。'
+  }
 ];
 const MAX_RECORDING_MS = 5 * 60 * 1000;
 
@@ -62,6 +100,7 @@ export function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [mode, setMode] = useState<InputMode>('natural');
   const [activePage, setActivePage] = useState<AppPage>('voice');
+  const [llmSettingsPage, setLlmSettingsPage] = useState<LlmSettingsPage>('local');
   const [state, setState] = useState<RecordingState>('idle');
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<LocalHistoryItem[]>([]);
@@ -866,6 +905,52 @@ export function App() {
     setLlmMessage('云端兜底 API Key 已保存到系统钥匙串，不会写入同步目录。');
   };
 
+  const updateLlmEngine = (engine: Settings['providers']['llm']['engine']) => {
+    if (!settings) {
+      return;
+    }
+    setSettings({
+      ...settings,
+      providers: {
+        ...settings.providers,
+        llm: {
+          ...settings.providers.llm,
+          engine,
+          enabled: engine !== 'off' && engine !== 'cloud',
+          fallback: {
+            ...settings.providers.llm.fallback,
+            enabled: engine === 'local-with-cloud-fallback'
+          }
+        }
+      }
+    });
+  };
+
+  const useCloudRecommendation = (recommendation: (typeof CLOUD_LLM_RECOMMENDATIONS)[number]) => {
+    if (!settings) {
+      return;
+    }
+    setSettings({
+      ...settings,
+      providers: {
+        ...settings.providers,
+        llm: {
+          ...settings.providers.llm,
+          engine: 'cloud',
+          enabled: false,
+          fallback: {
+            ...settings.providers.llm.fallback,
+            enabled: false,
+            baseUrl: recommendation.baseUrl,
+            model: recommendation.model
+          }
+        }
+      }
+    });
+    setLlmSettingsPage('cloud');
+    setLlmMessage(`已填入 ${recommendation.name}，保存设置和 API Key 后即可使用。`);
+  };
+
   const connectSyncRepo = async () => {
     setError(null);
     setSyncMessage(null);
@@ -1057,7 +1142,7 @@ export function App() {
           ) : null}
           <p className="hint">
             当前 ASR：{currentAsrLabel(settings)}，负责把语音转成原始文字。当前结构化引擎：{structuredEngineLabel(settings)}。
-            {settings?.providers.llm.enabled ? '结构输入会使用提示词页的 structured Prompt。' : '未启用 LLM 时，Prompt 不会生效，结构输入只做基础规则整理。'}
+            {llmPromptUsageHint(settings)}
           </p>
           <section className="gesture-settings">
             <div>
@@ -1230,8 +1315,8 @@ export function App() {
               <section className="llm-current">
                 <div>
                   <span>当前整理引擎</span>
-                  <strong>{settings.providers.llm.enabled ? `${providerLabel(settings.providers.llm.kind)} · ${settings.providers.llm.model || '未选择模型'}` : '本地规则'}</strong>
-                  <p>{settings.providers.llm.enabled ? settings.providers.llm.baseUrl : 'Prompt 仅在启用 LLM 后生效。'}</p>
+                  <strong>{llmEngineLabel(settings)}</strong>
+                  <p>{llmEngineDescription(settings)}</p>
                 </div>
                 <div className="inline-actions">
                   <button className="secondary compact" onClick={() => void refreshLlmInstallers()} disabled={Boolean(llmInstallerBusy)}>
@@ -1243,209 +1328,226 @@ export function App() {
                 </div>
               </section>
 
-              <h3 className="subsection-title">本地 LLM 安装向导</h3>
-              <p className="hint">V2T 只会打开 Ollama / LM Studio 官方下载或文档入口，引导你完成系统安装；不会静默运行未知脚本，也不会绕过系统权限。</p>
-              <div className="llm-installer-list">
-                {llmInstallers.map((target) => (
-                  <LlmInstallerCard
-                    key={target.kind}
-                    target={target}
-                    busy={llmInstallerBusy}
-                    onOpenInstaller={openLlmInstaller}
-                    onEnable={enableLlmProvider}
-                  />
-                ))}
-              </div>
-
-              {llmDetections.length > 0 ? (
-                <div className="llm-detection-list">
-                  {llmDetections.map((detection) => (
-                    <article key={detection.kind} className={detection.ok ? 'llm-detection ok' : 'llm-detection'}>
-                      <div>
-                        <strong>{detection.label}</strong>
-                        <p>{detection.ok ? `${detection.baseUrl} · ${detection.models.length || 0} 个模型` : detection.error ?? '未连接'}</p>
-                      </div>
-                      {detection.ok && detection.models.length > 0 ? (
-                        <div className="inline-actions">
-                          {detection.models.slice(0, 3).map((modelName) => (
-                            <button key={modelName} className="secondary compact" onClick={() => void enableLlmProvider(detection, modelName)}>
-                              启用 {shortModelName(modelName)}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                    </article>
+              <section className="advanced-group">
+                <h3>当前整理引擎</h3>
+                <p className="hint">选择结构输入和自然纠错实际使用哪个文本整理引擎。云端会发送 ASR 后的文字到第三方 API；本地不会上传。</p>
+                <div className="llm-engine-grid">
+                  {(['off', 'local', 'cloud', 'local-with-cloud-fallback'] as const).map((engine) => (
+                    <button
+                      key={engine}
+                      className={settings.providers.llm.engine === engine ? 'engine-card active' : 'engine-card'}
+                      onClick={() => updateLlmEngine(engine)}
+                    >
+                      <strong>{llmEngineName(engine)}</strong>
+                      <span>{llmEngineHint(engine)}</span>
+                    </button>
                   ))}
                 </div>
-              ) : null}
+              </section>
 
-              <section className="advanced-group llm-manual-config">
-                <h3>OpenAI-compatible 手动配置</h3>
-                <p className="hint">适合 OpenAI-compatible API、Ollama、LM Studio 或其它兼容服务；API Key 只保存到系统钥匙串，不写入同步目录。</p>
-                <label className="check setting-check">
-                  <input
-                    type="checkbox"
-                    checked={settings.providers.llm.fastMode}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        providers: {
-                          ...settings.providers,
-                          llm: { ...settings.providers.llm, fastMode: event.target.checked }
+              <div className="subpage-tabs">
+                <button className={llmSettingsPage === 'local' ? 'active' : ''} onClick={() => setLlmSettingsPage('local')}>
+                  本地 LLM
+                </button>
+                <button className={llmSettingsPage === 'cloud' ? 'active' : ''} onClick={() => setLlmSettingsPage('cloud')}>
+                  云端模型
+                </button>
+              </div>
+
+              {llmSettingsPage === 'local' ? (
+                <>
+                  <h3 className="subsection-title">本地 LLM 安装向导</h3>
+                  <p className="hint">V2T 只会打开 Ollama / LM Studio 官方下载或文档入口，引导你完成系统安装；不会静默运行未知脚本，也不会绕过系统权限。</p>
+                  <div className="llm-installer-list">
+                    {llmInstallers.map((target) => (
+                      <LlmInstallerCard
+                        key={target.kind}
+                        target={target}
+                        busy={llmInstallerBusy}
+                        onOpenInstaller={openLlmInstaller}
+                        onEnable={enableLlmProvider}
+                      />
+                    ))}
+                  </div>
+
+                  {llmDetections.length > 0 ? (
+                    <div className="llm-detection-list">
+                      {llmDetections.map((detection) => (
+                        <article key={detection.kind} className={detection.ok ? 'llm-detection ok' : 'llm-detection'}>
+                          <div>
+                            <strong>{detection.label}</strong>
+                            <p>{detection.ok ? `${detection.baseUrl} · ${detection.models.length || 0} 个模型` : detection.error ?? '未连接'}</p>
+                          </div>
+                          {detection.ok && detection.models.length > 0 ? (
+                            <div className="inline-actions">
+                              {detection.models.slice(0, 3).map((modelName) => (
+                                <button key={modelName} className="secondary compact" onClick={() => void enableLlmProvider(detection, modelName)}>
+                                  启用 {shortModelName(modelName)}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                        </article>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <section className="advanced-group llm-manual-config">
+                    <h3>本地 OpenAI-compatible 配置</h3>
+                    <p className="hint">适合 Ollama、LM Studio 或其它本机兼容服务；API Key 只保存到系统钥匙串，不写入同步目录。</p>
+                    <label className="check setting-check">
+                      <input
+                        type="checkbox"
+                        checked={settings.providers.llm.fastMode}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            providers: {
+                              ...settings.providers,
+                              llm: { ...settings.providers.llm, fastMode: event.target.checked }
+                            }
+                          })
                         }
-                      })
-                    }
-                  />
-                  快速模式：限制输出长度、尝试关闭 Thinking、30 秒超时
-                </label>
-                <label>
-                  LLM Base URL
-                  <input
-                    className="no-drag"
-                    value={settings.providers.llm.baseUrl}
-                    onContextMenu={showEditMenu}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        providers: {
-                          ...settings.providers,
-                          llm: { ...settings.providers.llm, baseUrl: event.target.value }
+                      />
+                      快速模式：限制输出长度、尝试关闭 Thinking、30 秒超时
+                    </label>
+                    <label>
+                      Local Base URL
+                      <input
+                        className="no-drag"
+                        value={settings.providers.llm.baseUrl}
+                        onContextMenu={showEditMenu}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            providers: {
+                              ...settings.providers,
+                              llm: { ...settings.providers.llm, baseUrl: event.target.value }
+                            }
+                          })
                         }
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  LLM Model
-                  <input
-                    className="no-drag"
-                    value={settings.providers.llm.model}
-                    onContextMenu={showEditMenu}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        providers: {
-                          ...settings.providers,
-                          llm: { ...settings.providers.llm, model: event.target.value }
+                      />
+                    </label>
+                    <label>
+                      Local Model
+                      <input
+                        className="no-drag"
+                        value={settings.providers.llm.model}
+                        onContextMenu={showEditMenu}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            providers: {
+                              ...settings.providers,
+                              llm: { ...settings.providers.llm, model: event.target.value }
+                            }
+                          })
                         }
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  API Key
-                  <input
-                    className="no-drag"
-                    type="password"
-                    value={llmApiKeyDraft}
-                    placeholder="只保存到系统钥匙串，不写入同步目录"
-                    onContextMenu={showEditMenu}
-                    onChange={(event) => setLlmApiKeyDraft(event.target.value)}
-                  />
-                </label>
-                <div className="button-row">
-                  <button className="secondary" onClick={() => void saveLlmApiKey()} disabled={!llmApiKeyDraft}>
-                    保存 API Key
-                  </button>
-                  <label className="check">
-                    <input
-                      type="checkbox"
-                      checked={settings.providers.llm.enabled}
-                      onChange={(event) =>
-                        setSettings({
-                          ...settings,
-                          providers: {
-                            ...settings.providers,
-                            llm: { ...settings.providers.llm, enabled: event.target.checked }
-                          }
-                        })
-                      }
-                    />
-                    启用 LLM 后处理
-                  </label>
-                </div>
-              </section>
-              <section className="advanced-group llm-manual-config">
-                <h3>云端兜底</h3>
-                <p className="hint">默认关闭。开启后，只有本地 LLM 超时、输出被截断或只生成 reasoning 内容时，才会把同一段文本发送给这里配置的 OpenAI-compatible 服务。</p>
-                <label className="check setting-check">
-                  <input
-                    type="checkbox"
-                    checked={settings.providers.llm.fallback.enabled}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        providers: {
-                          ...settings.providers,
-                          llm: {
-                            ...settings.providers.llm,
-                            fallback: { ...settings.providers.llm.fallback, enabled: event.target.checked }
-                          }
+                      />
+                    </label>
+                    <label>
+                      Local API Key
+                      <input
+                        className="no-drag"
+                        type="password"
+                        value={llmApiKeyDraft}
+                        placeholder="本地服务通常可留空；只保存到系统钥匙串"
+                        onContextMenu={showEditMenu}
+                        onChange={(event) => setLlmApiKeyDraft(event.target.value)}
+                      />
+                    </label>
+                    <div className="button-row">
+                      <button className="secondary" onClick={() => void saveLlmApiKey()} disabled={!llmApiKeyDraft}>
+                        保存本地 API Key
+                      </button>
+                    </div>
+                  </section>
+                </>
+              ) : (
+                <>
+                  <section className="advanced-group">
+                    <h3>推荐云端模型</h3>
+                    <p className="hint">优先推荐适合中文和中英混合口述整理的 OpenAI-compatible 模型。免费模型可能限流或变动；敏感内容建议继续用本地 LLM。</p>
+                    <div className="cloud-model-list">
+                      {CLOUD_LLM_RECOMMENDATIONS.map((recommendation) => (
+                        <article key={recommendation.model} className="cloud-model-card">
+                          <div>
+                            <span>{recommendation.tag}</span>
+                            <strong>{recommendation.name}</strong>
+                            <p>{recommendation.model}</p>
+                            <small>{recommendation.note}</small>
+                          </div>
+                          <button className="secondary compact" onClick={() => useCloudRecommendation(recommendation)}>
+                            填入
+                          </button>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                  <section className="advanced-group llm-manual-config">
+                    <h3>云端 OpenAI-compatible 配置</h3>
+                    <p className="hint">这里的文本会发送到第三方 API。OpenRouter 可填 `https://openrouter.ai/api/v1`；模型可以用 `openrouter/free` 或具体模型 ID。</p>
+                    <label>
+                      Cloud Base URL
+                      <input
+                        className="no-drag"
+                        value={settings.providers.llm.fallback.baseUrl}
+                        placeholder="例如 https://openrouter.ai/api/v1"
+                        onContextMenu={showEditMenu}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            providers: {
+                              ...settings.providers,
+                              llm: {
+                                ...settings.providers.llm,
+                                fallback: { ...settings.providers.llm.fallback, baseUrl: event.target.value }
+                              }
+                            }
+                          })
                         }
-                      })
-                    }
-                  />
-                  启用云端兜底
-                </label>
-                <label>
-                  Fallback Base URL
-                  <input
-                    className="no-drag"
-                    value={settings.providers.llm.fallback.baseUrl}
-                    placeholder="例如 https://api.openai.com/v1"
-                    onContextMenu={showEditMenu}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        providers: {
-                          ...settings.providers,
-                          llm: {
-                            ...settings.providers.llm,
-                            fallback: { ...settings.providers.llm.fallback, baseUrl: event.target.value }
-                          }
+                      />
+                    </label>
+                    <label>
+                      Cloud Model
+                      <input
+                        className="no-drag"
+                        value={settings.providers.llm.fallback.model}
+                        placeholder="例如 openrouter/free"
+                        onContextMenu={showEditMenu}
+                        onChange={(event) =>
+                          setSettings({
+                            ...settings,
+                            providers: {
+                              ...settings.providers,
+                              llm: {
+                                ...settings.providers.llm,
+                                fallback: { ...settings.providers.llm.fallback, model: event.target.value }
+                              }
+                            }
+                          })
                         }
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  Fallback Model
-                  <input
-                    className="no-drag"
-                    value={settings.providers.llm.fallback.model}
-                    placeholder="例如 gpt-4.1-mini / qwen-plus"
-                    onContextMenu={showEditMenu}
-                    onChange={(event) =>
-                      setSettings({
-                        ...settings,
-                        providers: {
-                          ...settings.providers,
-                          llm: {
-                            ...settings.providers.llm,
-                            fallback: { ...settings.providers.llm.fallback, model: event.target.value }
-                          }
-                        }
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  Fallback API Key
-                  <input
-                    className="no-drag"
-                    type="password"
-                    value={llmFallbackApiKeyDraft}
-                    placeholder="只保存到系统钥匙串，不写入同步目录"
-                    onContextMenu={showEditMenu}
-                    onChange={(event) => setLlmFallbackApiKeyDraft(event.target.value)}
-                  />
-                </label>
-                <div className="button-row">
-                  <button className="secondary" onClick={() => void saveFallbackLlmApiKey()} disabled={!llmFallbackApiKeyDraft}>
-                    保存兜底 API Key
-                  </button>
-                </div>
-              </section>
+                      />
+                    </label>
+                    <label>
+                      Cloud API Key
+                      <input
+                        className="no-drag"
+                        type="password"
+                        value={llmFallbackApiKeyDraft}
+                        placeholder="只保存到系统钥匙串，不写入同步目录"
+                        onContextMenu={showEditMenu}
+                        onChange={(event) => setLlmFallbackApiKeyDraft(event.target.value)}
+                      />
+                    </label>
+                    <div className="button-row">
+                      <button className="secondary" onClick={() => void saveFallbackLlmApiKey()} disabled={!llmFallbackApiKeyDraft}>
+                        保存云端 API Key
+                      </button>
+                    </div>
+                  </section>
+                </>
+              )}
               <button className="save" onClick={() => void saveSettings()}>
                 保存文本整理模型设置
               </button>
@@ -1981,7 +2083,7 @@ export function App() {
         <section className="page-section prompts-page">
           <h2>提示词</h2>
           <p className="hint">自然输入 Prompt 和结构输入 Prompt 保存在 prompts/，会随 GitHub 同步推送和拉取。</p>
-          <p className="hint">结构化引擎：{structuredEngineLabel(settings)}。{settings?.providers.llm.enabled ? '当前会把对应 Prompt 发送给文本整理模型 LLM。' : 'Prompt 仅在启用 LLM 后生效；未启用时结构输入使用本地规则。'}</p>
+          <p className="hint">结构化引擎：{structuredEngineLabel(settings)}。{llmPromptUsageHint(settings)}</p>
           {prompts ? (
             <>
               <PromptEditor
@@ -2735,7 +2837,11 @@ function historyEntryToLocalItem(entry: HistoryEntry): LocalHistoryItem {
       method: entry.injectionMethod,
       error: entry.error
     },
-    usedLlm: entry.postProcessorEngine === 'llm' || entry.postProcessorEngine === 'llm-local' || entry.postProcessorEngine === 'llm-fallback',
+    usedLlm:
+      entry.postProcessorEngine === 'llm' ||
+      entry.postProcessorEngine === 'llm-local' ||
+      entry.postProcessorEngine === 'llm-cloud' ||
+      entry.postProcessorEngine === 'llm-fallback',
     postProcessorEngine: entry.postProcessorEngine ?? 'local-rules'
   };
 }
@@ -2771,7 +2877,100 @@ function modeLabel(inputMode: InputMode): string {
 }
 
 function structuredEngineLabel(settings: Settings | null): string {
-  return settings?.providers.llm.enabled ? 'LLM Prompt' : '本地规则';
+  const engine = settings?.providers.llm.engine ?? 'off';
+  if (engine === 'local') {
+    return '本地 LLM Prompt';
+  }
+  if (engine === 'cloud') {
+    return '云端 LLM Prompt';
+  }
+  if (engine === 'local-with-cloud-fallback') {
+    return '本地 LLM Prompt + 云端兜底';
+  }
+  return '本地规则';
+}
+
+function llmPromptUsageHint(settings: Settings | null): string {
+  const engine = settings?.providers.llm.engine ?? 'off';
+  if (engine === 'off') {
+    return 'Prompt 仅在启用 LLM 后生效；未启用时结构输入使用本地规则。';
+  }
+  if (engine === 'cloud') {
+    return '当前会把对应 Prompt 和整理文本发送给云端文本整理模型。';
+  }
+  if (engine === 'local-with-cloud-fallback') {
+    return '当前优先使用本地 Prompt；本地失败时会把文本发送给云端兜底模型。';
+  }
+  return '当前会把对应 Prompt 发送给本地文本整理模型 LLM。';
+}
+
+function llmEngineName(engine: Settings['providers']['llm']['engine']): string {
+  if (engine === 'local') {
+    return '本地 LLM';
+  }
+  if (engine === 'cloud') {
+    return '云端模型';
+  }
+  if (engine === 'local-with-cloud-fallback') {
+    return '本地优先，云端兜底';
+  }
+  return '本地规则';
+}
+
+function llmEngineHint(engine: Settings['providers']['llm']['engine']): string {
+  if (engine === 'local') {
+    return '使用 Ollama、LM Studio 或本机兼容服务，不上传文本。';
+  }
+  if (engine === 'cloud') {
+    return '直接使用 OpenAI-compatible 云端 API，速度和稳定性通常更好。';
+  }
+  if (engine === 'local-with-cloud-fallback') {
+    return '先跑本地；本地超时、空结果或失败时再调用云端。';
+  }
+  return '不调用 LLM，只用基础规则做轻量整理。';
+}
+
+function llmEngineLabel(settings: Settings): string {
+  const engine = settings.providers.llm.engine;
+  if (engine === 'local') {
+    return `${providerLabel(settings.providers.llm.kind)} · ${settings.providers.llm.model || '未选择模型'}`;
+  }
+  if (engine === 'cloud') {
+    return `云端模型 · ${settings.providers.llm.fallback.model || '未选择模型'}`;
+  }
+  if (engine === 'local-with-cloud-fallback') {
+    return `本地优先 · ${settings.providers.llm.model || '未选择模型'}`;
+  }
+  return '本地规则';
+}
+
+function llmEngineDescription(settings: Settings): string {
+  const engine = settings.providers.llm.engine;
+  if (engine === 'local') {
+    return `${settings.providers.llm.baseUrl || '未配置 Local Base URL'} · 不上传到云端`;
+  }
+  if (engine === 'cloud') {
+    return `${settings.providers.llm.fallback.baseUrl || '未配置 Cloud Base URL'} · 文字会发送到第三方 API`;
+  }
+  if (engine === 'local-with-cloud-fallback') {
+    return `${settings.providers.llm.baseUrl || '未配置 Local Base URL'}；失败时使用 ${
+      settings.providers.llm.fallback.baseUrl || '未配置 Cloud Base URL'
+    }`;
+  }
+  return 'Prompt 不会生效，结构输入使用内置本地规则。';
+}
+
+function postProcessorEngineLabel(engine?: HistoryEntry['postProcessorEngine']): string {
+  if (engine === 'llm-local' || engine === 'llm') {
+    return '本地 LLM';
+  }
+  if (engine === 'llm-cloud') {
+    return '云端模型';
+  }
+  if (engine === 'llm-fallback') {
+    return '云端兜底';
+  }
+  return '本地规则';
 }
 
 function providerLabel(kind: Settings['providers']['llm']['kind']): string {

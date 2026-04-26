@@ -31,7 +31,9 @@ describe('window chrome styles', () => {
 
     expect(app).toContain('onContextMenu={showEditMenu}');
     expect(app).toContain('className="no-drag"');
-    expect(app).toContain('LLM Base URL');
-    expect(app).toContain('LLM Model');
+    expect(app).toContain('Local Base URL');
+    expect(app).toContain('Local Model');
+    expect(app).toContain('Cloud Base URL');
+    expect(app).toContain('Cloud Model');
   });
 });

@@ -19,10 +19,12 @@ const DEFAULT_STRUCTURED_PROMPT = `你是中文语音输入的结构化整理器
 export class PostProcessor {
   private readonly llm?: LlmClient;
   private readonly fallbackLlm?: LlmClient;
+  private readonly primaryEngine: 'llm-local' | 'llm-cloud';
 
-  constructor(options: { llm?: LlmClient; fallbackLlm?: LlmClient } = {}) {
+  constructor(options: { llm?: LlmClient; fallbackLlm?: LlmClient; primaryEngine?: 'llm-local' | 'llm-cloud' } = {}) {
     this.llm = options.llm;
     this.fallbackLlm = options.fallbackLlm;
+    this.primaryEngine = options.primaryEngine ?? 'llm-local';
   }
 
   async process(input: string, options: ProcessTextOptions): Promise<ProcessedText> {
@@ -40,7 +42,7 @@ export class PostProcessor {
       };
       try {
         const text = await this.llm.complete(request);
-        return { text: text.trim(), usedLlm: true, engine: 'llm-local' };
+        return { text: text.trim(), usedLlm: true, engine: this.primaryEngine };
       } catch (error) {
         if (this.fallbackLlm) {
           try {

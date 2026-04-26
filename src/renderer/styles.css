@@ -1001,6 +1001,57 @@ textarea {
   font-size: 14px;
 }
 
+.llm-engine-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.engine-card {
+  display: grid;
+  gap: 5px;
+  min-height: 78px;
+  padding: 12px;
+  text-align: left;
+  background: var(--color-control);
+  border: 1px solid var(--color-control-border);
+  border-radius: 6px;
+}
+
+.engine-card.active {
+  color: var(--color-bg);
+  background: var(--color-text);
+  border-color: var(--color-text);
+}
+
+.engine-card strong {
+  font-size: 13px;
+}
+
+.engine-card span {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.subpage-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.subpage-tabs button {
+  min-height: 34px;
+  padding: 6px 12px;
+}
+
+.subpage-tabs button.active {
+  color: var(--color-bg);
+  background: var(--color-text);
+  border-color: var(--color-text);
+}
+
 .llm-installer-card {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -1026,6 +1077,52 @@ textarea {
 
 .llm-manual-config {
   margin-top: 18px;
+}
+
+.cloud-model-list {
+  display: grid;
+  gap: 10px;
+}
+
+.cloud-model-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.cloud-model-card:first-child {
+  border-top: 0;
+}
+
+.cloud-model-card span {
+  display: inline-block;
+  margin-bottom: 5px;
+  color: var(--color-success);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.cloud-model-card strong {
+  display: block;
+  font-size: 14px;
+}
+
+.cloud-model-card p {
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.cloud-model-card small {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-muted-2);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .check {

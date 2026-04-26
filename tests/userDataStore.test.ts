@@ -20,6 +20,7 @@ describe('UserDataStore', () => {
     expect(settings.updates.autoCheck).toBe(true);
     expect(settings.updates.autoDownload).toBe(true);
     expect(settings.appearance.theme).toBe('system');
+    expect(settings.providers.llm.engine).toBe('off');
     expect(settings.providers.llm.apiKeyRef).toBe('system-keychain:v2t/openai-compatible');
     expect(settings.providers.llm.fastMode).toBe(true);
     expect(settings.providers.llm.timeoutMs).toBe(30000);
@@ -60,6 +61,38 @@ describe('UserDataStore', () => {
     expect(settings.providers.asr.kind).toBe('funasr-http');
     expect(settings.providers.asr.endpoint).toBe('http://127.0.0.1:10095/transcribe');
     expect(settings.providers.asr.modelId).toBeUndefined();
+    expect(settings.providers.llm.engine).toBe('off');
+  });
+
+  it('migrates legacy enabled LLM settings to explicit engine modes', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-store-'));
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        defaultMode: 'structured',
+        providers: {
+          llm: {
+            enabled: true,
+            kind: 'lm-studio',
+            baseUrl: 'http://127.0.0.1:1234/v1',
+            model: 'qwen-local',
+            fallback: {
+              enabled: true,
+              baseUrl: 'https://openrouter.ai/api/v1',
+              model: 'openrouter/free'
+            }
+          }
+        }
+      }),
+      'utf8'
+    );
+
+    const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
+    const settings = await store.loadSettings();
+
+    expect(settings.providers.llm.engine).toBe('local-with-cloud-fallback');
+    expect(settings.providers.llm.fallback.model).toBe('openrouter/free');
   });
 
   it('appends text-only history records under the current device id', async () => {

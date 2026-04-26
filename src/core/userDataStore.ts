@@ -30,6 +30,7 @@ const DEFAULT_SETTINGS: Settings = {
       language: 'zh'
     },
     llm: {
+      engine: 'off',
       enabled: false,
       kind: 'openai-compatible',
       baseUrl: 'http://127.0.0.1:11434/v1',
@@ -300,6 +301,7 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
       llm: {
         ...DEFAULT_SETTINGS.providers.llm,
         ...rawLlm,
+        engine: normalizeLlmEngine(rawLlm),
         fallback: {
           ...DEFAULT_SETTINGS.providers.llm.fallback,
           ...(rawLlm.fallback ?? {})
@@ -331,6 +333,19 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
 
 function defaultPrompt(mode: InputMode): string {
   return mode === 'natural' ? naturalPrompt() : structuredPrompt();
+}
+
+function normalizeLlmEngine(rawLlm: Partial<Settings['providers']['llm']>): Settings['providers']['llm']['engine'] {
+  if (rawLlm.engine === 'off' || rawLlm.engine === 'local' || rawLlm.engine === 'cloud' || rawLlm.engine === 'local-with-cloud-fallback') {
+    return rawLlm.engine;
+  }
+  if (rawLlm.enabled && rawLlm.fallback?.enabled) {
+    return 'local-with-cloud-fallback';
+  }
+  if (rawLlm.enabled) {
+    return 'local';
+  }
+  return 'off';
 }
 
 function oppositeMode(mode: InputMode): InputMode {
