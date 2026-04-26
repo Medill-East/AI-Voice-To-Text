@@ -23,6 +23,11 @@ describe('lexicon IPC surface', () => {
     expect(preload).toContain('checkForUpdates(): Promise<AppUpdateState>');
     expect(preload).toContain('downloadUpdate(): Promise<AppUpdateState>');
     expect(preload).toContain('installUpdate(): Promise<AppUpdateState>');
+    expect(preload).toContain('copyAppUpdateDiagnostics(): Promise<{ ok: true }>');
+    expect(preload).toContain('openReleasePage(): Promise<{ ok: true }>');
+    expect(preload).toContain('importModelArchive(modelId: string, filePath: string): Promise<InstallModelResult>');
+    expect(preload).toContain('importModelDirectory(modelId: string, directoryPath: string): Promise<InstallModelResult>');
+    expect(preload).toContain('clearModelInstall(modelId: string): Promise<InstallModelResult>');
     expect(preload).toContain('onAppUpdateStatus');
     expect(preload).toContain("ipcRenderer.invoke('v2t:sync-all')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:refresh-model-catalog')");
@@ -31,6 +36,11 @@ describe('lexicon IPC surface', () => {
     expect(preload).toContain("ipcRenderer.invoke('v2t:check-for-updates')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:download-update')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:install-update')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:copy-app-update-diagnostics')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:open-release-page')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:import-model-archive', modelId, filePath)");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:import-model-directory', modelId, directoryPath)");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:clear-model-install', modelId)");
     expect(main).toContain("ipcMain.handle('v2t:get-lexicon'");
     expect(main).toContain("ipcMain.handle('v2t:save-lexicon'");
     expect(main).toContain("ipcMain.handle('v2t:copy-hotkey-diagnostics'");
@@ -45,8 +55,13 @@ describe('lexicon IPC surface', () => {
     expect(main).toContain("ipcMain.handle('v2t:check-for-updates'");
     expect(main).toContain("ipcMain.handle('v2t:download-update'");
     expect(main).toContain("ipcMain.handle('v2t:install-update'");
+    expect(main).toContain("ipcMain.handle('v2t:copy-app-update-diagnostics'");
+    expect(main).toContain("ipcMain.handle('v2t:open-release-page'");
     expect(main).toContain("ipcMain.handle('v2t:reinstall-model'");
     expect(main).toContain("ipcMain.handle('v2t:cancel-model-install'");
+    expect(main).toContain("ipcMain.handle('v2t:import-model-archive'");
+    expect(main).toContain("ipcMain.handle('v2t:import-model-directory'");
+    expect(main).toContain("ipcMain.handle('v2t:clear-model-install'");
     expect(main).toContain("scheduleAutoSync('voice-input')");
     expect(main).toContain('store.saveLexicon');
   });

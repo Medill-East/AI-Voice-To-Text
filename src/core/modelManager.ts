@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { once } from 'node:events';
 import { dirname, join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -100,6 +100,68 @@ export class ModelManager {
       isInterrupted: true,
       error: '模型安装已取消，可继续下载或重新安装。'
     });
+  }
+
+  async clearModelInstall(modelId: string): Promise<ModelStatusRecord> {
+    const settings = await this.store.loadSettings();
+    if (settings.providers.asr.modelId === modelId) {
+      throw new Error('当前正在使用这个模型。请先切换到另一个模型，再清除残留。');
+    }
+
+    const model = this.getModel(modelId);
+    await rm(`${this.modelInstallDir(model)}.download`, { recursive: true, force: true });
+    await rm(this.modelInstallDir(model), { recursive: true, force: true });
+    await rm(`${this.archivePathForModel(model)}.part`, { force: true });
+
+    const statuses = await this.getStatuses();
+    delete statuses[modelId];
+    await this.writeStatuses(statuses);
+
+    return {
+      modelId,
+      status: 'not-installed',
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  async importModelArchive(modelId: string, archivePath: string): Promise<ModelStatusRecord> {
+    const model = this.getImportableModel(modelId);
+    const installDir = this.modelInstallDir(model);
+    const tempDir = `${installDir}.download`;
+
+    try {
+      await verifyArchiveChecksum(model, archivePath);
+      await rm(tempDir, { recursive: true, force: true });
+      await mkdir(tempDir, { recursive: true });
+      await this.extractor(model, archivePath, tempDir);
+      await this.verifier(model, tempDir);
+      await rm(installDir, { recursive: true, force: true });
+      await rename(tempDir, installDir);
+      return this.writeImportedStatus(model, installDir);
+    } catch (error) {
+      await rm(tempDir, { recursive: true, force: true });
+      throw error;
+    }
+  }
+
+  async importModelDirectory(modelId: string, directoryPath: string): Promise<ModelStatusRecord> {
+    const model = this.getImportableModel(modelId);
+    const installDir = this.modelInstallDir(model);
+    const tempDir = `${installDir}.download`;
+    const sourceDir = await resolveImportSourceDir(model, directoryPath);
+
+    try {
+      await rm(tempDir, { recursive: true, force: true });
+      await mkdir(tempDir, { recursive: true });
+      await cp(sourceDir, join(tempDir, model.extractedDir), { recursive: true });
+      await this.verifier(model, tempDir);
+      await rm(installDir, { recursive: true, force: true });
+      await rename(tempDir, installDir);
+      return this.writeImportedStatus(model, installDir);
+    } catch (error) {
+      await rm(tempDir, { recursive: true, force: true });
+      throw error;
+    }
   }
 
   async recoverInterruptedInstalls(): Promise<void> {
@@ -328,12 +390,33 @@ export class ModelManager {
     return model;
   }
 
+  private getImportableModel(modelId: string): ModelCatalogItem {
+    const model = this.getModel(modelId);
+    if (!model.installable || model.runtime !== 'sherpa-onnx' || !model.sherpaModelType) {
+      throw new Error('这个模型暂时不能导入。请选择 V2T 推荐列表里的可安装模型。');
+    }
+    return model;
+  }
+
   private findModel(modelId: string): ModelCatalogItem | undefined {
     return this.catalog.find((item) => item.id === modelId);
   }
 
   private modelInstallDir(model: ModelCatalogItem): string {
     return join(this.modelRoot, model.id);
+  }
+
+  private archivePathForModel(model: ModelCatalogItem): string {
+    return join(this.modelRoot, 'downloads', `${model.id}.${model.archiveType === 'file' ? 'bin' : 'tar.bz2'}`);
+  }
+
+  private writeImportedStatus(model: ModelCatalogItem, installDir: string): Promise<ModelStatusRecord> {
+    const modelPath = join(installDir, model.extractedDir, model.primaryModelFile);
+    return this.writeStatus(model.id, {
+      status: 'installed',
+      progress: 100,
+      modelPath
+    });
   }
 
   private statusPath(): string {
@@ -401,6 +484,39 @@ function legacyModelName(modelId: string): string {
 
 function isInstallInProgress(status: ModelInstallStatus): boolean {
   return status === 'downloading' || status === 'extracting' || status === 'verifying' || status === 'activating';
+}
+
+async function resolveImportSourceDir(model: ModelCatalogItem, directoryPath: string): Promise<string> {
+  if (await hasRequiredFiles(model, directoryPath)) {
+    return directoryPath;
+  }
+
+  const nested = join(directoryPath, model.extractedDir);
+  if (await hasRequiredFiles(model, nested)) {
+    return nested;
+  }
+
+  const missing = await missingRequiredFiles(model, directoryPath);
+  throw new Error(`模型文件缺失：${missing.join(', ')}`);
+}
+
+async function hasRequiredFiles(model: ModelCatalogItem, root: string): Promise<boolean> {
+  return (await missingRequiredFiles(model, root)).length === 0;
+}
+
+async function missingRequiredFiles(model: ModelCatalogItem, root: string): Promise<string[]> {
+  const missing: string[] = [];
+  for (const file of model.requiredFiles) {
+    try {
+      const fileStat = await stat(join(root, file));
+      if (fileStat.size <= 0) {
+        missing.push(file);
+      }
+    } catch {
+      missing.push(file);
+    }
+  }
+  return missing;
 }
 
 async function downloadModelArchive(

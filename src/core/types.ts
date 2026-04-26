@@ -246,6 +246,7 @@ export interface AppUpdateState {
   transferred?: number;
   total?: number;
   error?: string;
+  errorCode?: 'mac-signature-mismatch' | 'update-error';
   updatedAt: string;
 }
 

@@ -12,9 +12,15 @@ describe('release workflow', () => {
     expect(workflow).toContain('v2t-macos');
     expect(workflow).toContain('release/*.dmg');
     expect(workflow).toContain('release/*-mac-*.zip');
-    expect(workflow).toContain('release/latest-mac.yml');
-    expect(workflow).toContain('release/*.blockmap');
+    expect(workflow).not.toContain('release/latest-mac.yml');
+    expect(workflow).not.toContain('CSC_LINK: ${{ secrets.CSC_LINK }}');
+    expect(workflow).not.toContain('CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}');
+    expect(workflow).not.toContain('Require mac signing secrets');
+    expect(workflow).not.toContain('Verify updater zip code signature');
+    expect(workflow).not.toContain('release/*mac*.blockmap');
     expect(workflow).toContain('CSC_IDENTITY_AUTO_DISCOVERY: false');
+    expect(workflow).toContain('macOS updates are manual downloads');
+    expect(workflow).not.toContain('mac.identity=null');
     expect(workflow).toContain('windows-latest');
     expect(workflow).toContain('dtolnay/rust-toolchain@stable');
     expect(workflow).toContain('npm run dist:win');
@@ -29,7 +35,8 @@ describe('release workflow', () => {
     expect(workflow).toContain('TAG=\"v${VERSION}-${SHORT_SHA}\"');
     expect(workflow).toContain('gh release create \"$TAG\"');
     expect(workflow).toContain('gh release upload \"$TAG\" release-assets/* --clobber');
-    expect(workflow).toContain('未 notarize/未正式签名');
+    expect(workflow).toContain('macOS: DMG and ZIP manual downloads');
+    expect(workflow).toContain('macOS app updates are manual downloads in this release');
   });
 
   it('prevents electron-builder publish during local packaging', async () => {

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, clipboard, ipcMain, nativeImage, screen, shell, systemPreferences } from 'electron';
+import { app, BrowserWindow, Menu, Tray, clipboard, dialog, ipcMain, nativeImage, screen, shell, systemPreferences } from 'electron';
 import { dirname, join } from 'node:path';
 import { hostname } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
@@ -86,6 +86,7 @@ let modelCatalogRefreshState: ModelCatalogRefreshState = {
   sourceUrl: DEFAULT_REMOTE_MODEL_CATALOG_URL,
   message: '使用内置模型榜单'
 };
+const RELEASE_PAGE_URL = 'https://github.com/Medill-East/AI-Voice-To-Text/releases/latest';
 
 app.setName('V2T');
 
@@ -303,6 +304,14 @@ function registerIpc(): void {
   ipcMain.handle('v2t:check-for-updates', async () => checkForAppUpdates());
   ipcMain.handle('v2t:download-update', async () => downloadAppUpdate());
   ipcMain.handle('v2t:install-update', async () => installAppUpdate());
+  ipcMain.handle('v2t:copy-app-update-diagnostics', async () => {
+    clipboard.writeText(createAppUpdateDiagnosticText());
+    return { ok: true };
+  });
+  ipcMain.handle('v2t:open-release-page', async () => {
+    await shell.openExternal(RELEASE_PAGE_URL);
+    return { ok: true };
+  });
   ipcMain.handle('v2t:copy-hotkey-diagnostics', async () => {
     clipboard.writeText(createHotkeyDiagnosticText());
     return { ok: true };
@@ -376,6 +385,41 @@ function registerIpc(): void {
     const manager = createModelManager();
     try {
       const status = await manager.cancelModelInstall(modelId);
+      return { ok: true, status, setup: await getSetupPayload() };
+    } catch (error) {
+      return { ok: false, error: readableError(error), setup: await getSetupPayload() };
+    }
+  });
+  ipcMain.handle('v2t:import-model-archive', async (_event, modelId: string, filePath?: string) => {
+    const manager = createModelManager();
+    try {
+      const selectedPath = filePath || (await chooseModelArchivePath());
+      if (!selectedPath) {
+        return { ok: false, error: '已取消导入模型。', setup: await getSetupPayload() };
+      }
+      const status = await manager.importModelArchive(modelId, selectedPath);
+      return { ok: true, status, setup: await getSetupPayload() };
+    } catch (error) {
+      return { ok: false, error: readableError(error), setup: await getSetupPayload() };
+    }
+  });
+  ipcMain.handle('v2t:import-model-directory', async (_event, modelId: string, directoryPath?: string) => {
+    const manager = createModelManager();
+    try {
+      const selectedPath = directoryPath || (await chooseModelDirectoryPath());
+      if (!selectedPath) {
+        return { ok: false, error: '已取消导入模型。', setup: await getSetupPayload() };
+      }
+      const status = await manager.importModelDirectory(modelId, selectedPath);
+      return { ok: true, status, setup: await getSetupPayload() };
+    } catch (error) {
+      return { ok: false, error: readableError(error), setup: await getSetupPayload() };
+    }
+  });
+  ipcMain.handle('v2t:clear-model-install', async (_event, modelId: string) => {
+    const manager = createModelManager();
+    try {
+      const status = await manager.clearModelInstall(modelId);
       return { ok: true, status, setup: await getSetupPayload() };
     } catch (error) {
       return { ok: false, error: readableError(error), setup: await getSetupPayload() };
@@ -747,6 +791,28 @@ function createModelManager(): ModelManager {
   });
 }
 
+async function chooseModelArchivePath(): Promise<string | undefined> {
+  const options: Electron.OpenDialogOptions = {
+    title: '选择已下载的模型压缩包',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Model archives', extensions: ['tar.bz2', 'bz2', 'tar', 'zip', 'bin', 'onnx'] },
+      { name: 'All files', extensions: ['*'] }
+    ]
+  };
+  const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? undefined : result.filePaths[0];
+}
+
+async function chooseModelDirectoryPath(): Promise<string | undefined> {
+  const options: Electron.OpenDialogOptions = {
+    title: '选择已解压的模型目录',
+    properties: ['openDirectory']
+  };
+  const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? undefined : result.filePaths[0];
+}
+
 function createAppUpdateService(): AppUpdateService {
   return new AppUpdateService({
     currentVersion: app.getVersion(),
@@ -776,10 +842,18 @@ async function checkForAppUpdates(): Promise<AppUpdateState> {
 }
 
 async function downloadAppUpdate(): Promise<AppUpdateState> {
+  if (process.platform === 'darwin') {
+    await shell.openExternal(RELEASE_PAGE_URL);
+    return appUpdateState;
+  }
   return appUpdateService.downloadUpdate();
 }
 
 function installAppUpdate(): AppUpdateState {
+  if (process.platform === 'darwin') {
+    void shell.openExternal(RELEASE_PAGE_URL);
+    return appUpdateState;
+  }
   return appUpdateService.installUpdate();
 }
 
@@ -1213,6 +1287,27 @@ function createModelCatalogDiagnosticText(): string {
     );
   }
   return lines.join('\n');
+}
+
+function createAppUpdateDiagnosticText(): string {
+  const state = appUpdateState;
+  const info = getAppInfo();
+  return [
+    'V2T app update diagnostics',
+    `version: ${app.getVersion()}`,
+    `buildCommit: ${info.buildCommit}`,
+    `platform: ${process.platform}`,
+    `status: ${state.status}`,
+    `currentVersion: ${state.currentVersion}`,
+    `latestVersion: ${state.latestVersion ?? 'none'}`,
+    `releaseName: ${state.releaseName ?? 'none'}`,
+    `percent: ${String(state.percent ?? 'none')}`,
+    `errorCode: ${state.errorCode ?? 'none'}`,
+    `error: ${state.error ?? 'none'}`,
+    `updatedAt: ${state.updatedAt}`,
+    `releasePage: ${RELEASE_PAGE_URL}`,
+    'signatureNote: macOS 暂时使用手动下载更新，不再依赖 unsigned latest-mac.yml 自动安装。'
+  ].join('\n');
 }
 
 function getAppInfo(): { version: string; buildCommit: string } {

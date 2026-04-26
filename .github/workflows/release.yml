@@ -24,6 +24,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Note manual macOS updates
+        run: echo "macOS updates are manual downloads; do not upload latest-mac.yml without Developer ID signing."
       - run: npm run dist:mac:ci
       - uses: actions/upload-artifact@v4
         with:
@@ -31,8 +33,6 @@ jobs:
           path: |
             release/*.dmg
             release/*-mac-*.zip
-            release/latest-mac.yml
-            release/*.blockmap
           if-no-files-found: error
 
   build-windows:
@@ -88,11 +88,11 @@ jobs:
           Build commit: \`${GITHUB_SHA}\`
 
           Assets:
-          - macOS: DMG, ZIP, latest-mac.yml and blockmap
+          - macOS: DMG and ZIP manual downloads
           - Windows: EXE installer, ZIP, latest.yml and blockmap
 
           Notes:
-          - macOS CI package is 未 notarize/未正式签名.
+          - macOS app updates are manual downloads in this release; no unsigned latest-mac.yml is published.
           - Windows CI package is unsigned.
           - GitHub 同步仓库只同步设置、词库、提示词和可选历史；安装包统一从本 Release 下载。
           EOF

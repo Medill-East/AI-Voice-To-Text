@@ -35,6 +35,8 @@ export interface V2TApi {
   checkForUpdates(): Promise<AppUpdateState>;
   downloadUpdate(): Promise<AppUpdateState>;
   installUpdate(): Promise<AppUpdateState>;
+  copyAppUpdateDiagnostics(): Promise<{ ok: true }>;
+  openReleasePage(): Promise<{ ok: true }>;
   saveSettings(settings: Settings): Promise<{ settings: Settings; hotkeyStatus?: HotkeyStatus }>;
   getLexicon(): Promise<Lexicon>;
   saveLexicon(lexicon: Lexicon): Promise<LexiconSaveResult>;
@@ -46,6 +48,9 @@ export interface V2TApi {
   installModel(modelId: string): Promise<InstallModelResult>;
   reinstallModel(modelId: string): Promise<InstallModelResult>;
   cancelModelInstall(modelId: string): Promise<InstallModelResult>;
+  importModelArchive(modelId: string, filePath: string): Promise<InstallModelResult>;
+  importModelDirectory(modelId: string, directoryPath: string): Promise<InstallModelResult>;
+  clearModelInstall(modelId: string): Promise<InstallModelResult>;
   activateModel(modelId: string): Promise<InstallModelResult>;
   deleteModel(modelId: string): Promise<InstallModelResult>;
   getSyncStatus(): Promise<GitHubSyncStatus>;
@@ -138,6 +143,8 @@ const api: V2TApi = {
   checkForUpdates: () => ipcRenderer.invoke('v2t:check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('v2t:download-update'),
   installUpdate: () => ipcRenderer.invoke('v2t:install-update'),
+  copyAppUpdateDiagnostics: () => ipcRenderer.invoke('v2t:copy-app-update-diagnostics'),
+  openReleasePage: () => ipcRenderer.invoke('v2t:open-release-page'),
   saveSettings: (settings) => ipcRenderer.invoke('v2t:save-settings', settings),
   getLexicon: () => ipcRenderer.invoke('v2t:get-lexicon'),
   saveLexicon: (lexicon) => ipcRenderer.invoke('v2t:save-lexicon', lexicon),
@@ -149,6 +156,9 @@ const api: V2TApi = {
   installModel: (modelId) => ipcRenderer.invoke('v2t:install-model', modelId),
   reinstallModel: (modelId) => ipcRenderer.invoke('v2t:reinstall-model', modelId),
   cancelModelInstall: (modelId) => ipcRenderer.invoke('v2t:cancel-model-install', modelId),
+  importModelArchive: (modelId, filePath) => ipcRenderer.invoke('v2t:import-model-archive', modelId, filePath),
+  importModelDirectory: (modelId, directoryPath) => ipcRenderer.invoke('v2t:import-model-directory', modelId, directoryPath),
+  clearModelInstall: (modelId) => ipcRenderer.invoke('v2t:clear-model-install', modelId),
   activateModel: (modelId) => ipcRenderer.invoke('v2t:activate-model', modelId),
   deleteModel: (modelId) => ipcRenderer.invoke('v2t:delete-model', modelId),
   getSyncStatus: () => ipcRenderer.invoke('v2t:get-sync-status'),

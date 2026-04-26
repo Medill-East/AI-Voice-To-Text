@@ -553,6 +553,37 @@ export function App() {
     }
   };
 
+  const importModelArchive = async (modelId: string) => {
+    setError(null);
+    setInstallingModelId(modelId);
+    const result = await window.v2t.importModelArchive(modelId, '');
+    setInstallingModelId(null);
+    applySetup(result.setup);
+    if (!result.ok) {
+      setError(result.error ?? '模型压缩包导入失败');
+    }
+  };
+
+  const importModelDirectory = async (modelId: string) => {
+    setError(null);
+    setInstallingModelId(modelId);
+    const result = await window.v2t.importModelDirectory(modelId, '');
+    setInstallingModelId(null);
+    applySetup(result.setup);
+    if (!result.ok) {
+      setError(result.error ?? '模型目录导入失败');
+    }
+  };
+
+  const clearModelInstall = async (modelId: string) => {
+    setError(null);
+    const result = await window.v2t.clearModelInstall(modelId);
+    applySetup(result.setup);
+    if (!result.ok) {
+      setError(result.error ?? '清除残留失败');
+    }
+  };
+
   const activateModel = async (modelId: string) => {
     setError(null);
     setActivatingModelId(modelId);
@@ -593,6 +624,14 @@ export function App() {
     setUpdateBusy('installing');
     const state = await window.v2t.installUpdate();
     setAppUpdateState(state);
+  };
+
+  const copyAppUpdateDiagnostics = async () => {
+    await window.v2t.copyAppUpdateDiagnostics();
+  };
+
+  const openReleasePage = async () => {
+    await window.v2t.openReleasePage();
   };
 
   const openAccessibilitySettings = async () => {
@@ -781,6 +820,7 @@ export function App() {
   const hasLocalModel = Boolean(settings?.providers.asr.modelId && settings.providers.asr.modelPath);
   const currentPage = APP_PAGES.find((page) => page.id === activePage) ?? APP_PAGES[0];
   const referenceCatalog = setup ? referenceModels(setup.catalog) : [];
+  const manualUpdateDownload = hotkeyPlatform() === 'darwin';
   const pageContent = (() => {
     if (activePage === 'voice') {
       return (
@@ -867,10 +907,11 @@ export function App() {
           <h2>推荐安装</h2>
           {setup ? (
             <>
-              <p className="hint">
-                {setup.hardware.cpuName} · {setup.hardware.memoryGb}GB · {tierLabel(setup.hardware.recommendedTier)}
-              </p>
-              <p className="hint">中文推荐分优先看普通话、方言/粤语、中英混输和本机可运行性；Open ASR 英文榜只作参考。V2T 本机适配分只表示这台设备上的推荐优先级。WER/CER 越低越好，RTFx 越高越快。</p>
+               <p className="hint">
+                 {setup.hardware.cpuName} · {setup.hardware.memoryGb}GB · {tierLabel(setup.hardware.recommendedTier)}
+               </p>
+               <p className="hint">中文推荐分优先看普通话、方言/粤语、中英混输和本机可运行性；Open ASR 英文榜只作参考。V2T 本机适配分只表示这台设备上的推荐优先级。WER/CER 越低越好，RTFx 越高越快。</p>
+               <p className="hint">导入模型可以使用浏览器或下载器先下载官方压缩包，再从这里导入。当前一键下载主要来自 GitHub/k2-fsa Release，速度受 GitHub CDN、地区网络、代理和安全软件扫描影响。</p>
               <section className="catalog-refresh">
                 <div>
                   <span>模型榜单</span>
@@ -915,9 +956,12 @@ export function App() {
                     installingModelId={installingModelId}
                     deletingModelId={deletingModelId}
                     onInstall={installModel}
-                    onReinstall={reinstallModel}
-                    onCancelInstall={cancelModelInstall}
-                    onTestDownload={testModelDownload}
+                     onReinstall={reinstallModel}
+                     onCancelInstall={cancelModelInstall}
+                     onImportArchive={importModelArchive}
+                     onImportDirectory={importModelDirectory}
+                     onClearInstall={clearModelInstall}
+                     onTestDownload={testModelDownload}
                     onActivate={activateModel}
                     onDelete={deleteModel}
                   />
@@ -1608,13 +1652,16 @@ export function App() {
             当前版本 v{setup.appInfo.version} · {setup.appInfo.buildCommit}
           </p>
         ) : null}
-        {settings && appUpdateState ? (
-          <section className="update-panel">
-            <h3>应用更新</h3>
-            <p className="hint">{appUpdateStatusLabel(appUpdateState)}</p>
-            {appUpdateState.latestVersion ? (
-              <p>
-                最新版本 v{appUpdateState.latestVersion}
+         {settings && appUpdateState ? (
+           <section className="update-panel">
+             <h3>应用更新</h3>
+             <p className="hint">{appUpdateStatusLabel(appUpdateState)}</p>
+             {manualUpdateDownload ? (
+               <p className="hint">macOS 版本暂不做无缝自动安装；检查到新版本后请前往下载页面获取 DMG/ZIP。</p>
+             ) : null}
+             {appUpdateState.latestVersion ? (
+               <p>
+                 最新版本 v{appUpdateState.latestVersion}
                 {appUpdateState.releaseName ? ` · ${appUpdateState.releaseName}` : ''}
               </p>
             ) : null}
@@ -1632,16 +1679,30 @@ export function App() {
               </>
             ) : null}
             {appUpdateState.error ? <p className="error-text">{appUpdateState.error}</p> : null}
-            <div className="inline-actions">
-              <button className="secondary compact" onClick={() => void checkForUpdates()} disabled={Boolean(updateBusy)}>
-                {updateBusy === 'checking' ? '检查中' : '检查更新'}
-              </button>
-              <button className="secondary compact" onClick={() => void downloadUpdate()} disabled={Boolean(updateBusy) || appUpdateState.status !== 'available'}>
-                {updateBusy === 'downloading' ? '下载中' : '下载更新'}
-              </button>
-              <button className="secondary compact" onClick={() => void installUpdate()} disabled={appUpdateState.status !== 'downloaded'}>
-                立即安装并重启
-              </button>
+            {appUpdateState.errorCode === 'mac-signature-mismatch' ? (
+              <p className="hint">更新包签名不匹配时，当前版本需要先手动安装新版签名包作为桥接版本；之后自动更新会继续使用同一签名校验。</p>
+            ) : null}
+             <div className="inline-actions">
+               <button className="secondary compact" onClick={() => void checkForUpdates()} disabled={Boolean(updateBusy)}>
+                 {updateBusy === 'checking' ? '检查中' : '检查更新'}
+               </button>
+               {manualUpdateDownload ? (
+                 <button className="secondary compact" onClick={() => void openReleasePage()}>
+                   前往下载
+                 </button>
+               ) : (
+                 <>
+                   <button className="secondary compact" onClick={() => void downloadUpdate()} disabled={Boolean(updateBusy) || appUpdateState.status !== 'available'}>
+                     {updateBusy === 'downloading' ? '下载中' : '下载更新'}
+                   </button>
+                   <button className="secondary compact" onClick={() => void installUpdate()} disabled={appUpdateState.status !== 'downloaded'}>
+                     立即安装并重启
+                   </button>
+                 </>
+               )}
+               <button className="secondary compact" onClick={() => void copyAppUpdateDiagnostics()}>
+                 复制更新诊断
+               </button>
             </div>
             <label>
               <input type="checkbox" checked={settings.updates.autoCheck} onChange={(event) => void updateUpdaterSetting({ autoCheck: event.target.checked })} />
@@ -1885,6 +1946,9 @@ function ModelRow({
   onInstall,
   onReinstall,
   onCancelInstall,
+  onImportArchive,
+  onImportDirectory,
+  onClearInstall,
   onTestDownload,
   onActivate,
   onDelete
@@ -1899,6 +1963,9 @@ function ModelRow({
   onInstall(modelId: string): Promise<void>;
   onReinstall(modelId: string): Promise<void>;
   onCancelInstall(modelId: string): Promise<void>;
+  onImportArchive(modelId: string): Promise<void>;
+  onImportDirectory(modelId: string): Promise<void>;
+  onClearInstall(modelId: string): Promise<void>;
   onTestDownload(modelId: string): Promise<void>;
   onActivate(modelId: string): Promise<void>;
   onDelete(modelId: string): Promise<void>;
@@ -1909,6 +1976,8 @@ function ModelRow({
   const deleting = deletingModelId === recommendation.model.id;
   const installed = status === 'installed' || status === 'current';
   const canDelete = !isCurrent && installed;
+  const canClearResidue = !isCurrent && Boolean(statusRecord?.isInterrupted || statusRecord?.status === 'failed');
+  const primaryInstallLabel = statusRecord?.status === 'failed' && statusRecord.canResume ? '继续下载' : '安装';
 
   return (
     <article className={`model-row ${isCurrent ? 'current' : ''}`}>
@@ -1926,29 +1995,41 @@ function ModelRow({
         </div>
         <EvaluationSummary recommendation={recommendation} />
         <p>{recommendation.reasons.join(' · ')}</p>
-        <small>
-          {recommendation.model.sizeMb}MB · {recommendation.model.languages.join('/')}
-        </small>
-        <DownloadProbeSummary result={probeResult} />
-        {statusRecord ? <InstallProgress status={statusRecord} /> : null}
-      </div>
+       <small>
+         {recommendation.model.sizeMb}MB · {recommendation.model.languages.join('/')}
+       </small>
+       <p className="progress-meta">导入模型：可选择已下载的官方压缩包，或选择已解压目录。</p>
+       <DownloadProbeSummary result={probeResult} />
+         {statusRecord ? <InstallProgress status={statusRecord} /> : null}
+       </div>
       <button
         onClick={() => void (installed ? onActivate(recommendation.model.id) : onInstall(recommendation.model.id))}
         disabled={installing || isCurrent}
       >
-        {isCurrent ? '当前' : installing ? '安装中' : installed ? '启用' : '安装'}
-      </button>
-      {installed || statusRecord?.status === 'failed' ? (
-        <button className="secondary" onClick={() => void onReinstall(recommendation.model.id)} disabled={installing}>
-          重新安装
-        </button>
-      ) : null}
-      <button className="secondary" onClick={() => void onTestDownload(recommendation.model.id)} disabled={probing || installing}>
-        {probing ? '测速中' : probeResult ? '重新测速' : '下载测速'}
-      </button>
+         {isCurrent ? '当前' : installing ? '安装中' : installed ? '启用' : primaryInstallLabel}
+       </button>
+       {installed || statusRecord?.status === 'failed' ? (
+         <button className="secondary" onClick={() => void onReinstall(recommendation.model.id)} disabled={installing}>
+           重新安装
+         </button>
+       ) : null}
+       <button className="secondary" onClick={() => void onImportArchive(recommendation.model.id)} disabled={installing}>
+         导入压缩包
+       </button>
+       <button className="secondary" onClick={() => void onImportDirectory(recommendation.model.id)} disabled={installing}>
+         导入已解压目录
+       </button>
+       <button className="secondary" onClick={() => void onTestDownload(recommendation.model.id)} disabled={probing || installing}>
+         {probing ? '测速中' : probeResult ? '重新测速' : '下载测速'}
+       </button>
       {installing ? (
         <button className="secondary" onClick={() => void onCancelInstall(recommendation.model.id)}>
-          取消
+         取消
+       </button>
+     ) : null}
+      {canClearResidue ? (
+        <button className="secondary" onClick={() => void onClearInstall(recommendation.model.id)}>
+          清除残留
         </button>
       ) : null}
       {canDelete ? (

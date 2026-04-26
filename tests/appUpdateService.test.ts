@@ -48,6 +48,31 @@ describe('AppUpdateService', () => {
     expect(states.at(-1)).toMatchObject({ status: 'error', error: 'network 404' });
   });
 
+  it('turns macOS ShipIt signature validation failures into a user-facing recovery message', () => {
+    const updater = new FakeUpdater();
+    const states: AppUpdateState[] = [];
+    new AppUpdateService({
+      currentVersion: '0.1.14',
+      updater,
+      now: () => new Date('2026-04-26T08:00:00.000Z'),
+      onStatus: (state) => states.push(state)
+    });
+
+    updater.emit(
+      'error',
+      new Error(
+        'Code signature at URL file:///Users/haodong/Library/Caches/com.haodong.v2t.ShipIt/update.tgaP0t3/V2T.app/ did not pass validation: code failed to satisfy specified code requirement(s)'
+      )
+    );
+
+    expect(states.at(-1)).toMatchObject({
+      status: 'error',
+      errorCode: 'mac-signature-mismatch'
+    });
+    expect(states.at(-1)?.error).toContain('更新包签名不匹配');
+    expect(states.at(-1)?.error).toContain('新版签名包');
+  });
+
   it('can start download and request install', async () => {
     const updater = new FakeUpdater();
     const service = new AppUpdateService({

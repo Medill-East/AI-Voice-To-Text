@@ -55,7 +55,7 @@ export class AppUpdateService {
     try {
       await this.updater.checkForUpdates();
     } catch (error) {
-      this.setState(this.createState('error', { error: readableError(error) }));
+      this.setState(this.createState('error', normalizeUpdateError(error)));
     }
     return this.state;
   }
@@ -65,7 +65,7 @@ export class AppUpdateService {
     try {
       await this.updater.downloadUpdate();
     } catch (error) {
-      this.setState(this.createState('error', { error: readableError(error) }));
+      this.setState(this.createState('error', { ...keepReleaseInfo(this.state), ...normalizeUpdateError(error) }));
     }
     return this.state;
   }
@@ -113,7 +113,7 @@ export class AppUpdateService {
       );
     });
     this.updater.on('error', (error) => {
-      this.setState(this.createState('error', { ...keepReleaseInfo(this.state), error: readableError(error) }));
+      this.setState(this.createState('error', { ...keepReleaseInfo(this.state), ...normalizeUpdateError(error) }));
     });
   }
 
@@ -181,4 +181,26 @@ function readableError(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function normalizeUpdateError(error: unknown): Pick<AppUpdateState, 'error' | 'errorCode'> {
+  const message = readableError(error);
+  if (isMacSignatureMismatchError(message)) {
+    return {
+      errorCode: 'mac-signature-mismatch',
+      error: [
+        '更新包签名不匹配。当前版本无法直接安装这个更新包，请安装新版签名包后再使用自动更新。',
+        `原始错误：${message}`
+      ].join('\n')
+    };
+  }
+  return { errorCode: 'update-error', error: message };
+}
+
+function isMacSignatureMismatchError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('code failed to satisfy specified code requirement') ||
+    (normalized.includes('code signature') && normalized.includes('did not pass validation'))
+  );
 }

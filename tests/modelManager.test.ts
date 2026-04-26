@@ -225,6 +225,138 @@ describe('ModelManager', () => {
     });
   });
 
+  it('imports a downloaded official archive as an installed model without activating it', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const modelRoot = join(baseDir, 'models');
+    const archivePath = join(baseDir, 'funasr.tar.bz2');
+    await writeFile(archivePath, 'archive');
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    const previous = await store.loadSettings();
+    await store.saveSettings({
+      ...previous,
+      providers: {
+        ...previous.providers,
+        asr: {
+          ...previous.providers.asr,
+          kind: 'local-sherpa-onnx',
+          modelId: 'sensevoice-onnx-int8-2025-09-09',
+          modelPath: '/previous/model'
+        }
+      }
+    });
+    const manager = new ModelManager({
+      modelRoot,
+      store,
+      catalog: [
+        {
+          ...DEFAULT_MODEL_CATALOG[0],
+          checksum: undefined,
+          requiredFiles: ['model.onnx'],
+          extractedDir: 'imported-funasr',
+          primaryModelFile: 'model.onnx'
+        }
+      ],
+      extractor: async (_model, _archive, installDir) => {
+        await mkdir(join(installDir, 'imported-funasr'), { recursive: true });
+        await writeFile(join(installDir, 'imported-funasr', 'model.onnx'), 'model');
+      },
+      verifier: vi.fn().mockResolvedValue(undefined)
+    });
+
+    const result = await manager.importModelArchive('funasr-nano-int8-2025-12-30', archivePath);
+    const settings = await store.loadSettings();
+    const views = await manager.listInstalledModelViews(settings);
+
+    expect(result).toMatchObject({
+      modelId: 'funasr-nano-int8-2025-12-30',
+      status: 'installed',
+      progress: 100
+    });
+    expect(result.modelPath).toContain('imported-funasr');
+    expect(settings.providers.asr.modelId).toBe('sensevoice-onnx-int8-2025-09-09');
+    expect(views).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          modelId: 'funasr-nano-int8-2025-12-30',
+          current: false,
+          canActivate: true
+        })
+      ])
+    );
+  });
+
+  it('rejects importing a directory with missing model files and keeps the active model', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const modelRoot = join(baseDir, 'models');
+    const sourceDir = join(baseDir, 'source-model');
+    await mkdir(sourceDir, { recursive: true });
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    const previous = await store.loadSettings();
+    await store.saveSettings({
+      ...previous,
+      providers: {
+        ...previous.providers,
+        asr: {
+          ...previous.providers.asr,
+          kind: 'local-sherpa-onnx',
+          modelId: 'sensevoice-onnx-int8-2025-09-09',
+          modelPath: '/previous/model'
+        }
+      }
+    });
+    const manager = new ModelManager({
+      modelRoot,
+      store,
+      catalog: [
+        {
+          ...DEFAULT_MODEL_CATALOG[0],
+          requiredFiles: ['model.onnx'],
+          extractedDir: 'imported-funasr',
+          primaryModelFile: 'model.onnx'
+        }
+      ]
+    });
+
+    await expect(manager.importModelDirectory('funasr-nano-int8-2025-12-30', sourceDir)).rejects.toThrow('模型文件');
+    const settings = await store.loadSettings();
+    const statuses = await manager.getStatuses();
+
+    expect(settings.providers.asr.modelId).toBe('sensevoice-onnx-int8-2025-09-09');
+    expect(statuses['funasr-nano-int8-2025-12-30']).toBeUndefined();
+  });
+
+  it('clears failed install residue without deleting the current model', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const modelRoot = join(baseDir, 'models');
+    const modelId = 'funasr-nano-int8-2025-12-30';
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    await mkdir(join(modelRoot, 'downloads'), { recursive: true });
+    await mkdir(join(modelRoot, `${modelId}.download`), { recursive: true });
+    await writeFile(join(modelRoot, 'downloads', `${modelId}.tar.bz2.part`), 'partial');
+    await writeFile(
+      join(modelRoot, 'model-status.json'),
+      JSON.stringify({
+        [modelId]: {
+          modelId,
+          status: 'failed',
+          isInterrupted: true,
+          canResume: true,
+          error: '上次安装中断',
+          updatedAt: '2026-04-26T00:00:00.000Z'
+        }
+      })
+    );
+    const manager = new ModelManager({ modelRoot, store, catalog: DEFAULT_MODEL_CATALOG });
+
+    const result = await manager.clearModelInstall(modelId);
+    const statuses = await manager.getStatuses();
+
+    expect(result.status).toBe('not-installed');
+    expect(statuses[modelId]).toBeUndefined();
+    await expect(stat(join(modelRoot, `${modelId}.download`))).rejects.toThrow();
+    await expect(stat(join(modelRoot, 'downloads', `${modelId}.tar.bz2.part`))).rejects.toThrow();
+  });
+
   it('reinstalls the current model without replacing it when verification fails', async () => {
     const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
     const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });

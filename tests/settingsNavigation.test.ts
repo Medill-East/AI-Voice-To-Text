@@ -30,6 +30,14 @@ describe('settings navigation structure', () => {
     expect(app).toContain('跟随系统');
     expect(app).toContain('浅色');
     expect(app).toContain('深色');
+    expect(app).toContain('复制更新诊断');
+    expect(app).toContain('更新包签名不匹配');
+    expect(app).toContain('前往下载');
+    expect(app).toContain('导入模型');
+    expect(app).toContain('导入压缩包');
+    expect(app).toContain('导入已解压目录');
+    expect(app).toContain('清除残留');
+    expect(app).toContain('当前一键下载主要来自 GitHub/k2-fsa Release');
     expect(app).toContain('公开高分参考');
     expect(app).toContain('ModelComparisonTable');
     expect(app).toContain('中文推荐分');
