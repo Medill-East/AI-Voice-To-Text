@@ -8,6 +8,7 @@ import { autoUpdater } from 'electron-updater';
 import { FunAsrHttpProvider, LocalSherpaAsrProvider, UserFacingAsrError, WhisperCppAsrProvider } from '../core/asrProviders';
 import { AppUpdateService } from '../core/appUpdateService';
 import { AutoSyncService } from '../core/autoSyncService';
+import { checkManualMacUpdate, macDownloadUrlFromState, type GitHubReleaseLike } from '../core/manualAppUpdate';
 import { DEFAULT_MODEL_CATALOG, recommendModels } from '../core/modelCatalog';
 import { DEFAULT_REMOTE_MODEL_CATALOG_URL, ModelCatalogRefreshService } from '../core/modelCatalogRefresh';
 import { detectHardwareProfile } from '../core/hardware';
@@ -87,6 +88,7 @@ let modelCatalogRefreshState: ModelCatalogRefreshState = {
   message: '使用内置模型榜单'
 };
 const RELEASE_PAGE_URL = 'https://github.com/Medill-East/AI-Voice-To-Text/releases/latest';
+const LATEST_RELEASE_API_URL = 'https://api.github.com/repos/Medill-East/AI-Voice-To-Text/releases/latest';
 
 app.setName('V2T');
 
@@ -796,7 +798,7 @@ async function chooseModelArchivePath(): Promise<string | undefined> {
     title: '选择已下载的模型压缩包',
     properties: ['openFile'],
     filters: [
-      { name: 'Model archives', extensions: ['tar.bz2', 'bz2', 'tar', 'zip', 'bin', 'onnx'] },
+      { name: 'Model archives', extensions: ['tar.bz2', 'bz2', 'tar', 'bin', 'onnx'] },
       { name: 'All files', extensions: ['*'] }
     ]
   };
@@ -831,6 +833,20 @@ function createAppUpdateService(): AppUpdateService {
 }
 
 async function checkForAppUpdates(): Promise<AppUpdateState> {
+  if (process.platform === 'darwin') {
+    appUpdateState = await checkManualMacUpdate({
+      currentVersion: app.getVersion(),
+      fetchRelease: fetchLatestRelease
+    });
+    mainWindow?.webContents.send('v2t:app-update-status', appUpdateState);
+    if (appUpdateState.status === 'error') {
+      await persistUpdateSettings({ lastError: appUpdateState.error });
+    } else {
+      await persistUpdateSettings({ lastCheckAt: appUpdateState.updatedAt, lastError: undefined });
+    }
+    return appUpdateState;
+  }
+
   autoUpdater.autoDownload = settings.updates.autoDownload;
   const state = await appUpdateService.checkForUpdates();
   if (state.status === 'error') {
@@ -843,7 +859,7 @@ async function checkForAppUpdates(): Promise<AppUpdateState> {
 
 async function downloadAppUpdate(): Promise<AppUpdateState> {
   if (process.platform === 'darwin') {
-    await shell.openExternal(RELEASE_PAGE_URL);
+    await shell.openExternal(macDownloadUrlFromState(appUpdateState, RELEASE_PAGE_URL));
     return appUpdateState;
   }
   return appUpdateService.downloadUpdate();
@@ -851,10 +867,23 @@ async function downloadAppUpdate(): Promise<AppUpdateState> {
 
 function installAppUpdate(): AppUpdateState {
   if (process.platform === 'darwin') {
-    void shell.openExternal(RELEASE_PAGE_URL);
+    void shell.openExternal(macDownloadUrlFromState(appUpdateState, RELEASE_PAGE_URL));
     return appUpdateState;
   }
   return appUpdateService.installUpdate();
+}
+
+async function fetchLatestRelease(): Promise<GitHubReleaseLike> {
+  const response = await fetch(LATEST_RELEASE_API_URL, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': `V2T/${app.getVersion()}`
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub Release 检查失败：HTTP ${response.status} ${LATEST_RELEASE_API_URL}`);
+  }
+  return (await response.json()) as GitHubReleaseLike;
 }
 
 async function persistUpdateSettings(patch: Partial<Settings['updates']>): Promise<void> {
@@ -1301,6 +1330,8 @@ function createAppUpdateDiagnosticText(): string {
     `currentVersion: ${state.currentVersion}`,
     `latestVersion: ${state.latestVersion ?? 'none'}`,
     `releaseName: ${state.releaseName ?? 'none'}`,
+    `releaseUrl: ${state.releaseUrl ?? 'none'}`,
+    `downloadUrl: ${state.downloadUrl ?? 'none'}`,
     `percent: ${String(state.percent ?? 'none')}`,
     `errorCode: ${state.errorCode ?? 'none'}`,
     `error: ${state.error ?? 'none'}`,

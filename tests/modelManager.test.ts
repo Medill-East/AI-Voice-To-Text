@@ -285,6 +285,47 @@ describe('ModelManager', () => {
     );
   });
 
+  it('extracts tar.bz2 model archives in-process instead of requiring system bzip2', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const modelRoot = join(baseDir, 'models');
+    const archivePath = join(baseDir, 'funasr.tar.bz2');
+    const archiveFixture =
+      'QlpoOTFBWSZTWZ1xTsMAAP3/sf+4A4BUB//iO2b9cO///0AAQA5AAQIACEACXAYgBwDCMJpiGAQDIAYRpkyYRgIaCSSZTZKMmmgGjQDTRkNDQaGgZABoBwDCMJpiGAQDIAYRpkyYRgIaBUlE01T1M00aaZGqeo8p6m9KYE002kZkR6NE02k9NT2qeVsOdOdP9fWaWnWtW8dLWhOVvPhgj5sjcdhYRvqRyKZGZhWkm6pIsUg6WhY0qE1fnmnLgjbrMJ9EsZ0ok2SkY1PIpMhcSxesO1XIrA4HnebzYEnceBYm0mVKTMllVSsae1dN5M+fJfZZdc+DadC5cl6ZE4U5E600p1Jf32qz6Jcap+Ke9pZF9YardZ5aJzLUsCXE86Uno/bmycGfCneJSbCZxgwThtSySU5kYgLSFZGkSKooxE0hbo1EwzaJOJ0B7mYVQjORPwYKBPzBZUidhMpc4pgZNUGa6Zb6UXCguWcVAqTiWQqB8hPTniclEqzERPQOHKGMUMN19ymVe+5Oo3nsex7jU9b6r3gfw9p4nU6XSfe2WhY/L5fq5nyU+LCtWtZicS58Ws2mN41J2p834MSdpOxL0tS1M51vWtTrYTnMCk6HQlOJThdhrSm0nWmJP3TGnoTuTKwJwOVvGhMqdzuc/L/1cbvJsJrTcTvySkxJuSTfLU30zppmJPeTcTCmBONqWpoTQba9KTLu5c3isxJxJYlG6nG2SZmMvOFNtrTfTFOBSYWYwprUjyGyWI/8XckU4UJCdcU7DA==';
+    await writeFile(archivePath, Buffer.from(archiveFixture, 'base64'));
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    const manager = new ModelManager({
+      modelRoot,
+      store,
+      catalog: [
+        {
+          ...DEFAULT_MODEL_CATALOG[0],
+          checksum: undefined,
+          requiredFiles: ['model.onnx'],
+          extractedDir: 'sherpa-onnx-funasr-nano-int8-2025-12-30',
+          primaryModelFile: 'model.onnx'
+        }
+      ],
+      verifier: vi.fn().mockResolvedValue(undefined)
+    });
+
+    const result = await manager.importModelArchive('funasr-nano-int8-2025-12-30', archivePath);
+    const source = await readFile(new URL('../src/core/modelManager.ts', import.meta.url), 'utf8');
+
+    expect(result.status).toBe('installed');
+    expect(
+      await readFile(
+        join(
+          modelRoot,
+          'funasr-nano-int8-2025-12-30',
+          'sherpa-onnx-funasr-nano-int8-2025-12-30',
+          'model.onnx'
+        ),
+        'utf8'
+      )
+    ).toBe('model');
+    expect(source).not.toContain("execFileAsync('tar'");
+  });
+
   it('rejects importing a directory with missing model files and keeps the active model', async () => {
     const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
     const modelRoot = join(baseDir, 'models');

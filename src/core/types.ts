@@ -241,6 +241,8 @@ export interface AppUpdateState {
   latestVersion?: string;
   releaseName?: string;
   releaseNotes?: string;
+  releaseUrl?: string;
+  downloadUrl?: string;
   percent?: number;
   bytesPerSecond?: number;
   transferred?: number;

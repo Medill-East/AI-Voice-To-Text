@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
-import { createWriteStream, existsSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { cp, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { once } from 'node:events';
 import { dirname, join } from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { pipeline } from 'node:stream/promises';
+import * as tar from 'tar';
+import unbzip2Stream from 'unbzip2-stream';
 import type {
   InstalledModelView,
   ModelCatalogItem,
@@ -18,7 +19,6 @@ import type {
 import type { UserDataStore } from './userDataStore';
 import { LocalSherpaAsrProvider } from './asrProviders';
 
-const execFileAsync = promisify(execFile);
 const DOWNLOAD_STALL_TIMEOUT_MS = 30_000;
 const activeInstallControllers = new Map<string, AbortController>();
 
@@ -750,7 +750,16 @@ async function extractModelArchive(model: ModelCatalogItem, archivePath: string,
     return;
   }
 
-  await execFileAsync('tar', ['-xjf', archivePath, '-C', installDir]);
+  try {
+    const stream = createReadStream(archivePath);
+    if (archivePath.toLowerCase().endsWith('.tar')) {
+      await pipeline(stream, tar.x({ cwd: installDir }));
+      return;
+    }
+    await pipeline(stream, unbzip2Stream(), tar.x({ cwd: installDir }));
+  } catch (error) {
+    throw new Error(`无法解压模型包，请确认是官方 tar.bz2 文件。原始错误：${readableError(error)}`);
+  }
 }
 
 async function verifyModelFiles(model: ModelCatalogItem, installDir: string): Promise<void> {
@@ -791,4 +800,11 @@ async function smokeTestInstalledModel(model: ModelCatalogItem, installDir: stri
   } catch (error) {
     throw new Error(`模型运行失败，请重新安装或选择其他模型：${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+function readableError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }

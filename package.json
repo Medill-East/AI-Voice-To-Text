@@ -1,6 +1,6 @@
 {
   "name": "v2t",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "private": true,
   "description": "Cross-platform voice-to-text desktop app MVP.",
   "author": "Haodong",
@@ -28,7 +28,9 @@
     "electron-updater": "^6.8.3",
     "node-global-key-listener": "^0.3.0",
     "sherpa-onnx": "^1.12.37",
-    "sherpa-onnx-node": "^1.12.40"
+    "sherpa-onnx-node": "^1.12.40",
+    "tar": "^7.5.13",
+    "unbzip2-stream": "^1.4.3"
   },
   "devDependencies": {
     "@types/node": "^25.0.2",

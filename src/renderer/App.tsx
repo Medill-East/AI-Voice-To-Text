@@ -1657,7 +1657,7 @@ export function App() {
              <h3>应用更新</h3>
              <p className="hint">{appUpdateStatusLabel(appUpdateState)}</p>
              {manualUpdateDownload ? (
-               <p className="hint">macOS 版本暂不做无缝自动安装；检查到新版本后请前往下载页面获取 DMG/ZIP。</p>
+               <p className="hint">macOS 暂不做无缝自动安装；检测到新版后会下载 DMG。</p>
              ) : null}
              {appUpdateState.latestVersion ? (
                <p>
@@ -1687,8 +1687,8 @@ export function App() {
                  {updateBusy === 'checking' ? '检查中' : '检查更新'}
                </button>
                {manualUpdateDownload ? (
-                 <button className="secondary compact" onClick={() => void openReleasePage()}>
-                   前往下载
+                 <button className="secondary compact" onClick={() => void downloadUpdate()} disabled={Boolean(updateBusy)}>
+                   下载新版
                  </button>
                ) : (
                  <>
@@ -1704,14 +1704,16 @@ export function App() {
                  复制更新诊断
                </button>
             </div>
-            <label>
+            <label className="setting-check">
               <input type="checkbox" checked={settings.updates.autoCheck} onChange={(event) => void updateUpdaterSetting({ autoCheck: event.target.checked })} />
               启动时自动检查更新
             </label>
-            <label>
-              <input type="checkbox" checked={settings.updates.autoDownload} onChange={(event) => void updateUpdaterSetting({ autoDownload: event.target.checked })} />
-              有新版时自动下载
-            </label>
+            {manualUpdateDownload ? null : (
+              <label className="setting-check">
+                <input type="checkbox" checked={settings.updates.autoDownload} onChange={(event) => void updateUpdaterSetting({ autoDownload: event.target.checked })} />
+                有新版时自动下载
+              </label>
+            )}
           </section>
         ) : null}
         <button className="secondary full-width" onClick={() => void window.v2t.quitApp()}>

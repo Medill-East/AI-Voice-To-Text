@@ -931,6 +931,21 @@ textarea {
   height: 16px;
 }
 
+.setting-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.setting-check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
 .save {
   width: 100%;
   height: 38px;

@@ -32,7 +32,8 @@ describe('settings navigation structure', () => {
     expect(app).toContain('深色');
     expect(app).toContain('复制更新诊断');
     expect(app).toContain('更新包签名不匹配');
-    expect(app).toContain('前往下载');
+    expect(app).toContain('下载新版');
+    expect(app).toContain('manualUpdateDownload ? null');
     expect(app).toContain('导入模型');
     expect(app).toContain('导入压缩包');
     expect(app).toContain('导入已解压目录');
@@ -62,5 +63,9 @@ describe('settings navigation structure', () => {
     expect(app).toContain('spellCheck={false}');
     expect(app).not.toContain('showAdvanced');
     expect(app).not.toContain('收起高级设置');
+
+    const styles = await readFile(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    expect(styles).toContain('.setting-check input[type="checkbox"]');
+    expect(styles).toContain('width: 16px');
   });
 });
