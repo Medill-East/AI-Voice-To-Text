@@ -18,8 +18,15 @@ describe('lexicon IPC surface', () => {
     expect(preload).toContain('onAutoSyncStatus');
     expect(preload).toContain('refreshModelCatalog(): Promise<SetupPayload>');
     expect(preload).toContain('onModelCatalogRefresh');
+    expect(preload).toContain('checkForUpdates(): Promise<AppUpdateState>');
+    expect(preload).toContain('downloadUpdate(): Promise<AppUpdateState>');
+    expect(preload).toContain('installUpdate(): Promise<AppUpdateState>');
+    expect(preload).toContain('onAppUpdateStatus');
     expect(preload).toContain("ipcRenderer.invoke('v2t:sync-all')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:refresh-model-catalog')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:check-for-updates')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:download-update')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:install-update')");
     expect(main).toContain("ipcMain.handle('v2t:get-lexicon'");
     expect(main).toContain("ipcMain.handle('v2t:save-lexicon'");
     expect(main).toContain("ipcMain.handle('v2t:copy-hotkey-diagnostics'");
@@ -29,6 +36,11 @@ describe('lexicon IPC surface', () => {
     expect(main).toContain("ipcMain.handle('v2t:save-prompt'");
     expect(main).toContain("ipcMain.handle('v2t:sync-all'");
     expect(main).toContain("ipcMain.handle('v2t:refresh-model-catalog'");
+    expect(main).toContain("ipcMain.handle('v2t:check-for-updates'");
+    expect(main).toContain("ipcMain.handle('v2t:download-update'");
+    expect(main).toContain("ipcMain.handle('v2t:install-update'");
+    expect(main).toContain("ipcMain.handle('v2t:reinstall-model'");
+    expect(main).toContain("ipcMain.handle('v2t:cancel-model-install'");
     expect(main).toContain("scheduleAutoSync('voice-input')");
     expect(main).toContain('store.saveLexicon');
   });

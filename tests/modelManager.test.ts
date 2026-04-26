@@ -55,6 +55,47 @@ describe('ModelManager', () => {
     ]);
   });
 
+  it('reports download speed, ETA, source, and attempt in progress updates', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    const updates: Array<{ bytesPerSecond?: number; etaSeconds?: number; sourceLabel?: string; attempt?: number; canResume?: boolean }> = [];
+    const manager = new ModelManager({
+      modelRoot: join(baseDir, 'models'),
+      store,
+      catalog: DEFAULT_MODEL_CATALOG,
+      downloader: async (_model, _archivePath, onProgress) => {
+        await onProgress?.({
+          downloadedBytes: 5_000,
+          totalBytes: 10_000,
+          progress: 25,
+          bytesPerSecond: 1_000,
+          etaSeconds: 5,
+          sourceLabel: 'GitHub Release',
+          attempt: 1,
+          canResume: true
+        });
+      },
+      extractor: vi.fn().mockResolvedValue(undefined),
+      verifier: vi.fn().mockResolvedValue(undefined)
+    });
+
+    await manager.installAndActivate('funasr-nano-int8-2025-12-30', (status) => {
+      if (status.status === 'downloading' && status.downloadedBytes) {
+        updates.push(status);
+      }
+    });
+
+    expect(updates).toContainEqual(
+      expect.objectContaining({
+        bytesPerSecond: 1_000,
+        etaSeconds: 5,
+        sourceLabel: 'GitHub Release',
+        attempt: 1,
+        canResume: true
+      })
+    );
+  });
+
   it('keeps the previous active model when download fails', async () => {
     const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
     const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
@@ -87,6 +128,67 @@ describe('ModelManager', () => {
 
     const status = JSON.parse(await readFile(join(baseDir, 'models', 'model-status.json'), 'utf8'));
     expect(status['funasr-nano-int8-2025-12-30'].status).toBe('failed');
+  });
+
+  it('marks interrupted installs as resumable instead of leaving them in progress', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const modelRoot = join(baseDir, 'models');
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    await mkdir(modelRoot, { recursive: true });
+    await writeFile(
+      join(modelRoot, 'model-status.json'),
+      JSON.stringify({
+        'funasr-nano-int8-2025-12-30': {
+          modelId: 'funasr-nano-int8-2025-12-30',
+          status: 'downloading',
+          progress: 13,
+          downloadedBytes: 1024,
+          updatedAt: '2026-04-25T00:00:00.000Z'
+        }
+      })
+    );
+    const manager = new ModelManager({ modelRoot, store, catalog: DEFAULT_MODEL_CATALOG });
+
+    await manager.recoverInterruptedInstalls();
+
+    const status = JSON.parse(await readFile(join(modelRoot, 'model-status.json'), 'utf8'));
+    expect(status['funasr-nano-int8-2025-12-30']).toMatchObject({
+      status: 'failed',
+      canResume: true,
+      error: expect.stringContaining('上次安装中断')
+    });
+  });
+
+  it('reinstalls the current model without replacing it when verification fails', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'v2t-models-'));
+    const store = await UserDataStore.create(join(baseDir, 'sync'), { deviceId: 'device-a' });
+    const previous = await store.loadSettings();
+    await store.saveSettings({
+      ...previous,
+      providers: {
+        ...previous.providers,
+        asr: {
+          ...previous.providers.asr,
+          kind: 'local-sherpa-onnx',
+          modelId: 'sensevoice-onnx-int8-2025-09-09',
+          modelPath: '/previous/current/model'
+        }
+      }
+    });
+    const manager = new ModelManager({
+      modelRoot: join(baseDir, 'models'),
+      store,
+      catalog: DEFAULT_MODEL_CATALOG,
+      downloader: vi.fn().mockResolvedValue(undefined),
+      extractor: vi.fn().mockResolvedValue(undefined),
+      verifier: vi.fn().mockRejectedValue(new Error('smoke test failed'))
+    });
+
+    await expect(manager.reinstallModel('sensevoice-onnx-int8-2025-09-09')).rejects.toThrow('smoke test failed');
+    const settings = await store.loadSettings();
+
+    expect(settings.providers.asr.modelId).toBe('sensevoice-onnx-int8-2025-09-09');
+    expect(settings.providers.asr.modelPath).toBe('/previous/current/model');
   });
 
   it('deletes installed non-current models and refuses to delete the current model', async () => {

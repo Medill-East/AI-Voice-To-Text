@@ -12,6 +12,8 @@ describe('release workflow', () => {
     expect(workflow).toContain('v2t-macos');
     expect(workflow).toContain('release/*.dmg');
     expect(workflow).toContain('release/*-mac-*.zip');
+    expect(workflow).toContain('release/latest-mac.yml');
+    expect(workflow).toContain('release/*.blockmap');
     expect(workflow).toContain('CSC_IDENTITY_AUTO_DISCOVERY: false');
     expect(workflow).toContain('windows-latest');
     expect(workflow).toContain('dtolnay/rust-toolchain@stable');
@@ -20,6 +22,7 @@ describe('release workflow', () => {
     expect(workflow).toContain('ELECTRON_BUILDER_PUBLISH: never');
     expect(workflow).toContain('release/*.exe');
     expect(workflow).toContain('release/*-win-*.zip');
+    expect(workflow).toContain('release/latest.yml');
     expect(workflow).toContain('publish-release:');
     expect(workflow).toContain('needs: [build-mac, build-windows]');
     expect(workflow).toContain('actions/download-artifact@v4');
@@ -41,6 +44,14 @@ describe('release workflow', () => {
     expect(packageJson.scripts['dist:win']).toContain('--win --publish=never');
     expect(packageJson.scripts['dist:win']).toContain('npm run verify:win-release');
     expect(packageJson.scripts['verify:win-release']).toContain('scripts/verify-windows-release.mjs');
-    expect(packageJson.build.publish).toBeNull();
+    expect(packageJson.build.publish).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: 'github',
+          owner: 'Medill-East',
+          repo: 'AI-Voice-To-Text'
+        })
+      ])
+    );
   });
 });

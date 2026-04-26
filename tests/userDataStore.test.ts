@@ -17,6 +17,8 @@ describe('UserDataStore', () => {
     expect(settings.providers.asr.modelId).toBeUndefined();
     expect(settings.sync.kind).toBe('local-folder');
     expect(settings.sync.github.autoSync).toBe(false);
+    expect(settings.updates.autoCheck).toBe(true);
+    expect(settings.updates.autoDownload).toBe(true);
     expect(settings.appearance.theme).toBe('system');
     expect(settings.providers.llm.apiKeyRef).toBe('system-keychain:v2t/openai-compatible');
     expect(settings.providers.llm).not.toHaveProperty('apiKey');

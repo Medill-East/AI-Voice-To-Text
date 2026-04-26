@@ -43,6 +43,10 @@ const DEFAULT_SETTINGS: Settings = {
       includeHistory: false,
       autoSync: false
     }
+  },
+  updates: {
+    autoCheck: true,
+    autoDownload: true
   }
 };
 
@@ -299,6 +303,10 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
     appearance: {
       ...DEFAULT_SETTINGS.appearance,
       ...(raw.appearance ?? {})
+    },
+    updates: {
+      ...DEFAULT_SETTINGS.updates,
+      ...(raw.updates ?? {})
     }
   };
 }

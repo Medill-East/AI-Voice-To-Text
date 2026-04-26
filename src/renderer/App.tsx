@@ -3,6 +3,7 @@ import { referenceModels } from '../core/modelCatalog';
 import { hotkeyLabelForPlatform } from '../core/hotkeyLabels';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
 import type {
+  AppUpdateState,
   AutoSyncState,
   HistoryEntry,
   InputMode,
@@ -68,6 +69,8 @@ export function App() {
   const [syncBusy, setSyncBusy] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [autoSyncState, setAutoSyncState] = useState<AutoSyncState | null>(null);
+  const [appUpdateState, setAppUpdateState] = useState<AppUpdateState | null>(null);
+  const [updateBusy, setUpdateBusy] = useState<string | null>(null);
   const [testingHotkey, setTestingHotkey] = useState(false);
   const [hotkeyTestMessage, setHotkeyTestMessage] = useState<string | null>(null);
   const [lexicon, setLexicon] = useState<Lexicon | null>(null);
@@ -94,6 +97,7 @@ export function App() {
     setMode(nextSetup.settings.defaultMode);
     setHotkeyStatus(nextSetup.hotkeyStatus);
     setAutoSyncState(nextSetup.autoSyncState);
+    setAppUpdateState(nextSetup.appUpdateState);
     setSyncRepoUrl(nextSetup.settings.sync.github.repoUrl ?? '');
     setInstallProgressById(nextSetup.modelStatuses);
   }, []);
@@ -196,6 +200,10 @@ export function App() {
 
   useEffect(() => {
     return window.v2t.onAutoSyncStatus(setAutoSyncState);
+  }, []);
+
+  useEffect(() => {
+    return window.v2t.onAppUpdateStatus(setAppUpdateState);
   }, []);
 
   const stopRecording = useCallback(() => {
@@ -430,6 +438,23 @@ export function App() {
     applySetup(nextSetup);
   };
 
+  const updateUpdaterSetting = async (patch: Partial<Settings['updates']>) => {
+    if (!settings) {
+      return;
+    }
+    const result = await window.v2t.saveSettings({
+      ...settings,
+      updates: {
+        ...settings.updates,
+        ...patch
+      }
+    });
+    setSettings(result.settings);
+    setHotkeyStatus(result.hotkeyStatus);
+    const nextSetup = await window.v2t.getSetup();
+    applySetup(nextSetup);
+  };
+
   const updateLexicon = (updater: (current: Lexicon) => Lexicon) => {
     setLexicon((current) => (current ? updater(current) : current));
     setLexiconDirty(true);
@@ -504,6 +529,26 @@ export function App() {
     }
   };
 
+  const reinstallModel = async (modelId: string) => {
+    setError(null);
+    setInstallingModelId(modelId);
+    const result = await window.v2t.reinstallModel(modelId);
+    setInstallingModelId(null);
+    applySetup(result.setup);
+    if (!result.ok) {
+      setError(result.error ?? '模型重新安装失败');
+    }
+  };
+
+  const cancelModelInstall = async (modelId: string) => {
+    setError(null);
+    const result = await window.v2t.cancelModelInstall(modelId);
+    applySetup(result.setup);
+    if (!result.ok) {
+      setError(result.error ?? '取消安装失败');
+    }
+  };
+
   const activateModel = async (modelId: string) => {
     setError(null);
     setActivatingModelId(modelId);
@@ -524,6 +569,26 @@ export function App() {
     if (!result.ok) {
       setError(result.error ?? '模型删除失败');
     }
+  };
+
+  const checkForUpdates = async () => {
+    setUpdateBusy('checking');
+    const state = await window.v2t.checkForUpdates();
+    setAppUpdateState(state);
+    setUpdateBusy(null);
+  };
+
+  const downloadUpdate = async () => {
+    setUpdateBusy('downloading');
+    const state = await window.v2t.downloadUpdate();
+    setAppUpdateState(state);
+    setUpdateBusy(null);
+  };
+
+  const installUpdate = async () => {
+    setUpdateBusy('installing');
+    const state = await window.v2t.installUpdate();
+    setAppUpdateState(state);
   };
 
   const openAccessibilitySettings = async () => {
@@ -812,6 +877,8 @@ export function App() {
                     installingModelId={installingModelId}
                     deletingModelId={deletingModelId}
                     onInstall={installModel}
+                    onReinstall={reinstallModel}
+                    onCancelInstall={cancelModelInstall}
                     onActivate={activateModel}
                     onDelete={deleteModel}
                   />
@@ -828,6 +895,7 @@ export function App() {
                         activatingModelId={activatingModelId}
                         deletingModelId={deletingModelId}
                         onActivate={activateModel}
+                        onReinstall={reinstallModel}
                         onDelete={deleteModel}
                       />
                     ))}
@@ -1500,6 +1568,51 @@ export function App() {
             当前版本 v{setup.appInfo.version} · {setup.appInfo.buildCommit}
           </p>
         ) : null}
+        {settings && appUpdateState ? (
+          <section className="update-panel">
+            <h3>应用更新</h3>
+            <p className="hint">{appUpdateStatusLabel(appUpdateState)}</p>
+            {appUpdateState.latestVersion ? (
+              <p>
+                最新版本 v{appUpdateState.latestVersion}
+                {appUpdateState.releaseName ? ` · ${appUpdateState.releaseName}` : ''}
+              </p>
+            ) : null}
+            {appUpdateState.status === 'downloading' ? (
+              <>
+                <div className="progress-track">
+                  <span style={{ width: `${Math.min(100, Math.max(0, appUpdateState.percent ?? 0))}%` }} />
+                </div>
+                <p className="progress-meta">
+                  {appUpdateState.percent !== undefined ? `${Math.round(appUpdateState.percent)}%` : '下载中'}
+                  {appUpdateState.bytesPerSecond ? ` · ${formatBytes(appUpdateState.bytesPerSecond)}/s` : ''}
+                  {appUpdateState.transferred ? ` · ${formatBytes(appUpdateState.transferred)}` : ''}
+                  {appUpdateState.total ? ` / ${formatBytes(appUpdateState.total)}` : ''}
+                </p>
+              </>
+            ) : null}
+            {appUpdateState.error ? <p className="error-text">{appUpdateState.error}</p> : null}
+            <div className="inline-actions">
+              <button className="secondary compact" onClick={() => void checkForUpdates()} disabled={Boolean(updateBusy)}>
+                {updateBusy === 'checking' ? '检查中' : '检查更新'}
+              </button>
+              <button className="secondary compact" onClick={() => void downloadUpdate()} disabled={Boolean(updateBusy) || appUpdateState.status !== 'available'}>
+                {updateBusy === 'downloading' ? '下载中' : '下载更新'}
+              </button>
+              <button className="secondary compact" onClick={() => void installUpdate()} disabled={appUpdateState.status !== 'downloaded'}>
+                立即安装并重启
+              </button>
+            </div>
+            <label>
+              <input type="checkbox" checked={settings.updates.autoCheck} onChange={(event) => void updateUpdaterSetting({ autoCheck: event.target.checked })} />
+              启动时自动检查更新
+            </label>
+            <label>
+              <input type="checkbox" checked={settings.updates.autoDownload} onChange={(event) => void updateUpdaterSetting({ autoDownload: event.target.checked })} />
+              有新版时自动下载
+            </label>
+          </section>
+        ) : null}
         <button className="secondary full-width" onClick={() => void window.v2t.quitApp()}>
           完全退出 V2T
         </button>
@@ -1554,12 +1667,14 @@ function InstalledModelRow({
   activatingModelId,
   deletingModelId,
   onActivate,
+  onReinstall,
   onDelete
 }: {
   model: InstalledModelView;
   activatingModelId: string | null;
   deletingModelId: string | null;
   onActivate(modelId: string): Promise<void>;
+  onReinstall(modelId: string): Promise<void>;
   onDelete(modelId: string): Promise<void>;
 }) {
   const activating = activatingModelId === model.modelId;
@@ -1575,6 +1690,11 @@ function InstalledModelRow({
       <button onClick={() => void onActivate(model.modelId)} disabled={!model.canActivate || activating || model.current}>
         {model.current ? '当前' : activating ? '启用中' : '启用'}
       </button>
+      {model.canReinstall ? (
+        <button className="secondary" onClick={() => void onReinstall(model.modelId)}>
+          重新安装
+        </button>
+      ) : null}
       {model.canDelete ? (
         <button className="danger" onClick={() => void onDelete(model.modelId)} disabled={deleting}>
           {deleting ? '删除中' : '删除'}
@@ -1721,6 +1841,8 @@ function ModelRow({
   installingModelId,
   deletingModelId,
   onInstall,
+  onReinstall,
+  onCancelInstall,
   onActivate,
   onDelete
 }: {
@@ -1730,6 +1852,8 @@ function ModelRow({
   installingModelId: string | null;
   deletingModelId: string | null;
   onInstall(modelId: string): Promise<void>;
+  onReinstall(modelId: string): Promise<void>;
+  onCancelInstall(modelId: string): Promise<void>;
   onActivate(modelId: string): Promise<void>;
   onDelete(modelId: string): Promise<void>;
 }) {
@@ -1767,6 +1891,16 @@ function ModelRow({
       >
         {isCurrent ? '当前' : installing ? '安装中' : installed ? '启用' : '安装'}
       </button>
+      {installed || statusRecord?.status === 'failed' ? (
+        <button className="secondary" onClick={() => void onReinstall(recommendation.model.id)} disabled={installing}>
+          重新安装
+        </button>
+      ) : null}
+      {installing ? (
+        <button className="secondary" onClick={() => void onCancelInstall(recommendation.model.id)}>
+          取消
+        </button>
+      ) : null}
       {canDelete ? (
         <button className="danger" onClick={() => void onDelete(recommendation.model.id)} disabled={deleting}>
           {deleting ? '删除中' : '删除'}
@@ -1854,6 +1988,22 @@ function InstallProgress({ status }: { status: ModelStatusRecord }) {
         <span>{installStatusLabel(status)}</span>
         {status.progress === undefined && status.downloadedBytes ? <span>{formatBytes(status.downloadedBytes)}</span> : null}
       </div>
+      <p className="progress-meta">
+        {[
+          status.sourceLabel,
+          status.bytesPerSecond ? `${formatBytes(status.bytesPerSecond)}/s` : undefined,
+          status.etaSeconds ? `剩余 ${formatDuration(status.etaSeconds)}` : undefined,
+          status.attempt ? `第 ${status.attempt} 次` : undefined
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+      </p>
+      {status.downloadedBytes ? (
+        <p className="progress-meta">
+          {formatBytes(status.downloadedBytes)}
+          {status.totalBytes ? ` / ${formatBytes(status.totalBytes)}` : ''}
+        </p>
+      ) : null}
       {status.progress !== undefined ? (
         <div className="progress-track">
           <span style={{ width: `${Math.min(100, Math.max(0, status.progress))}%` }} />
@@ -1953,6 +2103,16 @@ function formatBytes(bytes: number): string {
   return `${bytes}B`;
 }
 
+function formatDuration(seconds: number): string {
+  if (seconds >= 3600) {
+    return `${Math.round(seconds / 3600)} 小时`;
+  }
+  if (seconds >= 60) {
+    return `${Math.round(seconds / 60)} 分钟`;
+  }
+  return `${Math.max(1, Math.round(seconds))} 秒`;
+}
+
 function formatMetric(metric: ModelEvaluationMetric): string {
   if (metric.metric === 'RTFx') {
     return `${metric.value} RTFx`;
@@ -2011,6 +2171,31 @@ function autoSyncStatusLabel(state: AutoSyncState | null, settings: Settings): s
     return `上次自动同步 ${new Date(settings.sync.github.lastAutoSyncAt).toLocaleString()}`;
   }
   return '待命';
+}
+
+function appUpdateStatusLabel(state: AppUpdateState): string {
+  if (state.status === 'checking') {
+    return '正在检查更新';
+  }
+  if (state.status === 'available') {
+    return '发现新版本，可以下载';
+  }
+  if (state.status === 'not-available') {
+    return '当前已是最新版本';
+  }
+  if (state.status === 'downloading') {
+    return '正在下载更新';
+  }
+  if (state.status === 'downloaded') {
+    return '更新已下载，可以安装';
+  }
+  if (state.status === 'installing') {
+    return '正在准备安装更新';
+  }
+  if (state.status === 'error') {
+    return '更新检查失败';
+  }
+  return '自动更新待命';
 }
 
 function hotkeyStatusLabel(status?: HotkeyStatus): string {

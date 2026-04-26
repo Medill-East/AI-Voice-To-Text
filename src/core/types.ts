@@ -10,9 +10,10 @@ export type ModelInstallStatus =
   | 'verifying'
   | 'activating'
   | 'installed'
-  | 'current'
-  | 'failed';
+	  | 'current'
+	  | 'failed';
 export type RecommendedTier = 'low' | 'medium' | 'high';
+export type AppUpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'installing' | 'error';
 
 export interface LexiconTerm {
   phrase: string;
@@ -79,6 +80,12 @@ export interface Settings {
       lastAutoSyncError?: string;
     };
   };
+  updates: {
+    autoCheck: boolean;
+    autoDownload: boolean;
+    lastCheckAt?: string;
+    lastError?: string;
+  };
 }
 
 export interface HardwareProfile {
@@ -105,6 +112,7 @@ export interface ModelCatalogItem {
   runtime: ModelRuntime;
   sherpaModelType?: SherpaModelType;
   sourceUrl: string;
+  downloadSources?: ModelDownloadSource[];
   license: string;
   sizeMb: number;
   languages: string[];
@@ -127,6 +135,13 @@ export interface ModelCatalogItem {
     note?: string;
   };
   evaluationSources?: ModelEvaluationSources;
+}
+
+export interface ModelDownloadSource {
+  label: string;
+  url: string;
+  priority?: number;
+  region?: string;
 }
 
 export interface ModelEvaluationMetric {
@@ -208,12 +223,34 @@ export interface AutoSyncState {
   updatedAt: string;
 }
 
+export interface AppUpdateState {
+  status: AppUpdateStatus;
+  currentVersion: string;
+  latestVersion?: string;
+  releaseName?: string;
+  releaseNotes?: string;
+  percent?: number;
+  bytesPerSecond?: number;
+  transferred?: number;
+  total?: number;
+  error?: string;
+  updatedAt: string;
+}
+
 export interface ModelStatusRecord {
   modelId: string;
   status: ModelInstallStatus;
   progress?: number;
   downloadedBytes?: number;
   totalBytes?: number;
+  bytesPerSecond?: number;
+  etaSeconds?: number;
+  sourceLabel?: string;
+  attempt?: number;
+  canResume?: boolean;
+  isInterrupted?: boolean;
+  startedAt?: string;
+  lastProgressAt?: string;
   modelPath?: string;
   error?: string;
   updatedAt: string;
@@ -228,6 +265,7 @@ export interface InstalledModelView {
   legacy: boolean;
   canActivate: boolean;
   canDelete: boolean;
+  canReinstall: boolean;
 }
 
 export interface GitHubSyncStatus {

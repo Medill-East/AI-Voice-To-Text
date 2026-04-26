@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   GitHubSyncStatus,
+  AppUpdateState,
   AutoSyncState,
   HardwareProfile,
   InputMode,
@@ -28,6 +29,9 @@ export interface V2TApi {
   getSettings(): Promise<{ settings: Settings; hotkeyStatus?: HotkeyStatus }>;
   getSetup(): Promise<SetupPayload>;
   refreshModelCatalog(): Promise<SetupPayload>;
+  checkForUpdates(): Promise<AppUpdateState>;
+  downloadUpdate(): Promise<AppUpdateState>;
+  installUpdate(): Promise<AppUpdateState>;
   saveSettings(settings: Settings): Promise<{ settings: Settings; hotkeyStatus?: HotkeyStatus }>;
   getLexicon(): Promise<Lexicon>;
   saveLexicon(lexicon: Lexicon): Promise<LexiconSaveResult>;
@@ -37,6 +41,8 @@ export interface V2TApi {
   getHistory(limit?: number): Promise<HistoryEntry[]>;
   updateHotkey(accelerator: string): Promise<HotkeyUpdateResult>;
   installModel(modelId: string): Promise<InstallModelResult>;
+  reinstallModel(modelId: string): Promise<InstallModelResult>;
+  cancelModelInstall(modelId: string): Promise<InstallModelResult>;
   activateModel(modelId: string): Promise<InstallModelResult>;
   deleteModel(modelId: string): Promise<InstallModelResult>;
   getSyncStatus(): Promise<GitHubSyncStatus>;
@@ -60,12 +66,14 @@ export interface V2TApi {
   onModelInstallProgress(callback: (status: ModelStatusRecord) => void): () => void;
   onModelCatalogRefresh(callback: (setup: SetupPayload) => void): () => void;
   onAutoSyncStatus(callback: (status: AutoSyncState) => void): () => void;
+  onAppUpdateStatus(callback: (status: AppUpdateState) => void): () => void;
 }
 
 export interface SetupPayload {
   settings: Settings;
   hotkeyStatus?: HotkeyStatus;
   autoSyncState: AutoSyncState;
+  appUpdateState: AppUpdateState;
   hardware: HardwareProfile;
   modelRoot: string;
   catalog: ModelCatalogItem[];
@@ -122,6 +130,9 @@ const api: V2TApi = {
   getSettings: () => ipcRenderer.invoke('v2t:get-settings'),
   getSetup: () => ipcRenderer.invoke('v2t:get-setup'),
   refreshModelCatalog: () => ipcRenderer.invoke('v2t:refresh-model-catalog'),
+  checkForUpdates: () => ipcRenderer.invoke('v2t:check-for-updates'),
+  downloadUpdate: () => ipcRenderer.invoke('v2t:download-update'),
+  installUpdate: () => ipcRenderer.invoke('v2t:install-update'),
   saveSettings: (settings) => ipcRenderer.invoke('v2t:save-settings', settings),
   getLexicon: () => ipcRenderer.invoke('v2t:get-lexicon'),
   saveLexicon: (lexicon) => ipcRenderer.invoke('v2t:save-lexicon', lexicon),
@@ -131,6 +142,8 @@ const api: V2TApi = {
   getHistory: (limit) => ipcRenderer.invoke('v2t:get-history', limit),
   updateHotkey: (accelerator) => ipcRenderer.invoke('v2t:update-hotkey', accelerator),
   installModel: (modelId) => ipcRenderer.invoke('v2t:install-model', modelId),
+  reinstallModel: (modelId) => ipcRenderer.invoke('v2t:reinstall-model', modelId),
+  cancelModelInstall: (modelId) => ipcRenderer.invoke('v2t:cancel-model-install', modelId),
   activateModel: (modelId) => ipcRenderer.invoke('v2t:activate-model', modelId),
   deleteModel: (modelId) => ipcRenderer.invoke('v2t:delete-model', modelId),
   getSyncStatus: () => ipcRenderer.invoke('v2t:get-sync-status'),
@@ -179,6 +192,11 @@ const api: V2TApi = {
     const listener = (_event: Electron.IpcRendererEvent, status: AutoSyncState) => callback(status);
     ipcRenderer.on('v2t:auto-sync-status', listener);
     return () => ipcRenderer.off('v2t:auto-sync-status', listener);
+  },
+  onAppUpdateStatus: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: AppUpdateState) => callback(status);
+    ipcRenderer.on('v2t:app-update-status', listener);
+    return () => ipcRenderer.off('v2t:app-update-status', listener);
   }
 };
 

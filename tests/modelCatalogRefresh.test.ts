@@ -113,4 +113,25 @@ describe('ModelCatalogRefreshService', () => {
     expect(cached.version).toBe('2026-04-26.zh');
     expect(refreshed.catalog.find((model) => model.id === 'funasr-nano-int8-2025-12-30')?.evaluationSources?.chineseBenchmark?.metrics[0]?.value).toBe(4.55);
   });
+
+  it('reports the remote URL and HTTP status when catalog refresh fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'v2t-catalog-refresh-'));
+    const service = new ModelCatalogRefreshService({
+      cachePath: join(root, 'model-catalog-cache.json'),
+      remoteUrl: 'https://raw.githubusercontent.com/example/private/catalog.json',
+      fetchImpl: vi.fn(async () => ({
+        ok: false,
+        status: 404,
+        json: async () => ({})
+      })),
+      now: () => new Date('2026-04-26T01:00:00.000Z')
+    });
+
+    const refreshed = await service.refresh(DEFAULT_MODEL_CATALOG);
+
+    expect(refreshed.state.status).toBe('failed');
+    expect(refreshed.state.sourceUrl).toBe('https://raw.githubusercontent.com/example/private/catalog.json');
+    expect(refreshed.state.error).toContain('HTTP 404');
+    expect(refreshed.state.error).toContain('https://raw.githubusercontent.com/example/private/catalog.json');
+  });
 });

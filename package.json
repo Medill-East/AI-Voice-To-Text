@@ -1,6 +1,6 @@
 {
   "name": "v2t",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "private": true,
   "description": "Cross-platform voice-to-text desktop app MVP.",
   "author": "Haodong",
@@ -25,6 +25,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.main.json"
   },
   "dependencies": {
+    "electron-updater": "^6.8.3",
     "node-global-key-listener": "^0.3.0",
     "sherpa-onnx": "^1.12.37",
     "sherpa-onnx-node": "^1.12.40"
@@ -51,7 +52,15 @@
     "directories": {
       "output": "release"
     },
-    "publish": null,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Medill-East",
+        "repo": "AI-Voice-To-Text",
+        "private": false,
+        "releaseType": "release"
+      }
+    ],
     "files": [
       "dist/**/*",
       "package.json",

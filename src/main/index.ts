@@ -4,7 +4,9 @@ import { hostname } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
+import { autoUpdater } from 'electron-updater';
 import { FunAsrHttpProvider, LocalSherpaAsrProvider, UserFacingAsrError, WhisperCppAsrProvider } from '../core/asrProviders';
+import { AppUpdateService } from '../core/appUpdateService';
 import { AutoSyncService } from '../core/autoSyncService';
 import { DEFAULT_MODEL_CATALOG, recommendModels } from '../core/modelCatalog';
 import { DEFAULT_REMOTE_MODEL_CATALOG_URL, ModelCatalogRefreshService } from '../core/modelCatalogRefresh';
@@ -16,7 +18,16 @@ import { createVoiceInputPipeline } from '../core/pipeline';
 import { PostProcessor } from '../core/postProcessor';
 import { TextInjectionService } from '../core/textInjection';
 import { UserDataStore } from '../core/userDataStore';
-import type { AutoSyncState, InputMode, ModelCatalogItem, ModelCatalogRefreshState, ModelInstallStatus, ModelStatusRecord, Settings } from '../core/types';
+import type {
+  AppUpdateState,
+  AutoSyncState,
+  InputMode,
+  ModelCatalogItem,
+  ModelCatalogRefreshState,
+  ModelInstallStatus,
+  ModelStatusRecord,
+  Settings
+} from '../core/types';
 import { getFocusedAppName } from './focusedApp';
 import { createCheckingHotkeyStatus } from './hotkeyDiagnostics';
 import { HotkeyDiagnosticLog } from './hotkeyDiagnosticLog';
@@ -66,6 +77,8 @@ let nativeHelperSignature: string | undefined;
 let hotkeyLog: HotkeyDiagnosticLog;
 let autoSyncService: AutoSyncService;
 let autoSyncState: AutoSyncState = { status: 'idle', updatedAt: new Date().toISOString() };
+let appUpdateService: AppUpdateService;
+let appUpdateState: AppUpdateState;
 let modelCatalog: ModelCatalogItem[] = DEFAULT_MODEL_CATALOG;
 let modelCatalogRefreshService: ModelCatalogRefreshService;
 let modelCatalogRefreshState: ModelCatalogRefreshState = {
@@ -95,6 +108,10 @@ async function bootstrap(): Promise<void> {
   const cachedCatalog = await modelCatalogRefreshService.loadCachedCatalog(DEFAULT_MODEL_CATALOG);
   modelCatalog = cachedCatalog.catalog;
   modelCatalogRefreshState = cachedCatalog.state;
+  appUpdateService = createAppUpdateService();
+  appUpdateState = appUpdateService.getState();
+  autoUpdater.autoDownload = settings.updates.autoDownload;
+  await createModelManager().recoverInterruptedInstalls();
   hotkeyService = new HotkeyService({
     onDiagnostic: (event) => {
       void hotkeyLog.write(event).catch((error) => console.warn(`Unable to write hotkey diagnostic log: ${readableError(error)}`));
@@ -108,6 +125,9 @@ async function bootstrap(): Promise<void> {
   cleanupStaleHotkeyHelpers();
   await registerHotkey();
   void refreshModelCatalog('startup');
+  if (settings.updates.autoCheck) {
+    setTimeout(() => void checkForAppUpdates(), 3000);
+  }
 }
 
 function createWindow(): void {
@@ -223,6 +243,7 @@ function registerIpc(): void {
   ipcMain.handle('v2t:save-settings', async (_event, nextSettings: Settings) => {
     settings = nextSettings;
     await store.saveSettings(settings);
+    autoUpdater.autoDownload = settings.updates.autoDownload;
     await registerHotkey();
     scheduleAutoSync('settings-save');
     return { settings, hotkeyStatus };
@@ -275,6 +296,9 @@ function registerIpc(): void {
   });
   ipcMain.handle('v2t:test-hotkey', async (_event, accelerator?: string) => testHotkey(accelerator ?? settings.hotkey.accelerator));
   ipcMain.handle('v2t:refresh-model-catalog', async () => refreshModelCatalog('manual'));
+  ipcMain.handle('v2t:check-for-updates', async () => checkForAppUpdates());
+  ipcMain.handle('v2t:download-update', async () => downloadAppUpdate());
+  ipcMain.handle('v2t:install-update', async () => installAppUpdate());
   ipcMain.handle('v2t:copy-hotkey-diagnostics', async () => {
     clipboard.writeText(createHotkeyDiagnosticText());
     return { ok: true };
@@ -324,6 +348,33 @@ function registerIpc(): void {
         error: error instanceof Error ? error.message : String(error),
         setup: await getSetupPayload()
       };
+    }
+  });
+  ipcMain.handle('v2t:reinstall-model', async (event, modelId: string) => {
+    const manager = createModelManager();
+    const sendProgress = (status: ModelStatusRecord) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('v2t:model-install-progress', status);
+      }
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.id !== event.sender.id) {
+        mainWindow.webContents.send('v2t:model-install-progress', status);
+      }
+    };
+    try {
+      const status = await manager.reinstallModel(modelId, sendProgress);
+      settings = await store.loadSettings();
+      return { ok: true, status, setup: await getSetupPayload() };
+    } catch (error) {
+      return { ok: false, error: readableError(error), setup: await getSetupPayload() };
+    }
+  });
+  ipcMain.handle('v2t:cancel-model-install', async (_event, modelId: string) => {
+    const manager = createModelManager();
+    try {
+      const status = await manager.cancelModelInstall(modelId);
+      return { ok: true, status, setup: await getSetupPayload() };
+    } catch (error) {
+      return { ok: false, error: readableError(error), setup: await getSetupPayload() };
     }
   });
   ipcMain.handle('v2t:activate-model', async (_event, modelId: string) => {
@@ -671,6 +722,7 @@ async function getSetupPayload() {
     settings,
     hotkeyStatus,
     autoSyncState,
+    appUpdateState,
     appInfo: getAppInfo(),
     hardware,
     modelRoot,
@@ -688,6 +740,53 @@ function createModelManager(): ModelManager {
     store,
     catalog: modelCatalog
   });
+}
+
+function createAppUpdateService(): AppUpdateService {
+  return new AppUpdateService({
+    currentVersion: app.getVersion(),
+    updater: autoUpdater,
+    onStatus: (state) => {
+      appUpdateState = state;
+      if (state.status === 'checking' || state.status === 'available' || state.status === 'not-available') {
+        void persistUpdateSettings({ lastCheckAt: state.updatedAt, lastError: undefined });
+      }
+      if (state.status === 'error') {
+        void persistUpdateSettings({ lastError: state.error });
+      }
+      mainWindow?.webContents.send('v2t:app-update-status', state);
+    }
+  });
+}
+
+async function checkForAppUpdates(): Promise<AppUpdateState> {
+  autoUpdater.autoDownload = settings.updates.autoDownload;
+  const state = await appUpdateService.checkForUpdates();
+  if (state.status === 'error') {
+    await persistUpdateSettings({ lastError: state.error });
+  } else {
+    await persistUpdateSettings({ lastCheckAt: state.updatedAt, lastError: undefined });
+  }
+  return appUpdateState;
+}
+
+async function downloadAppUpdate(): Promise<AppUpdateState> {
+  return appUpdateService.downloadUpdate();
+}
+
+function installAppUpdate(): AppUpdateState {
+  return appUpdateService.installUpdate();
+}
+
+async function persistUpdateSettings(patch: Partial<Settings['updates']>): Promise<void> {
+  settings = {
+    ...settings,
+    updates: {
+      ...settings.updates,
+      ...patch
+    }
+  };
+  await store.saveSettings(settings);
 }
 
 async function refreshModelCatalog(trigger: 'startup' | 'manual') {

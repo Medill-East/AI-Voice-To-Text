@@ -705,6 +705,12 @@ textarea {
   color: var(--color-error);
 }
 
+.progress-meta {
+  margin: 0;
+  color: var(--color-muted-2);
+  font-size: 11px;
+}
+
 .model-row button:disabled,
 .setup-callout button:disabled {
   cursor: default;
@@ -858,6 +864,19 @@ textarea {
 .appearance-settings h3 {
   margin: 0;
   font-size: 14px;
+}
+
+.update-panel {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--color-border);
+}
+
+.update-panel h3,
+.update-panel p {
+  margin: 0;
 }
 
 .segmented-control {

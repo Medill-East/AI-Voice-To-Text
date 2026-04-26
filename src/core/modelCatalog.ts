@@ -13,6 +13,13 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     sherpaModelType: 'funasrNano',
     sourceUrl:
       'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-funasr-nano-int8-2025-12-30.tar.bz2',
+    downloadSources: [
+      {
+        label: 'GitHub Release',
+        url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-funasr-nano-int8-2025-12-30.tar.bz2',
+        priority: 10
+      }
+    ],
     license: 'Apache-2.0',
     sizeMb: 948,
     languages: ['中文', '英文', '日文', '中文方言'],
@@ -81,6 +88,13 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     sherpaModelType: 'fireRedAsr',
     sourceUrl:
       'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-fire-red-asr2-zh_en-int8-2026-02-26.tar.bz2',
+    downloadSources: [
+      {
+        label: 'GitHub Release',
+        url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-fire-red-asr2-zh_en-int8-2026-02-26.tar.bz2',
+        priority: 10
+      }
+    ],
     license: 'Apache-2.0',
     sizeMb: 1185,
     languages: ['中文', '英文', '中文方言'],
@@ -138,6 +152,13 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     sherpaModelType: 'senseVoice',
     sourceUrl:
       'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2',
+    downloadSources: [
+      {
+        label: 'GitHub Release',
+        url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2',
+        priority: 10
+      }
+    ],
     license: 'Apache-2.0',
     sizeMb: 240,
     languages: ['中文', '粤语', '英文', '日文', '韩文'],

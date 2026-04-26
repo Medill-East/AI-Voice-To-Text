@@ -76,7 +76,7 @@ export class ModelCatalogRefreshService {
     try {
       const response = await this.fetchImpl(this.remoteUrl, { cache: 'no-store' });
       if (!response.ok) {
-        throw new Error(`远程模型榜单请求失败：HTTP ${response.status}`);
+        throw new Error(`远程模型榜单请求失败：HTTP ${response.status} ${this.remoteUrl}`);
       }
       const remote = parseRemoteCatalog(await response.json());
       await writeFile(this.cachePath, JSON.stringify(remote, null, 2), 'utf8');
