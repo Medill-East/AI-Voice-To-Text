@@ -1,8 +1,8 @@
 use std::env;
 use std::process::ExitCode;
 
-use windows::core::{GUID, Interface, Result};
-use windows::Win32::Foundation::BOOL;
+use windows::core::{BOOL, GUID, Result};
+use windows::Win32::Devices::FunctionDiscovery::*;
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::Media::Audio::{eMultimedia, eRender, IMMDeviceEnumerator, MMDeviceEnumerator};
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED};
@@ -95,7 +95,7 @@ struct ComGuard;
 impl ComGuard {
     fn new() -> Result<Self> {
         unsafe {
-            CoInitializeEx(None, COINIT_MULTITHREADED)?;
+            CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
         }
         Ok(Self)
     }
