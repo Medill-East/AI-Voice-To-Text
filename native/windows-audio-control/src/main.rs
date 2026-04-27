@@ -1,11 +1,12 @@
 use std::env;
+use std::ffi::c_void;
+use std::ptr::{null, null_mut};
 use std::process::ExitCode;
 
-use windows::core::{BOOL, GUID, Result};
-use windows::Win32::Devices::FunctionDiscovery::*;
+use windows::core::{BOOL, Error, GUID, HRESULT, Interface, Result};
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
-use windows::Win32::Media::Audio::{eMultimedia, eRender, IMMDeviceEnumerator, MMDeviceEnumerator};
-use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED};
+use windows::Win32::Media::Audio::{eMultimedia, eRender, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator};
+use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX, CLSCTX_ALL, COINIT_MULTITHREADED};
 
 fn main() -> ExitCode {
     match run() {
@@ -40,7 +41,7 @@ fn run() -> Result<Option<String>> {
         }
         "mute" => {
             unsafe {
-                endpoint.SetMute(win_bool(true), &GUID::zeroed())?;
+                endpoint.SetMute(true, &GUID::zeroed())?;
             }
             Ok(None)
         }
@@ -51,7 +52,7 @@ fn run() -> Result<Option<String>> {
             let muted = parse_flag_value(&args, "--muted").map(|value| value == "true").unwrap_or(false);
             unsafe {
                 endpoint.SetMasterVolumeLevelScalar(clamp_volume(volume), &GUID::zeroed())?;
-                endpoint.SetMute(win_bool(muted), &GUID::zeroed())?;
+                endpoint.SetMute(muted, &GUID::zeroed())?;
             }
             Ok(None)
         }
@@ -66,7 +67,33 @@ fn default_render_endpoint() -> Result<IAudioEndpointVolume> {
     unsafe {
         let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
         let device = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia)?;
-        device.Activate(CLSCTX_ALL, None)
+        activate_endpoint_volume(&device)
+    }
+}
+
+fn activate_endpoint_volume(device: &IMMDevice) -> Result<IAudioEndpointVolume> {
+    let device_raw = device.as_raw();
+    if device_raw.is_null() {
+        return Err(Error::new(HRESULT(0x80004003u32 as i32), "default audio endpoint was null"));
+    }
+
+    unsafe {
+        let vtbl = *(device_raw as *mut *const IMMDeviceVTable);
+        let mut raw_endpoint_volume: *mut c_void = null_mut();
+        ((*vtbl).activate)(
+            device_raw,
+            &IAudioEndpointVolume::IID,
+            CLSCTX_ALL,
+            null(),
+            &mut raw_endpoint_volume,
+        )
+        .ok()?;
+
+        if raw_endpoint_volume.is_null() {
+            return Err(Error::new(HRESULT(0x80004003u32 as i32), "IAudioEndpointVolume activation returned null"));
+        }
+
+        Ok(IAudioEndpointVolume::from_raw(raw_endpoint_volume))
     }
 }
 
@@ -82,14 +109,6 @@ fn clamp_volume(volume: f32) -> f32 {
     }
 }
 
-fn win_bool(value: bool) -> BOOL {
-    if value {
-        BOOL(1)
-    } else {
-        BOOL(0)
-    }
-}
-
 struct ComGuard;
 
 impl ComGuard {
@@ -99,6 +118,20 @@ impl ComGuard {
         }
         Ok(Self)
     }
+}
+
+#[repr(C)]
+struct IMMDeviceVTable {
+    _query_interface: usize,
+    _add_ref: usize,
+    _release: usize,
+    activate: unsafe extern "system" fn(
+        *mut c_void,
+        *const GUID,
+        CLSCTX,
+        *const c_void,
+        *mut *mut c_void,
+    ) -> HRESULT,
 }
 
 impl Drop for ComGuard {
