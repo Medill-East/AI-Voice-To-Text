@@ -96,8 +96,10 @@ describe('settings navigation structure', () => {
     expect(app).toContain('词库试运行');
     expect(app).toContain('复制词库诊断');
     expect(app).toContain('录音时临时静音系统输出');
+    expect(app).toContain('复制静音诊断');
     expect(app).toContain('muteSystemAudioForRecording');
     expect(app).toContain('restoreSystemAudioAfterRecording');
+    expect(app).toContain('copySystemAudioDiagnostics');
     expect(app).toContain('cloudSortDirection');
     expect(app).toContain('按发布时间倒序');
     expect(app).toContain('cloudLlmTags');

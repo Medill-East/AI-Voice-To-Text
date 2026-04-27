@@ -24,38 +24,49 @@ describe('SystemAudioMuteService', () => {
     await expect(service.mute()).resolves.toMatchObject({ ok: false });
   });
 
-  it('uses public Windows audio COM types so PowerShell can compile the helper', async () => {
-    const commands: string[] = [];
+  it('mutes and restores Windows output through the native audio control sidecar', async () => {
     const run = vi.fn(async (_file: string, args: string[]) => {
-      commands.push(args.join('\n'));
-      if (commands.length === 1) {
+      if (args[0] === 'read') {
         return { stdout: '{"muted":false,"volume":0.7}', stderr: '' };
       }
       return { stdout: '', stderr: '' };
     });
-    const service = new SystemAudioMuteService({ platform: 'win32', run });
+    const service = new SystemAudioMuteService({ platform: 'win32', run, audioControlPath: 'C:\\V2T\\V2TAudioControl.exe' });
 
     await expect(service.mute()).resolves.toEqual({ ok: true });
+    await expect(service.restore()).resolves.toEqual({ ok: true });
 
-    const script = commands.join('\n');
-    expect(script).toContain('public class MMDeviceEnumerator');
-    expect(script).toContain('public enum EDataFlow');
-    expect(script).toContain('public interface IMMDevice');
-    expect(script).toContain('public interface IAudioEndpointVolume');
+    expect(run).toHaveBeenNthCalledWith(1, 'C:\\V2T\\V2TAudioControl.exe', ['read']);
+    expect(run).toHaveBeenNthCalledWith(2, 'C:\\V2T\\V2TAudioControl.exe', ['mute']);
+    expect(run).toHaveBeenNthCalledWith(3, 'C:\\V2T\\V2TAudioControl.exe', ['restore', '--volume', '0.7', '--muted', 'false']);
+    expect(run).not.toHaveBeenCalledWith('powershell.exe', expect.anything());
   });
 
-  it('summarizes Windows audio script compile failures without returning the full PowerShell command', async () => {
+  it('summarizes Windows audio sidecar failures without returning the full command', async () => {
     const run = vi.fn(async () => {
-      throw new Error('Add-Type : SOURCE_CODE_ERROR CS0050 可访问性不一致 ' + 'x'.repeat(500));
+      throw new Error('spawn C:\\V2T\\V2TAudioControl.exe ENOENT ' + 'x'.repeat(500));
     });
-    const service = new SystemAudioMuteService({ platform: 'win32', run });
+    const service = new SystemAudioMuteService({ platform: 'win32', run, audioControlPath: 'C:\\V2T\\V2TAudioControl.exe' });
 
     const result = await service.mute();
 
     expect(result).toMatchObject({ ok: false });
     if (!result.ok) {
-      expect(result.error).toContain('音频控制脚本编译失败');
+      expect(result.error).toContain('V2TAudioControl.exe 未找到');
       expect(result.error.length).toBeLessThan(330);
+    }
+  });
+
+  it('reports invalid Windows audio sidecar JSON as a short readable error', async () => {
+    const run = vi.fn(async () => ({ stdout: 'not-json', stderr: '' }));
+    const service = new SystemAudioMuteService({ platform: 'win32', run, audioControlPath: 'C:\\V2T\\V2TAudioControl.exe' });
+
+    const result = await service.mute();
+
+    expect(result).toMatchObject({ ok: false });
+    if (!result.ok) {
+      expect(result.error).toContain('返回了无效状态');
+      expect(result.error).not.toContain('powershell.exe');
     }
   });
 });

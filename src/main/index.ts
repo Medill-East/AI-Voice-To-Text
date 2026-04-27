@@ -323,6 +323,10 @@ function registerIpc(): void {
   });
   ipcMain.handle('v2t:mute-system-audio-for-recording', async () => systemAudioMuteService.mute());
   ipcMain.handle('v2t:restore-system-audio-after-recording', async () => systemAudioMuteService.restore());
+  ipcMain.handle('v2t:copy-system-audio-diagnostics', async () => {
+    clipboard.writeText(createSystemAudioDiagnosticText());
+    return { ok: true };
+  });
   ipcMain.handle('v2t:get-lexicon', async () => store.loadLexicon());
   ipcMain.handle('v2t:get-history', async (_event, limit?: number) => store.readRecentHistory(limit ?? 30));
   ipcMain.handle('v2t:get-usage-statistics', async (_event, days?: number) => enrichUsageStatistics(await store.readUsageStatistics(days ?? 30)));
@@ -2025,6 +2029,23 @@ function createModelCatalogDiagnosticText(): string {
     );
   }
   return lines.join('\n');
+}
+
+function createSystemAudioDiagnosticText(): string {
+  const diagnostic = systemAudioMuteService?.getLastDiagnostic();
+  const info = getAppInfo();
+  return [
+    'V2T system audio diagnostics',
+    `version: ${app.getVersion()}`,
+    `buildCommit: ${info.buildCommit}`,
+    `platform: ${process.platform}`,
+    `action: ${diagnostic?.action ?? 'none'}`,
+    `helperPath: ${diagnostic?.helperPath ?? 'none'}`,
+    `stdout: ${diagnostic?.stdout?.trim() || 'none'}`,
+    `stderr: ${diagnostic?.stderr?.trim() || 'none'}`,
+    `error: ${diagnostic?.error ?? 'none'}`,
+    `updatedAt: ${diagnostic?.at ?? 'none'}`
+  ].join('\n');
 }
 
 function createAppUpdateDiagnosticText(): string {

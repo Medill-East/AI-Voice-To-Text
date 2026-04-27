@@ -1455,6 +1455,9 @@ export function App() {
                 />
                 录音时临时静音系统输出
               </label>
+              <button className="secondary compact" onClick={() => void window.v2t.copySystemAudioDiagnostics()}>
+                复制静音诊断
+              </button>
               <button
                 className="secondary compact"
                 onClick={() => void copyLatestLexiconDiagnostics(history[0])}
@@ -2675,6 +2678,9 @@ export function App() {
               />
               录音时临时静音系统输出
             </label>
+            <button className="secondary compact" onClick={() => void window.v2t.copySystemAudioDiagnostics()}>
+              复制静音诊断
+            </button>
           </section>
         ) : null}
         {setup ? (

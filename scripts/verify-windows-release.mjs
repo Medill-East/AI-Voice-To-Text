@@ -18,8 +18,15 @@ if (!listener) {
   throw new Error('Windows release is missing V2TKeyboardListener.exe');
 }
 
-const hash = createHash('sha256').update(await readFile(listener)).digest('hex');
-console.log(`Verified V2TKeyboardListener.exe sha256=${hash}`);
+const audioControl = files.find((file) => file.endsWith('V2TAudioControl.exe'));
+if (!audioControl) {
+  throw new Error('Windows release is missing V2TAudioControl.exe');
+}
+
+for (const file of [listener, audioControl]) {
+  const hash = createHash('sha256').update(await readFile(file)).digest('hex');
+  console.log(`Verified ${file.split(/[\\/]/).pop()} sha256=${hash}`);
+}
 
 async function listFiles(root) {
   const result = [];

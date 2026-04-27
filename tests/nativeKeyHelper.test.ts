@@ -7,6 +7,7 @@ import {
   cleanupStaleWinKeyServerProcesses,
   cleanupStableWinKeyServer,
   ensureStableMacKeyServer,
+  resolveBundledV2TAudioControlPath,
   resolveBundledV2TKeyboardListenerPath,
   resolveBundledMacKeyServerPath,
   selectStaleWinKeyServerProcesses,
@@ -73,6 +74,12 @@ describe('native key helper', () => {
     );
     expect(stableV2TKeyboardListenerPath('C:\\Users\\me\\AppData\\Roaming\\V2T')).toBe(
       'C:\\Users\\me\\AppData\\Roaming\\V2T\\keyboard-listener\\V2TKeyboardListener.exe'
+    );
+  });
+
+  it('resolves the V2T Windows audio control helper from dist/native', () => {
+    expect(resolveBundledV2TAudioControlPath('C:\\Program Files\\V2T\\resources\\app.asar\\dist\\main')).toBe(
+      'C:\\Program Files\\V2T\\resources\\app.asar.unpacked\\dist\\native\\V2TAudioControl.exe'
     );
   });
 

@@ -53,6 +53,7 @@ export interface V2TApi {
   saveSettings(settings: Settings): Promise<{ settings: Settings; hotkeyStatus?: HotkeyStatus }>;
   muteSystemAudioForRecording(): Promise<{ ok: boolean; error?: string }>;
   restoreSystemAudioAfterRecording(): Promise<{ ok: boolean; error?: string }>;
+  copySystemAudioDiagnostics(): Promise<{ ok: true }>;
   getLexicon(): Promise<Lexicon>;
   saveLexicon(lexicon: Lexicon): Promise<LexiconSaveResult>;
   getPrompts(): Promise<PromptFiles>;
@@ -208,6 +209,7 @@ const api: V2TApi = {
   saveSettings: (settings) => ipcRenderer.invoke('v2t:save-settings', settings),
   muteSystemAudioForRecording: () => ipcRenderer.invoke('v2t:mute-system-audio-for-recording'),
   restoreSystemAudioAfterRecording: () => ipcRenderer.invoke('v2t:restore-system-audio-after-recording'),
+  copySystemAudioDiagnostics: () => ipcRenderer.invoke('v2t:copy-system-audio-diagnostics'),
   getLexicon: () => ipcRenderer.invoke('v2t:get-lexicon'),
   saveLexicon: (lexicon) => ipcRenderer.invoke('v2t:save-lexicon', lexicon),
   getPrompts: () => ipcRenderer.invoke('v2t:get-prompts'),

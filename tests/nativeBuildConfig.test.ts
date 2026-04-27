@@ -9,8 +9,11 @@ describe('native helper build configuration', () => {
     };
     const nativeBuildScript = await readFile(new URL('../scripts/build-native.mjs', import.meta.url), 'utf8');
     const windowsBuildScript = await readFile(new URL('../scripts/build-windows-key-listener.mjs', import.meta.url), 'utf8');
+    const windowsVerifyScript = await readFile(new URL('../scripts/verify-windows-release.mjs', import.meta.url), 'utf8');
     const cargoToml = await readFile(new URL('../native/windows-key-listener/Cargo.toml', import.meta.url), 'utf8');
     const windowsSource = await readFile(new URL('../native/windows-key-listener/src/main.rs', import.meta.url), 'utf8');
+    const audioCargoToml = await readFile(new URL('../native/windows-audio-control/Cargo.toml', import.meta.url), 'utf8');
+    const audioSource = await readFile(new URL('../native/windows-audio-control/src/main.rs', import.meta.url), 'utf8');
     const swiftSource = await readFile(new URL('../native/MacKeyServer/main.swift', import.meta.url), 'utf8');
 
     expect(packageJson.scripts['build:native']).toBe('node scripts/build-native.mjs');
@@ -21,8 +24,11 @@ describe('native helper build configuration', () => {
     expect(packageJson.build.mac.identity).not.toBe('-');
     expect(nativeBuildScript).toContain('build-windows-key-listener.mjs');
     expect(windowsBuildScript).toContain('V2TKeyboardListener.exe');
+    expect(windowsBuildScript).toContain('V2TAudioControl.exe');
     expect(windowsBuildScript).toContain('cargo');
+    expect(windowsVerifyScript).toContain('V2TAudioControl.exe');
     expect(cargoToml).toContain('windows');
+    expect(audioCargoToml).toContain('Win32_Media_Audio');
     expect(windowsSource).toContain('RegisterRawInputDevices');
     expect(windowsSource).toContain('RIDEV_INPUTSINK');
     expect(windowsSource).toContain('normalize_side_specific_vkey');
@@ -30,6 +36,9 @@ describe('native helper build configuration', () => {
     expect(windowsSource).toContain('VK_RMENU');
     expect(windowsSource).not.toContain('SetWindowsHookEx');
     expect(windowsSource).not.toContain('SendInput');
+    expect(audioSource).toContain('IAudioEndpointVolume');
+    expect(audioSource).toContain('SetMute');
+    expect(audioSource).toContain('GetDefaultAudioEndpoint');
     expect(swiftSource).toContain('CGPreflightListenEventAccess');
     expect(swiftSource).toContain('CGRequestListenEventAccess');
     expect(swiftSource).toContain('options: .listenOnly');

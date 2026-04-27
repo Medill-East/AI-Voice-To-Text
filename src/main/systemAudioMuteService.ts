@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { resolveBundledV2TAudioControlPath } from './nativeKeyHelper';
 
 const execFileAsync = promisify(execFile);
 
@@ -10,15 +11,29 @@ export interface SystemAudioSnapshot {
 }
 
 type CommandRunner = (file: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
+type SystemAudioAction = 'read' | 'mute' | 'restore';
+
+export interface SystemAudioDiagnostic {
+  platform: NodeJS.Platform;
+  action: SystemAudioAction;
+  helperPath?: string;
+  stdout?: string;
+  stderr?: string;
+  error?: string;
+  at: string;
+}
 
 export class SystemAudioMuteService {
   private snapshot: SystemAudioSnapshot | undefined;
+  private lastDiagnostic: SystemAudioDiagnostic | undefined;
   private readonly platform: NodeJS.Platform;
   private readonly run: CommandRunner;
+  private readonly audioControlPath: string | undefined;
 
-  constructor(options: { platform?: NodeJS.Platform; run?: CommandRunner } = {}) {
+  constructor(options: { platform?: NodeJS.Platform; run?: CommandRunner; audioControlPath?: string } = {}) {
     this.platform = options.platform ?? process.platform;
     this.run = options.run ?? ((file, args) => execFileAsync(file, args, { timeout: 5000 }));
+    this.audioControlPath = options.audioControlPath ?? (this.platform === 'win32' ? resolveBundledV2TAudioControlPath(__dirname) : undefined);
   }
 
   async mute(): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -35,7 +50,7 @@ export class SystemAudioMuteService {
 
       if (this.platform === 'win32') {
         this.snapshot = await this.readWindowsSnapshot();
-        await this.run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', windowsAudioScript('mute')]);
+        await this.runWindowsAudioControl('mute', []);
         return { ok: true };
       }
 
@@ -63,13 +78,7 @@ export class SystemAudioMuteService {
       }
 
       if (snapshot.platform === 'win32') {
-        await this.run('powershell.exe', [
-          '-NoProfile',
-          '-ExecutionPolicy',
-          'Bypass',
-          '-Command',
-          windowsAudioScript('restore', snapshot.volume, snapshot.muted)
-        ]);
+        await this.runWindowsAudioControl('restore', ['--volume', String(clampVolume(snapshot.volume)), '--muted', snapshot.muted ? 'true' : 'false']);
         return { ok: true };
       }
 
@@ -95,7 +104,7 @@ export class SystemAudioMuteService {
   }
 
   private async readWindowsSnapshot(): Promise<SystemAudioSnapshot> {
-    const { stdout } = await this.run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', windowsAudioScript('read')]);
+    const { stdout } = await this.runWindowsAudioControl('read', []);
     const payload = JSON.parse(stdout.trim()) as { muted?: boolean; volume?: number };
     return {
       platform: 'win32',
@@ -103,46 +112,48 @@ export class SystemAudioMuteService {
       volume: Number(payload.volume)
     };
   }
-}
 
-function windowsAudioScript(action: 'read' | 'mute' | 'restore', volume = 1, muted = false): string {
-  const restoreVolume = Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 1;
-  return `
-Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-[Guid("BCDE0395-E52F-467C-8E3D-C4579291692E"), ComImport] public class MMDeviceEnumerator {}
-public enum EDataFlow { eRender, eCapture, eAll }
-public enum ERole { eConsole, eMultimedia, eCommunications }
-[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-public interface IMMDeviceEnumerator { int NotImpl1(); int GetDefaultAudioEndpoint(EDataFlow dataFlow, ERole role, out IMMDevice endpoint); }
-[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-public interface IMMDevice { int Activate(ref Guid iid, int dwClsCtx, IntPtr pActivationParams, out IAudioEndpointVolume endpointVolume); }
-[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-public interface IAudioEndpointVolume {
- int RegisterControlChangeNotify(IntPtr pNotify); int UnregisterControlChangeNotify(IntPtr pNotify);
- int GetChannelCount(out int channelCount); int SetMasterVolumeLevel(float level, Guid eventContext);
- int SetMasterVolumeLevelScalar(float level, Guid eventContext); int GetMasterVolumeLevel(out float level);
- int GetMasterVolumeLevelScalar(out float level); int SetChannelVolumeLevel(uint channelNumber, float level, Guid eventContext);
- int SetChannelVolumeLevelScalar(uint channelNumber, float level, Guid eventContext); int GetChannelVolumeLevel(uint channelNumber, out float level);
- int GetChannelVolumeLevelScalar(uint channelNumber, out float level); int SetMute([MarshalAs(UnmanagedType.Bool)] bool isMuted, Guid eventContext);
- int GetMute(out bool isMuted); int GetVolumeStepInfo(out uint step, out uint stepCount); int VolumeStepUp(Guid eventContext);
- int VolumeStepDown(Guid eventContext); int QueryHardwareSupport(out uint hardwareSupportMask); int GetVolumeRange(out float volumeMin, out float volumeMax, out float volumeStep);
-}
-public class AudioEndpoint {
- public static IAudioEndpointVolume Volume() {
-  IMMDeviceEnumerator enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumerator());
-  IMMDevice device; Marshal.ThrowExceptionForHR(enumerator.GetDefaultAudioEndpoint(EDataFlow.eRender, ERole.eMultimedia, out device));
-  Guid iid = typeof(IAudioEndpointVolume).GUID; IAudioEndpointVolume volume;
-  Marshal.ThrowExceptionForHR(device.Activate(ref iid, 23, IntPtr.Zero, out volume)); return volume;
- }
-}
-"@
-$endpoint = [AudioEndpoint]::Volume()
-${action === 'read' ? '$muted = $false; $level = 0.0; [void]$endpoint.GetMute([ref]$muted); [void]$endpoint.GetMasterVolumeLevelScalar([ref]$level); @{ muted = $muted; volume = $level } | ConvertTo-Json -Compress' : ''}
-${action === 'mute' ? '[void]$endpoint.SetMute($true, [Guid]::Empty)' : ''}
-${action === 'restore' ? `[void]$endpoint.SetMasterVolumeLevelScalar(${restoreVolume}, [Guid]::Empty); [void]$endpoint.SetMute($${muted ? 'true' : 'false'}, [Guid]::Empty)` : ''}
-`;
+  getLastDiagnostic(): SystemAudioDiagnostic | undefined {
+    return this.lastDiagnostic;
+  }
+
+  private async runWindowsAudioControl(action: SystemAudioAction, args: string[]): Promise<{ stdout: string; stderr: string }> {
+    const helperPath = this.audioControlPath;
+    if (!helperPath) {
+      const error = new Error('V2TAudioControl.exe 路径未配置');
+      this.recordWindowsDiagnostic(action, error);
+      throw error;
+    }
+
+    try {
+      const result = await this.run(helperPath, [action, ...args]);
+      this.lastDiagnostic = {
+        platform: 'win32',
+        action,
+        helperPath,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        at: new Date().toISOString()
+      };
+      return result;
+    } catch (error) {
+      this.recordWindowsDiagnostic(action, error);
+      throw error;
+    }
+  }
+
+  private recordWindowsDiagnostic(action: SystemAudioAction, error: unknown): void {
+    const details = error as { stdout?: unknown; stderr?: unknown };
+    this.lastDiagnostic = {
+      platform: 'win32',
+      action,
+      helperPath: this.audioControlPath,
+      stdout: typeof details.stdout === 'string' ? details.stdout : undefined,
+      stderr: typeof details.stderr === 'string' ? details.stderr : undefined,
+      error: readableError(error),
+      at: new Date().toISOString()
+    };
+  }
 }
 
 function readableError(error: unknown): string {
@@ -153,17 +164,25 @@ function readableWindowsAudioError(error: unknown): string {
   const text = readableError(error);
   const compact = text.replace(/\s+/g, ' ').trim().slice(0, 220);
 
-  if (/Add-Type|SOURCE_CODE_ERROR|COMPILER_ERRORS|CS0050|可访问性|inconsistent accessibility/i.test(text)) {
-    return `Windows 系统声音静音失败：音频控制脚本编译失败。${compact}`;
+  if (/ENOENT|not found|找不到|V2TAudioControl\.exe 路径未配置/i.test(text)) {
+    return 'Windows 音频控制组件启动失败：V2TAudioControl.exe 未找到。';
   }
 
-  if (/GetDefaultAudioEndpoint|0x88890004|找不到默认|default audio endpoint|playback device|播放设备/i.test(text)) {
-    return `Windows 系统声音静音失败：找不到默认播放设备。${compact}`;
+  if (/audio-control-error=.*GetDefaultAudioEndpoint|default audio endpoint|0x88890004|播放设备/i.test(text)) {
+    return 'Windows 音频控制组件找不到默认播放设备。';
   }
 
-  if (/SetMute|InvokeMethodOnNull|Null 值|endpoint/i.test(text)) {
-    return `Windows 系统声音静音失败：无法切换默认播放设备静音。${compact}`;
+  if (/SetMute|SetMasterVolumeLevelScalar|IAudioEndpointVolume/i.test(text)) {
+    return 'Windows 音频控制组件静音失败。';
   }
 
-  return `Windows 系统声音静音失败：${compact || '未知错误'}`;
+  if (/Unexpected token|JSON|position|parse/i.test(text)) {
+    return 'Windows 音频控制组件返回了无效状态。';
+  }
+
+  return `Windows 音频控制组件失败：${compact || '未知错误'}`;
+}
+
+function clampVolume(volume: number | undefined): number {
+  return Number.isFinite(volume) ? Math.max(0, Math.min(1, Number(volume))) : 1;
 }

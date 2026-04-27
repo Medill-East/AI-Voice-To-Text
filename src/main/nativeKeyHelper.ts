@@ -41,6 +41,11 @@ export function resolveBundledV2TKeyboardListenerPath(mainDir: string): string {
   return unpackedAsarPath(joinPath(mainDir, '..', 'native', 'V2TKeyboardListener.exe'));
 }
 
+export function resolveBundledV2TAudioControlPath(mainDir: string): string {
+  const joinPath = mainDir.includes('\\') ? win32.join : join;
+  return unpackedAsarPath(joinPath(mainDir, '..', 'native', 'V2TAudioControl.exe'));
+}
+
 export function bundledMacKeyServerPath(): string {
   return unpackedAsarPath(require.resolve('node-global-key-listener/bin/MacKeyServer'));
 }
