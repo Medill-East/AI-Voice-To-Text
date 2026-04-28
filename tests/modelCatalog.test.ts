@@ -25,9 +25,9 @@ describe('model catalog recommendation', () => {
     const recommendations = recommendModels(DEFAULT_MODEL_CATALOG, hardware);
 
     expect(recommendations.map((item) => item.model.id)).toEqual([
-      'firered-asr2-zh-en-int8-2026-02-26',
       'qwen3-asr-0.6b',
-      'funasr-nano-int8-2025-12-30'
+      'funasr-nano-int8-2025-12-30',
+      'firered-asr2-zh-en-int8-2026-02-26'
     ]);
     expect(recommendations.every((item) => item.model.installable)).toBe(true);
     expect(recommendations.some((item) => item.model.id.includes('2024'))).toBe(false);
@@ -37,9 +37,9 @@ describe('model catalog recommendation', () => {
     expect(recommendations[0].scoreBreakdown.map((item) => item.label)).toEqual(
       expect.arrayContaining(['普通话', '方言/粤语', '中英混输', '本机运行', '硬件匹配', '体积'])
     );
-    expect(recommendations[1].model.sherpaModelType).toBe('qwen3Asr');
-    expect(recommendations[1].model.evaluationSources?.chineseBenchmark?.note).toContain('支持中文');
-    expect(recommendations[1].model.evaluationSources?.openAsrLeaderboard?.exactModelMatch).toBe(true);
+    expect(recommendations[0].model.sherpaModelType).toBe('qwen3Asr');
+    expect(recommendations[0].model.evaluationSources?.chineseBenchmark?.note).toContain('支持中文');
+    expect(recommendations[0].model.evaluationSources?.openAsrLeaderboard?.exactModelMatch).toBe(true);
   });
 
   it('does not let English Open ASR rank override Chinese relevance', () => {
@@ -77,7 +77,7 @@ describe('model catalog recommendation', () => {
 
     const recommendations = recommendModels(catalog, hardware);
 
-    expect(recommendations[0].model.id).toBe('firered-asr2-zh-en-int8-2026-02-26');
+    expect(recommendations[0].model.id).toBe('qwen3-asr-0.6b');
     expect(recommendations[0].model.id).not.toBe('openai-whisper-large-v3');
   });
 
@@ -136,5 +136,16 @@ describe('model catalog recommendation', () => {
     expect(installable.every((model) => oneClickEligibility(model).eligible)).toBe(true);
     expect(oneClickEligibility(DEFAULT_MODEL_CATALOG.find((model) => model.id === 'cohere-transcribe-03-2026')!).reasons.join(' ')).toContain('不能作为本地一键模型');
     expect(oneClickEligibility(DEFAULT_MODEL_CATALOG.find((model) => model.id === 'stepaudio-2-5-asr')!).reasons.join(' ')).toContain('外部/云端服务');
+  });
+
+  it('marks Qwen3-ASR and Fun-ASR-Nano as natural dictation candidates before SenseVoice', () => {
+    const qwen = DEFAULT_MODEL_CATALOG.find((model) => model.id === 'qwen3-asr-0.6b')!;
+    const funasr = DEFAULT_MODEL_CATALOG.find((model) => model.id === 'funasr-nano-int8-2025-12-30')!;
+    const senseVoice = DEFAULT_MODEL_CATALOG.find((model) => model.id === 'sensevoice-onnx-int8-2025-09-09')!;
+
+    expect(qwen.qualityTags).toContain('自然录入');
+    expect(funasr.qualityTags).toContain('自然录入');
+    expect(senseVoice.qualityTags).toContain('高速');
+    expect(senseVoice.qualityTags).not.toContain('自然录入');
   });
 });

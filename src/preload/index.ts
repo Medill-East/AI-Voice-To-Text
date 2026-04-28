@@ -10,6 +10,7 @@ import type {
   HistoryEntry,
   InstalledModelView,
   Lexicon,
+  LexiconTextKind,
   LlmInstallerActionResult,
   LlmInstallerTarget,
   LlmProviderDetection,
@@ -56,6 +57,9 @@ export interface V2TApi {
   copySystemAudioDiagnostics(): Promise<{ ok: true }>;
   getLexicon(): Promise<Lexicon>;
   saveLexicon(lexicon: Lexicon): Promise<LexiconSaveResult>;
+  getLexiconTextPaths(): Promise<Record<LexiconTextKind, string>>;
+  openLexiconTextFile(kind: LexiconTextKind): Promise<{ ok: boolean; path: string; error?: string }>;
+  importLexiconTextFiles(): Promise<LexiconSaveResult>;
   getPrompts(): Promise<PromptFiles>;
   savePrompt(mode: InputMode, content: string): Promise<PromptSaveResult>;
   resetPrompt(mode: InputMode): Promise<PromptSaveResult>;
@@ -107,7 +111,7 @@ export interface V2TApi {
   testCloudLlmConnection(options?: { baseUrl?: string; model?: string }): Promise<LlmTestResult>;
   getCloudLlmModels(): Promise<CloudLlmModelCatalogState>;
   refreshCloudLlmModels(): Promise<CloudLlmModelCatalogState>;
-  setOpenAtLogin(openAtLogin: boolean): Promise<{ ok: true; settings: Settings }>;
+  setOpenAtLogin(openAtLogin: boolean, silentOpenAtLogin?: boolean): Promise<{ ok: true; settings: Settings }>;
   openModelDownloadUrl(modelId: string): Promise<{ ok: boolean; error?: string }>;
   copyModelDownloadUrl(modelId: string): Promise<{ ok: boolean; error?: string }>;
   processAudio(payload: { bytes: Uint8Array; mode: InputMode }): Promise<VoiceInputPipelineResult>;
@@ -212,6 +216,9 @@ const api: V2TApi = {
   copySystemAudioDiagnostics: () => ipcRenderer.invoke('v2t:copy-system-audio-diagnostics'),
   getLexicon: () => ipcRenderer.invoke('v2t:get-lexicon'),
   saveLexicon: (lexicon) => ipcRenderer.invoke('v2t:save-lexicon', lexicon),
+  getLexiconTextPaths: () => ipcRenderer.invoke('v2t:get-lexicon-text-paths'),
+  openLexiconTextFile: (kind) => ipcRenderer.invoke('v2t:open-lexicon-text-file', kind),
+  importLexiconTextFiles: () => ipcRenderer.invoke('v2t:import-lexicon-text-files'),
   getPrompts: () => ipcRenderer.invoke('v2t:get-prompts'),
   savePrompt: (mode, content) => ipcRenderer.invoke('v2t:save-prompt', mode, content),
   resetPrompt: (mode) => ipcRenderer.invoke('v2t:reset-prompt', mode),
@@ -263,7 +270,7 @@ const api: V2TApi = {
   testCloudLlmConnection: (options) => ipcRenderer.invoke('v2t:test-cloud-llm', options),
   getCloudLlmModels: () => ipcRenderer.invoke('v2t:get-cloud-llm-models'),
   refreshCloudLlmModels: () => ipcRenderer.invoke('v2t:refresh-cloud-llm-models'),
-  setOpenAtLogin: (openAtLogin) => ipcRenderer.invoke('v2t:set-open-at-login', openAtLogin),
+  setOpenAtLogin: (openAtLogin, silentOpenAtLogin) => ipcRenderer.invoke('v2t:set-open-at-login', openAtLogin, silentOpenAtLogin),
   openModelDownloadUrl: (modelId) => ipcRenderer.invoke('v2t:open-model-download-url', modelId),
   copyModelDownloadUrl: (modelId) => ipcRenderer.invoke('v2t:copy-model-download-url', modelId),
   processAudio: async (payload) => {

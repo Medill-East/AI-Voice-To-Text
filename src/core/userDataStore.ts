@@ -1,7 +1,8 @@
 import { copyFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join, parse } from 'node:path';
-import type { HistoryEntry, InputMode, Lexicon, PromptFiles, Settings, UsageAggregate, UsageStatistics } from './types';
+import type { HistoryEntry, InputMode, Lexicon, LexiconTextKind, PromptFiles, Settings, UsageAggregate, UsageStatistics } from './types';
+import { lexiconPatchFromText, lexiconText, normalizeLexicon } from './lexiconTools';
 import { naturalPrompt, structuredPrompt } from './postProcessor';
 
 interface StoreOptions {
@@ -17,11 +18,13 @@ const DEFAULT_SETTINGS: Settings = {
     theme: 'system'
   },
   recording: {
-    muteSystemAudio: false
+    muteSystemAudio: false,
+    maxDurationMinutes: 10
   },
   paths: {},
   startup: {
-    openAtLogin: false
+    openAtLogin: false,
+    silentOpenAtLogin: true
   },
   hotkey: {
     accelerator: 'CommandOrControl+Shift+Space',
@@ -99,11 +102,42 @@ export class UserDataStore {
   }
 
   async loadLexicon(): Promise<Lexicon> {
-    return this.readJsonTracked<Lexicon>('lexicon.json');
+    return normalizeLexicon(await this.readJsonTracked<Lexicon>('lexicon.json'));
   }
 
   async saveLexicon(lexicon: Lexicon): Promise<void> {
-    await this.writeJsonTracked('lexicon.json', lexicon);
+    const normalized = normalizeLexicon(lexicon);
+    await this.writeJsonTracked('lexicon.json', normalized);
+    await this.writeLexiconTextFiles(normalized);
+  }
+
+  getLexiconTextPaths(): Record<LexiconTextKind, string> {
+    return {
+      terms: this.lexiconTextPath('terms'),
+      replacements: this.lexiconTextPath('replacements'),
+      blocked: this.lexiconTextPath('blocked')
+    };
+  }
+
+  async importLexiconTextFiles(): Promise<Lexicon> {
+    const patches = await Promise.all(
+      (['terms', 'replacements', 'blocked'] as const).map(async (kind) => {
+        const filePath = this.lexiconTextPath(kind);
+        if (!existsSync(filePath)) {
+          return {};
+        }
+        return lexiconPatchFromText(kind, await readFile(filePath, 'utf8'));
+      })
+    );
+    const next = normalizeLexicon({
+      version: 1,
+      terms: patches.flatMap((patch) => patch.terms ?? []),
+      replacements: patches.flatMap((patch) => patch.replacements ?? []),
+      blocked: patches.flatMap((patch) => patch.blocked ?? [])
+    });
+    await this.writeJsonTracked('lexicon.json', next);
+    await this.writeLexiconTextFiles(next);
+    return next;
   }
 
   async readPrompt(mode: InputMode): Promise<string> {
@@ -251,12 +285,16 @@ export class UserDataStore {
   private async ensureDefaults(): Promise<void> {
     await mkdir(this.baseDir, { recursive: true });
     await mkdir(join(this.baseDir, 'prompts'), { recursive: true });
+    await mkdir(join(this.baseDir, 'lexicon'), { recursive: true });
     await mkdir(join(this.baseDir, 'history', this.deviceId), { recursive: true });
     await mkdir(join(this.baseDir, 'conflicts'), { recursive: true });
     await mkdir(join(this.baseDir, 'stats'), { recursive: true });
 
     await this.ensureFile('settings.json', DEFAULT_SETTINGS);
     await this.ensureFile('lexicon.json', DEFAULT_LEXICON);
+    await this.ensureTextFile(this.lexiconTextPath('terms'), '');
+    await this.ensureTextFile(this.lexiconTextPath('replacements'), '');
+    await this.ensureTextFile(this.lexiconTextPath('blocked'), '');
     await this.ensureTextFile(join(this.baseDir, 'prompts', 'natural.md'), `${naturalPrompt()}\n`);
     await this.ensureTextFile(join(this.baseDir, 'prompts', 'structured.md'), `${structuredPrompt()}\n`);
   }
@@ -276,6 +314,16 @@ export class UserDataStore {
 
   private promptPath(mode: InputMode): string {
     return join(this.baseDir, 'prompts', `${mode}.md`);
+  }
+
+  private lexiconTextPath(kind: LexiconTextKind): string {
+    return join(this.baseDir, 'lexicon', `${kind}.txt`);
+  }
+
+  private async writeLexiconTextFiles(lexicon: Lexicon): Promise<void> {
+    await Promise.all(
+      (['terms', 'replacements', 'blocked'] as const).map((kind) => this.writeTextTracked(this.lexiconTextPath(kind), lexiconText(kind, lexicon)))
+    );
   }
 
   private async readJsonTracked<T>(fileName: JsonFile): Promise<T> {
@@ -379,7 +427,8 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
     },
     recording: {
       ...DEFAULT_SETTINGS.recording,
-      ...(raw.recording ?? {})
+      ...(raw.recording ?? {}),
+      maxDurationMinutes: normalizeRecordingDuration(raw.recording?.maxDurationMinutes)
     },
     paths: {
       ...DEFAULT_SETTINGS.paths,
@@ -514,6 +563,10 @@ function normalizeLlmEngine(rawLlm: Partial<Settings['providers']['llm']>): Sett
     return 'local';
   }
   return 'off';
+}
+
+function normalizeRecordingDuration(value: Settings['recording']['maxDurationMinutes'] | undefined): Settings['recording']['maxDurationMinutes'] {
+  return value === 5 || value === 10 || value === 20 || value === null ? value : 10;
 }
 
 function oppositeMode(mode: InputMode): InputMode {

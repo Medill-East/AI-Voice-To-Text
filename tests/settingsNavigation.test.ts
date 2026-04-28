@@ -95,6 +95,11 @@ describe('settings navigation structure', () => {
     expect(app).toContain('测试已选模型');
     expect(app).toContain('词库试运行');
     expect(app).toContain('复制词库诊断');
+    expect(app).toContain('批量录入');
+    expect(app).toContain('从文本文件导入');
+    expect(app).toContain('录音上限');
+    expect(app).toContain('开机时静默进入菜单栏');
+    expect(app).not.toContain('MAX_RECORDING_MS');
     expect(app).toContain('录音时临时静音系统输出');
     expect(app).toContain('复制静音诊断');
     expect(app).toContain('muteSystemAudioForRecording');
@@ -187,6 +192,10 @@ describe('settings navigation structure', () => {
     expect(styles).toContain('.row-check input[type="checkbox"]');
     expect(styles).toContain('.voice-options');
     expect(styles).toContain('.lexicon-trial-result');
+    expect(styles).toContain('.lexicon-bulk-grid');
+    expect(styles).toContain('.recording-limit-inline');
+    expect(styles).toContain('.natural-asr-recommendation');
+    expect(styles).toContain('.asr-model-tags');
     expect(styles).toContain('.engine-card.active span');
     expect(styles).toContain('.local-llm-suggestions');
 

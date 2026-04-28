@@ -18,6 +18,8 @@ describe('UserDataStore', () => {
     expect(settings.sync.kind).toBe('local-folder');
     expect(settings.sync.github.autoSync).toBe(false);
     expect(settings.startup.openAtLogin).toBe(false);
+    expect(settings.startup.silentOpenAtLogin).toBe(true);
+    expect(settings.recording.maxDurationMinutes).toBe(10);
     expect(settings.updates.autoCheck).toBe(true);
     expect(settings.updates.autoDownload).toBe(true);
     expect(settings.appearance.theme).toBe('system');
@@ -32,6 +34,54 @@ describe('UserDataStore', () => {
     });
     expect(settings.providers.llm).not.toHaveProperty('apiKey');
     expect(lexicon.terms).toEqual([]);
+  });
+
+  it('migrates legacy recording settings to a 10 minute limit', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-store-recording-limit-'));
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        defaultMode: 'natural',
+        recording: { muteSystemAudio: true },
+        providers: {
+          asr: { kind: 'local-sherpa-onnx', language: 'zh' },
+          llm: { enabled: false, kind: 'openai-compatible', baseUrl: '', model: '', apiKeyRef: 'system-keychain:v2t/openai-compatible' }
+        }
+      }),
+      'utf8'
+    );
+
+    const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
+    const settings = await store.loadSettings();
+
+    expect(settings.recording.muteSystemAudio).toBe(true);
+    expect(settings.recording.maxDurationMinutes).toBe(10);
+  });
+
+  it('keeps editable lexicon text files in sync with lexicon.json', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-store-lexicon-text-'));
+    const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
+
+    await store.saveLexicon({
+      version: 1,
+      terms: [{ phrase: '王小波', aliases: ['王小博'] }],
+      replacements: [{ from: 'Github', to: 'GitHub' }],
+      blocked: ['嗯']
+    });
+
+    const paths = store.getLexiconTextPaths();
+    expect(await readFile(paths.terms, 'utf8')).toContain('王小波, 王小博');
+    expect(await readFile(paths.replacements, 'utf8')).toContain('Github -> GitHub');
+
+    await writeFile(paths.terms, '许知远，许之远\n', 'utf8');
+    await writeFile(paths.replacements, '错别词 -> 正确词\n', 'utf8');
+    await writeFile(paths.blocked, '呃，啊\n', 'utf8');
+
+    const imported = await store.importLexiconTextFiles();
+    expect(imported.terms).toEqual([{ phrase: '许知远', aliases: ['许之远'], tags: undefined, caseSensitive: undefined }]);
+    expect(imported.replacements).toEqual([{ from: '错别词', to: '正确词', enabled: true }]);
+    expect(imported.blocked).toEqual(['呃', '啊']);
   });
 
   it('migrates legacy HTTP-only ASR settings to advanced HTTP mode', async () => {

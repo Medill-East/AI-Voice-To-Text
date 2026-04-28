@@ -36,6 +36,7 @@ import type {
   SyncImportStrategy,
   LlmProviderDetection,
   LlmProviderKind,
+  LexiconTextKind,
   Settings
 } from '../core/types';
 import { AsrBenchmarkRunner } from './asrBenchmarkRunner';
@@ -151,7 +152,7 @@ async function bootstrap(): Promise<void> {
   });
   cloudLlmCatalogState = await cloudLlmCatalogService.loadCached();
   autoUpdater.autoDownload = settings.updates.autoDownload;
-  applyLoginItemSettings(settings.startup.openAtLogin);
+  applyLoginItemSettings(settings.startup.openAtLogin, settings.startup.silentOpenAtLogin);
   await createModelManager().recoverInterruptedInstalls();
   hotkeyService = new HotkeyService({
     onDiagnostic: (event) => {
@@ -304,20 +305,21 @@ function registerIpc(): void {
     settings = normalizeRuntimeSettings(nextSettings);
     await store.saveSettings(settings);
     autoUpdater.autoDownload = settings.updates.autoDownload;
-    applyLoginItemSettings(settings.startup.openAtLogin);
+    applyLoginItemSettings(settings.startup.openAtLogin, settings.startup.silentOpenAtLogin);
     await registerHotkey();
     scheduleAutoSync('settings-save');
     return { settings, hotkeyStatus };
   });
-  ipcMain.handle('v2t:set-open-at-login', async (_event, openAtLogin: boolean) => {
+  ipcMain.handle('v2t:set-open-at-login', async (_event, openAtLogin: boolean, silentOpenAtLogin?: boolean) => {
     settings = normalizeRuntimeSettings({
       ...settings,
       startup: {
         ...settings.startup,
-        openAtLogin
+        openAtLogin,
+        silentOpenAtLogin: silentOpenAtLogin ?? settings.startup.silentOpenAtLogin
       }
     });
-    applyLoginItemSettings(openAtLogin);
+    applyLoginItemSettings(settings.startup.openAtLogin, settings.startup.silentOpenAtLogin);
     await store.saveSettings(settings);
     return { ok: true, settings, loginItem: app.getLoginItemSettings() };
   });
@@ -328,6 +330,21 @@ function registerIpc(): void {
     return { ok: true };
   });
   ipcMain.handle('v2t:get-lexicon', async () => store.loadLexicon());
+  ipcMain.handle('v2t:get-lexicon-text-paths', async () => store.getLexiconTextPaths());
+  ipcMain.handle('v2t:open-lexicon-text-file', async (_event, kind: LexiconTextKind) => {
+    const path = store.getLexiconTextPaths()[kind];
+    const error = await shell.openPath(path);
+    return { ok: !error, path, error: error || undefined };
+  });
+  ipcMain.handle('v2t:import-lexicon-text-files', async () => {
+    try {
+      const lexicon = await store.importLexiconTextFiles();
+      scheduleAutoSync('lexicon-text-import');
+      return { ok: true, lexicon };
+    } catch (error) {
+      return { ok: false, error: readableError(error) };
+    }
+  });
   ipcMain.handle('v2t:get-history', async (_event, limit?: number) => store.readRecentHistory(limit ?? 30));
   ipcMain.handle('v2t:get-usage-statistics', async (_event, days?: number) => enrichUsageStatistics(await store.readUsageStatistics(days ?? 30)));
   ipcMain.handle('v2t:get-prompts', async () => store.loadPrompts());
@@ -1391,10 +1408,12 @@ function normalizeRuntimeSettings(nextSettings: Settings): Settings {
     ...nextSettings,
     dataDir: store.getBaseDir(),
     recording: {
-      muteSystemAudio: nextSettings.recording?.muteSystemAudio ?? false
+      muteSystemAudio: nextSettings.recording?.muteSystemAudio ?? false,
+      maxDurationMinutes: normalizeRecordingDuration(nextSettings.recording?.maxDurationMinutes)
     },
     startup: {
-      openAtLogin: nextSettings.startup?.openAtLogin ?? false
+      openAtLogin: nextSettings.startup?.openAtLogin ?? false,
+      silentOpenAtLogin: nextSettings.startup?.silentOpenAtLogin ?? true
     },
     paths: {
       ...nextSettings.paths,
@@ -1403,10 +1422,16 @@ function normalizeRuntimeSettings(nextSettings: Settings): Settings {
   };
 }
 
-function applyLoginItemSettings(openAtLogin: boolean): void {
+function applyLoginItemSettings(openAtLogin: boolean, silentOpenAtLogin: boolean): void {
   app.setLoginItemSettings({
-    openAtLogin
+    openAtLogin,
+    openAsHidden: silentOpenAtLogin,
+    args: openAtLogin && silentOpenAtLogin ? ['--silent-start'] : []
   });
+}
+
+function normalizeRecordingDuration(value: Settings['recording']['maxDurationMinutes'] | undefined): Settings['recording']['maxDurationMinutes'] {
+  return value === 5 || value === 10 || value === 20 || value === null ? value : 10;
 }
 
 function modelDownloadUrl(modelId: string): string | undefined {
@@ -2229,11 +2254,17 @@ if (!hasSingleInstanceLock) {
   app.quit();
 } else {
   app.whenReady().then(() => {
-    void bootstrap().then(showWindow);
+    void bootstrap().then(() => {
+      if (!isSilentStartup()) {
+        showWindow();
+      }
+    });
   });
 
-  app.on('second-instance', () => {
-    showWindow();
+  app.on('second-instance', (_event, argv) => {
+    if (!argv.includes('--silent-start')) {
+      showWindow();
+    }
   });
 }
 
@@ -2247,6 +2278,10 @@ app.on('activate', () => {
 app.on('before-quit', () => {
   isQuitting = true;
 });
+
+function isSilentStartup(): boolean {
+  return process.argv.includes('--silent-start') || Boolean(app.getLoginItemSettings().wasOpenedAsHidden);
+}
 
 app.on('will-quit', () => {
   cleanupAppResources();

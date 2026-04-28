@@ -40,6 +40,8 @@ export interface Lexicon {
   blocked: string[];
 }
 
+export type LexiconTextKind = 'terms' | 'replacements' | 'blocked';
+
 export interface LexiconHit {
   kind: 'term' | 'replacement' | 'blocked';
   from: string;
@@ -63,6 +65,7 @@ export interface Settings {
   };
   recording: {
     muteSystemAudio: boolean;
+    maxDurationMinutes: 5 | 10 | 20 | null;
   };
   hotkey: {
     accelerator: string;
@@ -77,6 +80,7 @@ export interface Settings {
   };
   startup: {
     openAtLogin: boolean;
+    silentOpenAtLogin: boolean;
   };
   providers: {
     asr: {

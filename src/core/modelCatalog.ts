@@ -23,7 +23,7 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     license: 'Apache-2.0',
     sizeMb: 948,
     languages: ['中文', '英文', '日文', '中文方言'],
-    qualityTags: ['中文优先', '方言增强', '最新精选', '本地离线'],
+    qualityTags: ['中文优先', '方言增强', '最新精选', '自然录入', '高速', '低资源', '本地离线'],
     hardwareRequirements: { minMemoryGb: 16, recommendedTier: 'high' },
     archiveType: 'tar.bz2',
     extractedDir: 'sherpa-onnx-funasr-nano-int8-2025-12-30',
@@ -98,7 +98,7 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     license: 'Apache-2.0',
     sizeMb: 1185,
     languages: ['中文', '英文', '中文方言'],
-    qualityTags: ['中文优先', '方言增强', '大模型候选', '本地离线'],
+    qualityTags: ['中文优先', '方言增强', '大模型候选', '高准确', '本地离线'],
     hardwareRequirements: { minMemoryGb: 16, recommendedTier: 'high' },
     archiveType: 'tar.bz2',
     extractedDir: 'sherpa-onnx-fire-red-asr2-zh_en-int8-2026-02-26',
@@ -162,7 +162,7 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     license: 'Apache-2.0',
     sizeMb: 240,
     languages: ['中文', '粤语', '英文', '日文', '韩文'],
-    qualityTags: ['中文优先', '粤语增强', '轻量', '本地离线'],
+    qualityTags: ['中文优先', '粤语增强', '轻量', '高速', '低资源', '本地离线'],
     hardwareRequirements: { minMemoryGb: 8, recommendedTier: 'medium' },
     archiveType: 'tar.bz2',
     extractedDir: 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09',
@@ -475,7 +475,7 @@ export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
     license: 'Open',
     sizeMb: 838,
     languages: ['中文', '英文', '粤语', '多语言', '中文方言'],
-    qualityTags: ['中文优先', '方言增强', '公开榜单高分', '中文方言', '中英混输', '本地离线'],
+    qualityTags: ['中文优先', '方言增强', '公开榜单高分', '中文方言', '中英混输', '自然录入', '自然录入首推', '高准确', '本地离线'],
     hardwareRequirements: { minMemoryGb: 16, recommendedTier: 'high' },
     archiveType: 'tar.bz2',
     extractedDir: 'sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25',
@@ -663,7 +663,15 @@ export function recommendModels(
 ): ModelRecommendation[] {
   return latestInstallableByFamily(catalog)
     .map((model) => scoreModel(model, hardware, statuses[model.id] ?? 'not-installed'))
-    .sort((left, right) => right.score - left.score)
+    .sort((left, right) => {
+      if (hardware.recommendedTier !== 'low') {
+        const naturalDelta = naturalDictationPriority(right.model) - naturalDictationPriority(left.model);
+        if (naturalDelta !== 0) {
+          return naturalDelta;
+        }
+      }
+      return right.score - left.score;
+    })
     .slice(0, 3);
 }
 
@@ -697,6 +705,22 @@ function latestInstallableByFamily(catalog: ModelCatalogItem[]): ModelCatalogIte
   return [...latest.values()];
 }
 
+function naturalDictationPriority(model: ModelCatalogItem): number {
+  if (model.qualityTags.includes('自然录入首推')) {
+    return 4;
+  }
+  if (model.qualityTags.includes('自然录入')) {
+    return 3;
+  }
+  if (model.qualityTags.includes('高准确')) {
+    return 2;
+  }
+  if (model.qualityTags.includes('高速')) {
+    return 1;
+  }
+  return 0;
+}
+
 export function scoreModel(model: ModelCatalogItem, hardware: HardwareProfile, status: ModelInstallStatus): ModelRecommendation {
   let rawScore = 0;
   const reasons: string[] = [];
@@ -718,6 +742,15 @@ export function scoreModel(model: ModelCatalogItem, hardware: HardwareProfile, s
 
   if (model.qualityTags.includes('方言增强')) {
     reasons.push('方言支持更强');
+  }
+
+  if (model.qualityTags.includes('自然录入')) {
+    rawScore += 5;
+    reasons.push('更适合自然口述');
+  }
+
+  if (model.qualityTags.includes('自然录入首推')) {
+    rawScore += 10;
   }
 
   if (hardware.recommendedTier === 'low' && model.sizeMb < 500) {

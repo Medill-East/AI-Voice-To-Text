@@ -3,6 +3,7 @@ import type { MouseEvent } from 'react';
 import { cloudLlmTags, sortCloudLlmModels } from '../core/cloudLlmCatalogShared';
 import type { CloudLlmSortDirection } from '../core/cloudLlmCatalogShared';
 import { analyzeLexicon } from '../core/postProcessor';
+import { mergeLexicon, normalizeLexicon, parseBulkBlocked, parseBulkReplacements, parseBulkTerms } from '../core/lexiconTools';
 import { oneClickEligibility, oneClickInstallableModels, publicChineseMetrics, referenceModels, scoreModel } from '../core/modelCatalog';
 import { hotkeyLabelForPlatform } from '../core/hotkeyLabels';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
@@ -91,7 +92,6 @@ const CLOUD_LLM_RECOMMENDATIONS = [
     note: '中文整理稳定性通常更好；需要阿里云百炼/DashScope API Key。'
   }
 ];
-const MAX_RECORDING_MS = 5 * 60 * 1000;
 const CLOUD_MODELS_PAGE_SIZE = 20;
 
 interface LocalHistoryItem extends VoiceInputPipelineResult {
@@ -162,6 +162,9 @@ export function App() {
   const [lexiconDirty, setLexiconDirty] = useState(false);
   const [lexiconMessage, setLexiconMessage] = useState<string | null>(null);
   const [lexiconTrialInput, setLexiconTrialInput] = useState('');
+  const [lexiconBulkTerms, setLexiconBulkTerms] = useState('');
+  const [lexiconBulkReplacements, setLexiconBulkReplacements] = useState('');
+  const [lexiconBulkBlocked, setLexiconBulkBlocked] = useState('');
   const [prompts, setPrompts] = useState<PromptFiles | null>(null);
   const [promptDrafts, setPromptDrafts] = useState<{ natural: string; structured: string }>({ natural: '', structured: '' });
   const [promptDirty, setPromptDirty] = useState<{ natural: boolean; structured: boolean }>({ natural: false, structured: false });
@@ -196,6 +199,7 @@ export function App() {
   const silenceStartedAtRef = useRef<number | undefined>(undefined);
   const silenceMsRef = useRef(0);
   const recordingLimitTimerRef = useRef<number | undefined>(undefined);
+  const lexiconSaveTimerRef = useRef<number | undefined>(undefined);
   const capturedHotkeyKeysRef = useRef<Set<string>>(new Set());
 
   const applySetup = useCallback((nextSetup: SetupPayload) => {
@@ -444,9 +448,12 @@ export function App() {
       };
       recordingStateRef.current = 'recording';
       setState('recording');
-      recordingLimitTimerRef.current = window.setTimeout(() => {
-        stopRecording();
-      }, MAX_RECORDING_MS);
+      const maxDurationMs = recordingMaxDurationMs(settings?.recording.maxDurationMinutes);
+      if (maxDurationMs !== null) {
+        recordingLimitTimerRef.current = window.setTimeout(() => {
+          stopRecording();
+        }, maxDurationMs);
+      }
     } catch (caught) {
       clearRecordingLimitTimer();
       if (systemAudioMutedRef.current) {
@@ -461,7 +468,7 @@ export function App() {
       setState('error');
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [clearRecordingLimitTimer, resetInputMeter, settings?.recording.muteSystemAudio, stopRecording, updateInputMeter]);
+  }, [clearRecordingLimitTimer, resetInputMeter, settings?.recording.maxDurationMinutes, settings?.recording.muteSystemAudio, stopRecording, updateInputMeter]);
 
   const processRecording = useCallback(async (bytes: Uint8Array, activeMode: InputMode) => {
     recordingStateRef.current = 'processing';
@@ -640,8 +647,25 @@ export function App() {
     applySetup(nextSetup);
   };
 
-  const updateOpenAtLogin = async (openAtLogin: boolean) => {
-    const result = await window.v2t.setOpenAtLogin(openAtLogin);
+  const updateRecordingLimit = async (maxDurationMinutes: Settings['recording']['maxDurationMinutes']) => {
+    if (!settings) {
+      return;
+    }
+    const result = await window.v2t.saveSettings({
+      ...settings,
+      recording: {
+        ...settings.recording,
+        maxDurationMinutes
+      }
+    });
+    setSettings(result.settings);
+    setHotkeyStatus(result.hotkeyStatus);
+    const nextSetup = await window.v2t.getSetup();
+    applySetup(nextSetup);
+  };
+
+  const updateOpenAtLogin = async (openAtLogin: boolean, silentOpenAtLogin = settings?.startup.silentOpenAtLogin ?? true) => {
+    const result = await window.v2t.setOpenAtLogin(openAtLogin, silentOpenAtLogin);
     setSettings(result.settings);
     const nextSetup = await window.v2t.getSetup();
     applySetup(nextSetup);
@@ -667,25 +691,94 @@ export function App() {
   const updateLexicon = (updater: (current: Lexicon) => Lexicon) => {
     setLexicon((current) => (current ? updater(current) : current));
     setLexiconDirty(true);
-    setLexiconMessage(null);
+    setLexiconMessage('等待自动保存');
   };
 
-  const saveLexicon = async () => {
-    if (!lexicon) {
+  const saveLexicon = async (lexiconToSave: Lexicon | null = lexicon) => {
+    if (!lexiconToSave) {
       return;
     }
 
     setError(null);
-    const result = await window.v2t.saveLexicon(lexicon);
+    setLexiconMessage('正在保存');
+    const result = await window.v2t.saveLexicon(normalizeLexicon(lexiconToSave));
     if (result.ok && result.lexicon) {
       setLexicon(result.lexicon);
       setLexiconDirty(false);
-      setLexiconMessage('词库已保存');
+      setLexiconMessage('已自动保存');
       return;
     }
 
+    setLexiconMessage('保存失败');
     setError(result.error ?? '词库保存失败');
   };
+
+  const importLexiconTextFiles = async () => {
+    setError(null);
+    setLexiconMessage('正在从文本文件导入');
+    const result = await window.v2t.importLexiconTextFiles();
+    if (result.ok && result.lexicon) {
+      setLexicon(result.lexicon);
+      setLexiconDirty(false);
+      setLexiconMessage('已从文本文件导入并保存');
+      return;
+    }
+    setLexiconMessage('导入失败');
+    setError(result.error ?? '词库文本文件导入失败');
+  };
+
+  const addBulkLexiconTerms = () => {
+    const terms = parseBulkTerms(lexiconBulkTerms);
+    if (!terms.length) {
+      setLexiconMessage('没有可导入的专有名词');
+      return;
+    }
+    updateLexicon((current) => mergeLexicon(current, { terms }));
+    setLexiconBulkTerms('');
+  };
+
+  const addBulkLexiconReplacements = () => {
+    const replacements = parseBulkReplacements(lexiconBulkReplacements);
+    if (!replacements.length) {
+      setLexiconMessage('没有可导入的固定替换；请使用“错误词 -> 正确词”格式');
+      return;
+    }
+    updateLexicon((current) => mergeLexicon(current, { replacements }));
+    setLexiconBulkReplacements('');
+  };
+
+  const addBulkLexiconBlocked = () => {
+    const blocked = parseBulkBlocked(lexiconBulkBlocked);
+    if (!blocked.length) {
+      setLexiconMessage('没有可导入的禁用词');
+      return;
+    }
+    updateLexicon((current) => mergeLexicon(current, { blocked }));
+    setLexiconBulkBlocked('');
+  };
+
+  useEffect(() => {
+    if (!lexiconDirty || !lexicon) {
+      return;
+    }
+    if (hasIncompleteLexiconDraft(lexicon)) {
+      setLexiconMessage('填写完整后自动保存');
+      return;
+    }
+    if (lexiconSaveTimerRef.current !== undefined) {
+      window.clearTimeout(lexiconSaveTimerRef.current);
+    }
+    lexiconSaveTimerRef.current = window.setTimeout(() => {
+      lexiconSaveTimerRef.current = undefined;
+      void saveLexicon(lexicon);
+    }, 900);
+    return () => {
+      if (lexiconSaveTimerRef.current !== undefined) {
+        window.clearTimeout(lexiconSaveTimerRef.current);
+        lexiconSaveTimerRef.current = undefined;
+      }
+    };
+  }, [lexicon, lexiconDirty]);
 
   const applyPrompts = (nextPrompts: PromptFiles) => {
     setPrompts(nextPrompts);
@@ -1425,7 +1518,7 @@ export function App() {
           ) : null}
 
           <p className="hint mode-hint">
-            单击快捷键 {modeLabel(settings?.hotkey.singleClickMode ?? 'natural')}，双击快捷键 {modeLabel(settings?.hotkey.doubleClickMode ?? 'structured')}；窗口内录音默认使用单击模式。
+            单击快捷键 {modeLabel(settings?.hotkey.singleClickMode ?? 'natural')}，双击快捷键 {modeLabel(settings?.hotkey.doubleClickMode ?? 'structured')}；窗口内录音默认使用单击模式。录音上限：{recordingLimitLabel(settings?.recording.maxDurationMinutes)}。
           </p>
           {setup?.processingDiagnostic ? (
             <section className="setup-callout warning">
@@ -1458,6 +1551,20 @@ export function App() {
               <button className="secondary compact" onClick={() => void window.v2t.copySystemAudioDiagnostics()}>
                 复制静音诊断
               </button>
+              <div className="recording-limit-inline">
+                <span>录音上限</span>
+                <div className="segmented-control compact" role="radiogroup" aria-label="录音上限">
+                  {recordingLimitOptions().map((option) => (
+                    <button
+                      key={option.label}
+                      className={settings.recording.maxDurationMinutes === option.value ? 'active' : ''}
+                      onClick={() => void updateRecordingLimit(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <button
                 className="secondary compact"
                 onClick={() => void copyLatestLexiconDiagnostics(history[0])}
@@ -1570,6 +1677,18 @@ export function App() {
                   <button className="secondary compact" onClick={() => void refreshModelCatalog()} disabled={catalogRefreshing}>
                     {catalogRefreshing ? '刷新中' : '刷新模型榜单'}
                   </button>
+                </div>
+              </section>
+              <section className="natural-asr-recommendation">
+                <h3>自然录入推荐</h3>
+                <p className="hint">SenseVoice 速度很快，但自然长句和中英混输不一定最稳。自然口述优先试 Qwen3-ASR 0.6B；如果更在意速度和资源占用，再试 Fun-ASR-Nano。</p>
+                <div>
+                  {naturalAsrRecommendations(setup.catalog).map((item) => (
+                    <article key={item.id}>
+                      <strong>{item.title}</strong>
+                      <span>{item.reason}</span>
+                    </article>
+                  ))}
                 </div>
               </section>
               <div className="subpage-tabs">
@@ -2218,6 +2337,61 @@ export function App() {
                 />
                 <LexiconTrialResult input={lexiconTrialInput} lexicon={lexicon} />
               </section>
+              <section className="lexicon-group lexicon-bulk">
+                <div className="section-heading">
+                  <h3>批量录入</h3>
+                  <div className="inline-actions">
+                    <button className="secondary compact" onClick={() => void importLexiconTextFiles()}>
+                      从文本文件导入
+                    </button>
+                  </div>
+                </div>
+                <p className="hint">适合一次加入大量词条。导入后会自动保存到 lexicon.json；文本文件只是编辑入口。</p>
+                <div className="lexicon-bulk-grid">
+                  <label>
+                    专有名词
+                    <textarea
+                      className="no-drag"
+                      value={lexiconBulkTerms}
+                      placeholder="每行或逗号分隔，例如：王小波，许知远，Qwen3-ASR"
+                      onContextMenu={showEditMenu}
+                      onChange={(event) => setLexiconBulkTerms(event.target.value)}
+                    />
+                    <div className="inline-actions">
+                      <button className="secondary compact" onClick={addBulkLexiconTerms}>加入专有名词</button>
+                      <button className="secondary compact" onClick={() => void window.v2t.openLexiconTextFile('terms')}>打开 terms.txt</button>
+                    </div>
+                  </label>
+                  <label>
+                    固定替换
+                    <textarea
+                      className="no-drag"
+                      value={lexiconBulkReplacements}
+                      placeholder={'每行一个，例如：\n错别词 -> 正确词\nGithub => GitHub'}
+                      onContextMenu={showEditMenu}
+                      onChange={(event) => setLexiconBulkReplacements(event.target.value)}
+                    />
+                    <div className="inline-actions">
+                      <button className="secondary compact" onClick={addBulkLexiconReplacements}>加入固定替换</button>
+                      <button className="secondary compact" onClick={() => void window.v2t.openLexiconTextFile('replacements')}>打开 replacements.txt</button>
+                    </div>
+                  </label>
+                  <label>
+                    禁用词
+                    <textarea
+                      className="no-drag"
+                      value={lexiconBulkBlocked}
+                      placeholder="每行或逗号分隔，例如：嗯，呃，啊"
+                      onContextMenu={showEditMenu}
+                      onChange={(event) => setLexiconBulkBlocked(event.target.value)}
+                    />
+                    <div className="inline-actions">
+                      <button className="secondary compact" onClick={addBulkLexiconBlocked}>加入禁用词</button>
+                      <button className="secondary compact" onClick={() => void window.v2t.openLexiconTextFile('blocked')}>打开 blocked.txt</button>
+                    </div>
+                  </label>
+                </div>
+              </section>
               <section className="lexicon-group">
                 <div className="section-heading">
                   <h3>专有名词</h3>
@@ -2398,10 +2572,7 @@ export function App() {
               </section>
 
               <div className="lexicon-actions">
-                <button className="save" onClick={() => void saveLexicon()} disabled={!lexiconDirty}>
-                  保存词库
-                </button>
-                {lexiconMessage ? <p className="sync-message">{lexiconMessage}</p> : null}
+                <p className="sync-message">{lexiconMessage ?? (lexiconDirty ? '等待自动保存' : '已自动保存')}</p>
               </div>
             </>
           ) : (
@@ -2673,6 +2844,14 @@ export function App() {
             <label className="setting-check">
               <input
                 type="checkbox"
+                checked={settings.startup.silentOpenAtLogin}
+                onChange={(event) => void updateOpenAtLogin(settings.startup.openAtLogin, event.target.checked)}
+              />
+              开机时静默进入菜单栏
+            </label>
+            <label className="setting-check">
+              <input
+                type="checkbox"
                 checked={settings.recording.muteSystemAudio}
                 onChange={(event) => void updateRecordingMute(event.target.checked)}
               />
@@ -2681,6 +2860,20 @@ export function App() {
             <button className="secondary compact" onClick={() => void window.v2t.copySystemAudioDiagnostics()}>
               复制静音诊断
             </button>
+            <div className="recording-limit-setting">
+              <span>录音自动停止</span>
+              <div className="segmented-control compact" role="radiogroup" aria-label="录音自动停止">
+                {recordingLimitOptions().map((option) => (
+                  <button
+                    key={option.label}
+                    className={settings.recording.maxDurationMinutes === option.value ? 'active' : ''}
+                    onClick={() => void updateRecordingLimit(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </section>
         ) : null}
         {setup ? (
@@ -3349,6 +3542,11 @@ function AsrModelTable({
                 <div>
                   <strong>{model.name}</strong>
                   <small>{model.languages.join('/')} · {model.evaluationSources?.chineseBenchmark?.sourceLabel ?? '暂无公开中文评测来源'}</small>
+                  <div className="asr-model-tags">
+                    {model.qualityTags.filter((tag) => ['自然录入', '高速', '中英混输', '低资源', '高准确'].includes(tag)).map((tag) => (
+                      <span key={tag}>{tag}</span>
+                    ))}
+                  </div>
                 </div>
                 <ComparisonMetric value={chineseMetric.value} label={chineseMetric.label} lowerIsBetter={chineseMetric.lowerIsBetter} max={chineseMetric.max} />
                 <ComparisonMetric value={recommendation.score} label={`${recommendation.score}`} max={100} />
@@ -4327,6 +4525,52 @@ function cloudTestInlineLabel(result: CloudLlmTestResultView): string {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function recordingMaxDurationMs(value: Settings['recording']['maxDurationMinutes'] | undefined): number | null {
+  return value === null ? null : (value ?? 10) * 60 * 1000;
+}
+
+function recordingLimitLabel(value: Settings['recording']['maxDurationMinutes'] | undefined): string {
+  return value === null ? '不限时' : `${value ?? 10} 分钟`;
+}
+
+function recordingLimitOptions(): Array<{ label: string; value: Settings['recording']['maxDurationMinutes'] }> {
+  return [
+    { label: '5分钟', value: 5 },
+    { label: '10分钟', value: 10 },
+    { label: '20分钟', value: 20 },
+    { label: '不限时', value: null }
+  ];
+}
+
+function naturalAsrRecommendations(catalog: ModelCatalogItem[]): Array<{ id: string; title: string; reason: string }> {
+  const byId = new Map(catalog.map((model) => [model.id, model]));
+  return [
+    {
+      id: 'qwen3-asr-0.6b',
+      title: byId.get('qwen3-asr-0.6b')?.name ?? 'Qwen3-ASR 0.6B int8',
+      reason: '自然口述首选；中文、粤语、方言和中英混输覆盖更均衡。'
+    },
+    {
+      id: 'funasr-nano-int8-2025-12-30',
+      title: byId.get('funasr-nano-int8-2025-12-30')?.name ?? 'Fun-ASR-Nano int8',
+      reason: '速度和资源占用更友好，适合日常快速输入。'
+    },
+    {
+      id: 'sensevoice-onnx-int8-2025-09-09',
+      title: byId.get('sensevoice-onnx-int8-2025-09-09')?.name ?? 'SenseVoice ONNX int8',
+      reason: '高速轻量，适合短句和快速试用；自然长句可与上面两个模型对比。'
+    }
+  ];
+}
+
+function hasIncompleteLexiconDraft(lexicon: Lexicon): boolean {
+  return (
+    lexicon.terms.some((term) => !term.phrase.trim()) ||
+    lexicon.replacements.some((rule) => !rule.from.trim() || !rule.to.trim()) ||
+    lexicon.blocked.some((word) => !word.trim())
+  );
 }
 
 function encodeWav(chunks: Float32Array[], inputSampleRate: number, outputSampleRate: number): Uint8Array {
