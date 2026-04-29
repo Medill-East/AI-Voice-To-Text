@@ -10,6 +10,12 @@ interface StoreOptions {
 }
 
 type JsonFile = 'settings.json' | 'lexicon.json';
+type SyncedUsageSummary = UsageStatistics & {
+  generatedAt?: string;
+  importedAt?: string;
+  source?: string;
+  sourceDeviceIds?: string[];
+};
 
 const DEFAULT_SETTINGS: Settings = {
   schemaVersion: 1,
@@ -237,14 +243,37 @@ export class UserDataStore {
     const totals = createAggregate('total', '全部输入');
     const byAsr = new Map<string, UsageAccumulator>();
     const byPostProcessor = new Map<string, UsageAccumulator>();
+    const localDeviceIds = new Set<string>();
 
     for (const entry of entries) {
+      if (entry.sourceDeviceId) {
+        localDeviceIds.add(entry.sourceDeviceId);
+      }
       addEntry(totals, entry);
       const asrKey = entry.asrModelId ?? entry.asrProviderKind ?? 'legacy-unrecorded-asr';
       const asrLabel = entry.asrModelName ?? entry.asrModelId ?? entry.asrProviderKind ?? '旧记录：未记录模型';
       addEntry(getAccumulator(byAsr, asrKey, asrLabel), entry);
       const processorKey = entry.postProcessorEngine ?? 'local-rules';
       addEntry(getAccumulator(byPostProcessor, processorKey, postProcessorLabel(processorKey)), entry);
+    }
+
+    const remoteSummary = await this.readRemoteUsageSummary();
+    const includeRemoteSummary = shouldIncludeRemoteUsageSummary(remoteSummary, days, localDeviceIds, totals.count);
+    if (remoteSummary && includeRemoteSummary) {
+      addUsageSummary(totals, remoteSummary);
+      for (const row of remoteSummary.asrModels ?? []) {
+        addUsageAggregate(getAccumulator(byAsr, row.key, row.label), row);
+      }
+      for (const row of remoteSummary.postProcessors ?? []) {
+        addUsageAggregate(getAccumulator(byPostProcessor, row.key, row.label), row);
+      }
+    }
+
+    const sourceDeviceIds = new Set(localDeviceIds);
+    if (includeRemoteSummary) {
+      for (const deviceId of remoteSummary?.sourceDeviceIds ?? []) {
+        sourceDeviceIds.add(deviceId);
+      }
     }
 
     return {
@@ -256,7 +285,13 @@ export class UserDataStore {
       averageAsrMs: average(totals.asrMs, totals.asrMsCount),
       averagePostProcessMs: average(totals.postProcessMs, totals.postProcessMsCount),
       asrModels: [...byAsr.values()].map(toUsageAggregate).sort(sortUsageAggregate),
-      postProcessors: [...byPostProcessor.values()].map(toUsageAggregate).sort(sortUsageAggregate)
+      postProcessors: [...byPostProcessor.values()].map(toUsageAggregate).sort(sortUsageAggregate),
+      sourceDeviceIds: [...sourceDeviceIds].sort(),
+      localDeviceCount: localDeviceIds.size,
+      remoteGeneratedAt: remoteSummary?.generatedAt,
+      remoteImportedAt: remoteSummary?.importedAt,
+      remoteDeviceCount: remoteSummary?.sourceDeviceIds?.length,
+      remoteSummaryIncluded: includeRemoteSummary
     };
   }
 
@@ -299,6 +334,18 @@ export class UserDataStore {
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort((left, right) => (left === this.deviceId ? -1 : right === this.deviceId ? 1 : left.localeCompare(right)));
+  }
+
+  private async readRemoteUsageSummary(): Promise<SyncedUsageSummary | undefined> {
+    const filePath = join(this.baseDir, 'stats', 'remote-usage-summary.json');
+    if (!existsSync(filePath)) {
+      return undefined;
+    }
+    try {
+      return JSON.parse(await readFile(filePath, 'utf8')) as SyncedUsageSummary;
+    } catch {
+      return undefined;
+    }
   }
 
   getBaseDir(): string {
@@ -547,6 +594,62 @@ function addEntry(accumulator: UsageAccumulator, entry: HistoryEntry): void {
   if (!accumulator.lastUsedAt || entry.createdAt > accumulator.lastUsedAt) {
     accumulator.lastUsedAt = entry.createdAt;
   }
+}
+
+function shouldIncludeRemoteUsageSummary(
+  summary: SyncedUsageSummary | undefined,
+  days: number,
+  localDeviceIds: Set<string>,
+  localCount: number
+): summary is SyncedUsageSummary {
+  if (!summary || summary.days !== days || summary.totalCount <= 0) {
+    return false;
+  }
+  const remoteDeviceIds = new Set(summary.sourceDeviceIds ?? []);
+  if (remoteDeviceIds.size === 0) {
+    return localCount === 0;
+  }
+  for (const deviceId of remoteDeviceIds) {
+    if (localDeviceIds.has(deviceId)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function addUsageSummary(accumulator: UsageAccumulator, summary: UsageStatistics): void {
+  accumulator.count += summary.totalCount;
+  accumulator.audioDurationSeconds += summary.totalAudioSeconds;
+  accumulator.outputCharCount += summary.totalOutputChars;
+  addAverage(accumulator, 'totalMs', 'totalMsCount', summary.averageTotalMs, summary.totalCount);
+  addAverage(accumulator, 'asrMs', 'asrMsCount', summary.averageAsrMs, summary.totalCount);
+  addAverage(accumulator, 'postProcessMs', 'postProcessMsCount', summary.averagePostProcessMs, summary.totalCount);
+}
+
+function addUsageAggregate(accumulator: UsageAccumulator, aggregate: UsageAggregate): void {
+  accumulator.count += aggregate.count;
+  accumulator.audioDurationSeconds += aggregate.audioDurationSeconds;
+  accumulator.outputCharCount += aggregate.outputCharCount;
+  addAverage(accumulator, 'totalMs', 'totalMsCount', aggregate.averageTotalMs, aggregate.count);
+  addAverage(accumulator, 'asrMs', 'asrMsCount', aggregate.averageAsrMs, aggregate.count);
+  addAverage(accumulator, 'postProcessMs', 'postProcessMsCount', aggregate.averagePostProcessMs, aggregate.count);
+  if (!accumulator.lastUsedAt || (aggregate.lastUsedAt ?? '') > accumulator.lastUsedAt) {
+    accumulator.lastUsedAt = aggregate.lastUsedAt;
+  }
+}
+
+function addAverage(
+  accumulator: UsageAccumulator,
+  totalKey: 'totalMs' | 'asrMs' | 'postProcessMs',
+  countKey: 'totalMsCount' | 'asrMsCount' | 'postProcessMsCount',
+  averageValue: number | undefined,
+  count: number
+): void {
+  if (typeof averageValue !== 'number' || count <= 0) {
+    return;
+  }
+  accumulator[totalKey] += averageValue * count;
+  accumulator[countKey] += count;
 }
 
 function toUsageAggregate(accumulator: UsageAccumulator): UsageAggregate {

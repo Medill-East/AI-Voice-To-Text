@@ -16,6 +16,11 @@ interface HotkeyServiceOptions {
   nativeHelperPath?: string;
   nativeHelperSourcePath?: string;
   nativeHelperSignature?: string;
+  nativeHelperVersion?: string;
+  nativeHelperBundledVersion?: string;
+  helperReusedExisting?: boolean;
+  helperNeedsUpgrade?: boolean;
+  helperUpgradeReason?: string;
   hotkeyLogPath?: string;
   helperFileExists?: boolean;
   repairAttempted?: boolean;
@@ -47,6 +52,11 @@ export interface HotkeyStatus {
   nativeHelperKind?: 'mac-key-server' | 'v2t-windows-raw-input';
   helperSourcePath?: string;
   helperFileExists?: boolean;
+  nativeHelperVersion?: string;
+  nativeHelperBundledVersion?: string;
+  helperReusedExisting?: boolean;
+  helperNeedsUpgrade?: boolean;
+  helperUpgradeReason?: string;
   repairAttempted?: boolean;
   repairError?: string;
   staleHelperCount?: number;
@@ -63,7 +73,7 @@ export interface HotkeyStatus {
   lastSuppressedTapReason?: string;
   lastSuppressedTapAt?: number;
   diagnosticMessage?: string;
-  recommendedAction?: 'grant-native-helper-accessibility' | 'try-fallback-shortcut' | 'none';
+  recommendedAction?: 'grant-native-helper-accessibility' | 'try-fallback-shortcut' | 'reinstall-native-helper' | 'none';
   message?: string;
 }
 
@@ -167,6 +177,18 @@ export class HotkeyService {
 
     if (!nativeRequired) {
       const status = this.registerElectronShortcut(options, options.accelerator, false);
+      options.onStatus?.(status);
+      return status;
+    }
+
+    if (options.helperNeedsUpgrade) {
+      const status = this.fallbackStatus(options, {
+        needsAccessibilityPermission: false,
+        lastError: options.helperUpgradeReason,
+        diagnosticMessage: options.helperUpgradeReason ?? '监听组件需要升级，请重新安装监听组件后重新授权一次。',
+        recommendedAction: 'reinstall-native-helper',
+        message: '监听组件需要升级；备用快捷键已启用。'
+      });
       options.onStatus?.(status);
       return status;
     }
@@ -512,6 +534,11 @@ export class HotkeyService {
       nativeHelperKind: nativeHelperKindFor(options.platform, this.nativeHelperPath ?? options.nativeHelperPath),
       helperSourcePath: options.nativeHelperSourcePath,
       helperFileExists: options.helperFileExists,
+      nativeHelperVersion: options.nativeHelperVersion,
+      nativeHelperBundledVersion: options.nativeHelperBundledVersion,
+      helperReusedExisting: options.helperReusedExisting,
+      helperNeedsUpgrade: options.helperNeedsUpgrade,
+      helperUpgradeReason: options.helperUpgradeReason,
       repairAttempted: options.repairAttempted,
       repairError: options.repairError,
       staleHelperCount: options.staleHelperCount,
@@ -565,6 +592,11 @@ export class HotkeyService {
       nativeHelperKind: nativeHelperKindFor(options.platform, this.nativeHelperPath ?? options.nativeHelperPath),
       helperSourcePath: options.nativeHelperSourcePath,
       helperFileExists: options.helperFileExists,
+      nativeHelperVersion: options.nativeHelperVersion,
+      nativeHelperBundledVersion: options.nativeHelperBundledVersion,
+      helperReusedExisting: options.helperReusedExisting,
+      helperNeedsUpgrade: options.helperNeedsUpgrade,
+      helperUpgradeReason: options.helperUpgradeReason,
       repairAttempted: options.repairAttempted,
       repairError: options.repairError,
       staleHelperCount: options.staleHelperCount,
@@ -799,7 +831,7 @@ function helperFailureDiagnostic(platform?: NodeJS.Platform, nativeHelperPath?: 
     : stderr?.trim()
       ? `系统监听组件不可用：${stderr.trim()}`
       : `系统监听组件不可用。${helperPermissionDiagnostic(platform, nativeHelperPath)}`;
-  return `${base} 如果已添加权限但仍无效，请完全退出 V2T 后重新打开；如果仍失败，移除 MacKeyServer 和 V2T 后重新添加。`;
+  return `${base} 如果 V2T 和监听组件均已授权，请先完全退出 V2T 后重新打开；只有在提示监听组件需要升级时，才需要重新安装组件并重新授权一次。`;
 }
 
 function permissionKindFor(platform: NodeJS.Platform | undefined, accelerator: string): HotkeyStatus['permissionKind'] {

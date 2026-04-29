@@ -381,6 +381,9 @@ export interface GitHubSyncStatus {
   conflictFiles?: string[];
   defaultRepoPath?: string;
   usingDefaultRepoPath?: boolean;
+  statsLocalGeneratedAt?: string;
+  statsRemoteImportedAt?: string;
+  statsDeviceCount?: number;
 }
 
 export type SyncImportStrategy = 'none' | 'remote-over-local' | 'local-over-remote' | 'smart-merge';
@@ -536,6 +539,12 @@ export interface UsageStatistics {
   averagePostProcessMs?: number;
   asrModels: UsageAggregate[];
   postProcessors: UsageAggregate[];
+  sourceDeviceIds?: string[];
+  localDeviceCount?: number;
+  remoteGeneratedAt?: string;
+  remoteImportedAt?: string;
+  remoteDeviceCount?: number;
+  remoteSummaryIncluded?: boolean;
 }
 
 export interface AsrBenchmarkBatchState {

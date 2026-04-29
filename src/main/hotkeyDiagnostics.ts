@@ -8,6 +8,11 @@ export function createCheckingHotkeyStatus(options: {
   nativeHelperPath?: string;
   nativeHelperSourcePath?: string;
   nativeHelperSignature?: string;
+  nativeHelperVersion?: string;
+  nativeHelperBundledVersion?: string;
+  helperReusedExisting?: boolean;
+  helperNeedsUpgrade?: boolean;
+  helperUpgradeReason?: string;
   hotkeyLogPath?: string;
   helperFileExists?: boolean;
   repairAttempted?: boolean;
@@ -34,6 +39,11 @@ export function createCheckingHotkeyStatus(options: {
     nativeHelperKind: nativeHelperKindFor(options.platform, options.nativeHelperPath),
     helperSourcePath: options.nativeHelperSourcePath,
     helperFileExists: options.helperFileExists,
+    nativeHelperVersion: options.nativeHelperVersion,
+    nativeHelperBundledVersion: options.nativeHelperBundledVersion,
+    helperReusedExisting: options.helperReusedExisting,
+    helperNeedsUpgrade: options.helperNeedsUpgrade,
+    helperUpgradeReason: options.helperUpgradeReason,
     repairAttempted: options.repairAttempted,
     repairError: options.repairError,
     staleHelperCount: options.staleHelperCount,

@@ -53,6 +53,9 @@ describe('native helper build configuration', () => {
     expect(audioSource).toContain('GetDefaultAudioEndpoint');
     expect(swiftSource).toContain('CGPreflightListenEventAccess');
     expect(swiftSource).toContain('CGRequestListenEventAccess');
+    expect(swiftSource).toContain('--version');
+    expect(swiftSource).toContain('--preflight');
+    expect(swiftSource).toContain('protocolVersion');
     expect(swiftSource).toContain('options: .listenOnly');
   });
 });

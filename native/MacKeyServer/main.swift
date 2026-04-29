@@ -2,6 +2,20 @@ import Carbon
 import CoreGraphics
 import Foundation
 
+private let protocolVersion = "1"
+private let buildVersion = "v2t-mac-key-server"
+
+if CommandLine.arguments.contains("--version") {
+  print("{\"name\":\"MacKeyServer\",\"protocolVersion\":\"\(protocolVersion)\",\"buildVersion\":\"\(buildVersion)\"}")
+  exit(0)
+}
+
+if CommandLine.arguments.contains("--preflight") {
+  let listenAccess = CGPreflightListenEventAccess()
+  print("{\"listenAccess\":\(listenAccess ? "true" : "false"),\"protocolVersion\":\"\(protocolVersion)\"}")
+  exit(listenAccess ? 0 : 2)
+}
+
 private let eventMask =
   (1 << CGEventType.keyDown.rawValue) |
   (1 << CGEventType.keyUp.rawValue) |

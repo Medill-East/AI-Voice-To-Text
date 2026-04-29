@@ -410,6 +410,40 @@ describe('HotkeyService', () => {
     );
   });
 
+  it('does not start macOS native listener when helper needs an explicit upgrade', async () => {
+    const { HotkeyService } = await import('../src/main/hotkeyService');
+    const onStatus = vi.fn();
+    const nativeFactory: NativeKeyListenerFactory = {
+      addListener: vi.fn(async () => ({
+        remove: vi.fn(),
+        kill: vi.fn()
+      }))
+    };
+    const service = new HotkeyService({ nativeFactory });
+
+    const status = await service.register({
+      accelerator: 'RightAlt',
+      fallbackAccelerator: 'CommandOrControl+Alt+Space',
+      longPressMs: 250,
+      platform: 'darwin',
+      accessibilityTrusted: true,
+      nativeHelperPath: '/Users/me/Library/Application Support/V2T/keyboard-listener/MacKeyServer',
+      helperNeedsUpgrade: true,
+      helperUpgradeReason: '监听组件协议版本 0 与当前 V2T 需要的 1 不兼容。',
+      onAction: vi.fn(),
+      onStatus
+    });
+
+    expect(nativeFactory.addListener).not.toHaveBeenCalled();
+    expect(status).toMatchObject({
+      backend: 'electron-shortcut',
+      fallbackRegistered: true,
+      helperNeedsUpgrade: true,
+      recommendedAction: 'reinstall-native-helper',
+      diagnosticMessage: expect.stringContaining('协议版本')
+    });
+  });
+
   it('tests RightAlt by resolving when a RIGHT ALT native event is received', async () => {
     const { HotkeyService } = await import('../src/main/hotkeyService');
     let listener: Parameters<NativeKeyListenerFactory['addListener']>[0] | undefined;

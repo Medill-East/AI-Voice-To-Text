@@ -1,7 +1,25 @@
 import { constants } from 'node:fs';
-import { access, chmod, copyFile, mkdir, rm, stat } from 'node:fs/promises';
+import { access, chmod, copyFile, mkdir, rm } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, win32 } from 'node:path';
+
+export const V2T_MAC_KEYSERVER_PROTOCOL_VERSION = '1';
+
+export interface MacKeyServerVersion {
+  protocolVersion: string;
+  buildVersion?: string;
+}
+
+export interface MacKeyServerSetupResult {
+  path: string;
+  sourcePath: string;
+  copied: boolean;
+  reusedExisting: boolean;
+  needsHelperUpgrade: boolean;
+  targetVersion?: MacKeyServerVersion;
+  sourceVersion?: MacKeyServerVersion;
+  upgradeReason?: string;
+}
 
 export interface WindowsKeyServerProcess {
   processId: number;
@@ -64,14 +82,92 @@ export async function resolveBundledMacKeyServerPath(mainDir: string, fallbackPa
   }
 }
 
-export async function ensureStableMacKeyServer(sourcePath: string, userDataPath: string): Promise<string> {
+export async function ensureStableMacKeyServer(
+  sourcePath: string,
+  userDataPath: string,
+  options: {
+    readVersion?: (filePath: string) => MacKeyServerVersion | undefined;
+  } = {}
+): Promise<MacKeyServerSetupResult> {
+  const targetPath = stableMacKeyServerPath(userDataPath);
+  const readVersion = options.readVersion ?? readMacKeyServerVersion;
+  await mkdir(dirname(targetPath), { recursive: true });
+  const sourceVersion = readVersion(sourcePath);
+
+  if (!(await fileExists(targetPath))) {
+    await copyFile(sourcePath, targetPath);
+    await chmod(targetPath, 0o755);
+    return {
+      path: targetPath,
+      sourcePath,
+      copied: true,
+      reusedExisting: false,
+      needsHelperUpgrade: false,
+      targetVersion: readVersion(targetPath),
+      sourceVersion
+    };
+  }
+
+  const targetVersion = readVersion(targetPath);
+  if (targetVersion?.protocolVersion === V2T_MAC_KEYSERVER_PROTOCOL_VERSION) {
+    await chmod(targetPath, 0o755);
+    return {
+      path: targetPath,
+      sourcePath,
+      copied: false,
+      reusedExisting: true,
+      needsHelperUpgrade: false,
+      targetVersion,
+      sourceVersion
+    };
+  }
+
+  return {
+    path: targetPath,
+    sourcePath,
+    copied: false,
+    reusedExisting: false,
+    needsHelperUpgrade: true,
+    targetVersion,
+    sourceVersion,
+    upgradeReason: targetVersion
+      ? `监听组件协议版本 ${targetVersion.protocolVersion} 与当前 V2T 需要的 ${V2T_MAC_KEYSERVER_PROTOCOL_VERSION} 不兼容。`
+      : '稳定路径中的监听组件无法读取协议版本，可能来自旧版本或文件已损坏。'
+  };
+}
+
+export async function reinstallStableMacKeyServer(sourcePath: string, userDataPath: string): Promise<MacKeyServerSetupResult> {
   const targetPath = stableMacKeyServerPath(userDataPath);
   await mkdir(dirname(targetPath), { recursive: true });
-  if (await shouldCopy(sourcePath, targetPath)) {
-    await copyFile(sourcePath, targetPath);
-  }
+  await copyFile(sourcePath, targetPath);
   await chmod(targetPath, 0o755);
-  return targetPath;
+  return {
+    path: targetPath,
+    sourcePath,
+    copied: true,
+    reusedExisting: false,
+    needsHelperUpgrade: false,
+    targetVersion: readMacKeyServerVersion(targetPath),
+    sourceVersion: readMacKeyServerVersion(sourcePath)
+  };
+}
+
+export function readMacKeyServerVersion(filePath: string): MacKeyServerVersion | undefined {
+  const result = spawnSync(filePath, ['--version'], { encoding: 'utf8' });
+  if (result.status !== 0) {
+    return undefined;
+  }
+  const text = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
+  if (!text) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(text) as Partial<MacKeyServerVersion>;
+    return typeof parsed.protocolVersion === 'string' ? { protocolVersion: parsed.protocolVersion, buildVersion: parsed.buildVersion } : undefined;
+  } catch {
+    const match = text.match(/protocol(?:Version)?[=: ]+([0-9A-Za-z_.-]+)/i);
+    return match ? { protocolVersion: match[1] } : undefined;
+  }
 }
 
 export async function cleanupStableWinKeyServer(userDataPath: string): Promise<{ attempted: true; deleted: boolean; error?: string }> {
@@ -127,15 +223,13 @@ export function cleanupStaleWinKeyServerProcesses(options: {
   };
 }
 
-async function shouldCopy(sourcePath: string, targetPath: string): Promise<boolean> {
+async function fileExists(filePath: string): Promise<boolean> {
   try {
-    await access(targetPath, constants.F_OK);
-  } catch {
+    await access(filePath, constants.F_OK);
     return true;
+  } catch {
+    return false;
   }
-
-  const [source, target] = await Promise.all([stat(sourcePath), stat(targetPath)]);
-  return source.size !== target.size || source.mtimeMs > target.mtimeMs;
 }
 
 function listWinKeyServerProcesses(): WindowsKeyServerProcess[] {

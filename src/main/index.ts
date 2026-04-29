@@ -51,10 +51,13 @@ import {
   cleanupStaleWinKeyServerProcesses,
   cleanupStableWinKeyServer,
   ensureStableMacKeyServer,
+  reinstallStableMacKeyServer,
   resolveBundledV2TKeyboardListenerPath,
   resolveBundledMacKeyServerPath,
+  stableMacKeyServerPath,
   stableV2TKeyboardListenerPath,
   stableWinKeyServerPath,
+  type MacKeyServerSetupResult,
   type WindowsKeyServerCleanupResult
 } from './nativeKeyHelper';
 import { OsPasteKeySender } from './osPasteKeySender';
@@ -89,6 +92,11 @@ let helperRepairError: string | undefined;
 let staleHelperCount: number | undefined;
 let staleHelperKilled: number | undefined;
 let nativeHelperSignature: string | undefined;
+let nativeHelperVersion: string | undefined;
+let nativeHelperBundledVersion: string | undefined;
+let helperReusedExisting: boolean | undefined;
+let helperNeedsUpgrade: boolean | undefined;
+let helperUpgradeReason: string | undefined;
 let hotkeyLog: HotkeyDiagnosticLog;
 let autoSyncService: AutoSyncService;
 let systemAudioMuteService: SystemAudioMuteService;
@@ -985,6 +993,11 @@ async function registerHotkey(): Promise<void> {
     nativeHelperPath,
     nativeHelperSourcePath,
     nativeHelperSignature,
+    nativeHelperVersion,
+    nativeHelperBundledVersion,
+    helperReusedExisting,
+    helperNeedsUpgrade,
+    helperUpgradeReason,
     hotkeyLogPath: hotkeyLog.getPath(),
     helperFileExists,
     repairAttempted: helperRepairAttempted,
@@ -1011,6 +1024,11 @@ async function refreshHotkeyPermissions(): Promise<void> {
       nativeHelperPath,
       nativeHelperSourcePath,
       nativeHelperSignature,
+      nativeHelperVersion,
+      nativeHelperBundledVersion,
+      helperReusedExisting,
+      helperNeedsUpgrade,
+      helperUpgradeReason,
       hotkeyLogPath: hotkeyLog.getPath(),
       helperFileExists,
       repairAttempted: helperRepairAttempted,
@@ -1041,6 +1059,11 @@ async function refreshHotkeyPermissions(): Promise<void> {
       staleHelperCount,
       staleHelperKilled,
       nativeHelperSignature,
+      nativeHelperVersion,
+      nativeHelperBundledVersion,
+      helperReusedExisting,
+      helperNeedsUpgrade,
+      helperUpgradeReason,
       hotkeyLogPath: hotkeyLog.getPath(),
       appAccessibilityTrusted: getAccessibilityTrusted(),
       accessibilityTrusted: getAccessibilityTrusted(),
@@ -1054,6 +1077,18 @@ async function refreshHotkeyPermissions(): Promise<void> {
 
 async function testHotkey(accelerator: string): Promise<HotkeyTestResult> {
   await prepareNativeHelperForHotkey();
+  if (helperNeedsUpgrade) {
+    const result: HotkeyTestResult = {
+      ok: false,
+      accelerator,
+      nativeHelperPath,
+      error: helperUpgradeReason,
+      diagnosticMessage: helperUpgradeReason ?? '监听组件需要升级，请先重新安装监听组件。',
+      recommendedAction: 'reinstall-native-helper'
+    };
+    setHotkeyStatus(hotkeyStatusFromTestResult(result));
+    return result;
+  }
   setHotkeyStatus(
     createCheckingHotkeyStatus({
       accelerator,
@@ -1063,6 +1098,11 @@ async function testHotkey(accelerator: string): Promise<HotkeyTestResult> {
       nativeHelperPath,
       nativeHelperSourcePath,
       nativeHelperSignature,
+      nativeHelperVersion,
+      nativeHelperBundledVersion,
+      helperReusedExisting,
+      helperNeedsUpgrade,
+      helperUpgradeReason,
       hotkeyLogPath: hotkeyLog.getPath(),
       helperFileExists,
       repairAttempted: helperRepairAttempted,
@@ -1109,6 +1149,11 @@ function hotkeyStatusFromTestResult(result: HotkeyTestResult): HotkeyStatus {
       staleHelperCount,
       staleHelperKilled,
       nativeHelperSignature,
+      nativeHelperVersion,
+      nativeHelperBundledVersion,
+      helperReusedExisting,
+      helperNeedsUpgrade,
+      helperUpgradeReason,
       hotkeyLogPath: hotkeyLog.getPath(),
       nativeLastInfo: result.nativeLastInfo,
       lastNativeEventAt: Date.now(),
@@ -1142,6 +1187,11 @@ function hotkeyStatusFromTestResult(result: HotkeyTestResult): HotkeyStatus {
     staleHelperCount,
     staleHelperKilled,
     nativeHelperSignature,
+    nativeHelperVersion,
+    nativeHelperBundledVersion,
+    helperReusedExisting,
+    helperNeedsUpgrade,
+    helperUpgradeReason,
     hotkeyLogPath: hotkeyLog.getPath(),
     nativeLastInfo: result.nativeLastInfo,
     nativeExitCode: result.nativeExitCode,
@@ -1832,6 +1882,11 @@ async function updateHotkey(accelerator: string) {
     nativeHelperPath,
     nativeHelperSourcePath,
     nativeHelperSignature,
+    nativeHelperVersion,
+    nativeHelperBundledVersion,
+    helperReusedExisting,
+    helperNeedsUpgrade,
+    helperUpgradeReason,
     hotkeyLogPath: hotkeyLog.getPath(),
     helperFileExists,
     repairAttempted: helperRepairAttempted,
@@ -1857,9 +1912,17 @@ async function updateHotkey(accelerator: string) {
 
 async function repairHotkeyHelper() {
   try {
-    await prepareNativeHelperForHotkey();
+    if (process.platform === 'darwin') {
+      const bundledPath = await resolveBundledMacKeyServerPath(__dirname);
+      applyMacKeyServerSetup(await reinstallStableMacKeyServer(bundledPath, app.getPath('userData')));
+      helperRepairAttempted = true;
+      helperRepairError = undefined;
+      helperUpgradeReason = '监听组件已重新安装；如果系统监听仍不可用，请在 macOS Accessibility 中移除旧 MacKeyServer 后重新添加一次。';
+    } else {
+      await prepareNativeHelperForHotkey();
+    }
     await registerHotkey();
-    return { ok: !helperRepairError, setup: await getSetupPayload(), error: helperRepairError };
+    return { ok: process.platform === 'darwin' ? true : !helperRepairError, setup: await getSetupPayload(), error: helperRepairError };
   } catch (error) {
     helperRepairError = readableError(error);
     return { ok: false, setup: await getSetupPayload(), error: helperRepairError };
@@ -1906,11 +1969,34 @@ async function setupNativeKeyHelper(): Promise<string | undefined> {
 
   const bundledPath = await resolveBundledMacKeyServerPath(__dirname);
   try {
-    return await ensureStableMacKeyServer(bundledPath, app.getPath('userData'));
+    const setup = await ensureStableMacKeyServer(bundledPath, app.getPath('userData'));
+    applyMacKeyServerSetup(setup);
+    return setup.path;
   } catch (error) {
     console.warn(`Unable to install stable MacKeyServer helper: ${readableError(error)}`);
+    nativeHelperSourcePath = bundledPath;
+    nativeHelperPath = bundledPath;
+    nativeHelperStablePath = stableMacKeyServerPath(app.getPath('userData'));
+    helperFileExists = existsSync(bundledPath);
+    helperNeedsUpgrade = false;
+    helperUpgradeReason = undefined;
     return bundledPath;
   }
+}
+
+function applyMacKeyServerSetup(setup: MacKeyServerSetupResult): void {
+  nativeHelperSourcePath = setup.sourcePath;
+  nativeHelperPath = setup.path;
+  nativeHelperStablePath = setup.path;
+  helperFileExists = existsSync(setup.path);
+  helperRepairAttempted = setup.copied;
+  helperRepairError = setup.needsHelperUpgrade ? setup.upgradeReason : undefined;
+  helperNeedsUpgrade = setup.needsHelperUpgrade;
+  helperUpgradeReason = setup.upgradeReason;
+  helperReusedExisting = setup.reusedExisting;
+  nativeHelperVersion = setup.targetVersion?.protocolVersion;
+  nativeHelperBundledVersion = setup.sourceVersion?.protocolVersion;
+  nativeHelperSignature = setup.path ? readCodeSignature(setup.path) : undefined;
 }
 
 async function prepareNativeHelperForHotkey(): Promise<string | undefined> {
@@ -1923,6 +2009,11 @@ async function prepareNativeHelperForHotkey(): Promise<string | undefined> {
   nativeHelperStablePath = stableV2TKeyboardListenerPath(app.getPath('userData'));
   helperFileExists = existsSync(nativeHelperSourcePath);
   nativeHelperSignature = undefined;
+  nativeHelperVersion = undefined;
+  nativeHelperBundledVersion = undefined;
+  helperReusedExisting = undefined;
+  helperNeedsUpgrade = false;
+  helperUpgradeReason = undefined;
 
   const cleanup = await cleanupStableWinKeyServer(app.getPath('userData'));
   helperRepairAttempted = cleanup.attempted;
@@ -2007,6 +2098,11 @@ function createHotkeyDiagnosticText(): string {
     `fallback: ${status?.fallbackAccelerator ?? settings.hotkey.fallbackAccelerator ?? 'none'}`,
     `helperPath: ${nativeHelperPath ?? 'none'}`,
     `helperSourcePath: ${nativeHelperSourcePath ?? 'none'}`,
+    `helperVersion: ${status?.nativeHelperVersion ?? nativeHelperVersion ?? 'unknown'}`,
+    `bundledHelperVersion: ${status?.nativeHelperBundledVersion ?? nativeHelperBundledVersion ?? 'unknown'}`,
+    `helperReusedExisting: ${String(status?.helperReusedExisting ?? helperReusedExisting ?? 'unknown')}`,
+    `helperNeedsUpgrade: ${String(status?.helperNeedsUpgrade ?? helperNeedsUpgrade ?? 'unknown')}`,
+    `helperUpgradeReason: ${status?.helperUpgradeReason ?? helperUpgradeReason ?? 'none'}`,
     `helperFileExists: ${String(status?.helperFileExists ?? helperFileExists ?? 'unknown')}`,
     `repairAttempted: ${String(status?.repairAttempted ?? helperRepairAttempted ?? 'unknown')}`,
     `repairError: ${status?.repairError ?? helperRepairError ?? 'none'}`,
@@ -2027,7 +2123,9 @@ function createHotkeyDiagnosticText(): string {
   if (process.platform === 'darwin') {
     lines.push(
       'tccCommand: log stream --debug --predicate \'subsystem == "com.apple.TCC" AND eventMessage CONTAINS "V2T"\'',
-      'nextAction: 完全退出 V2T；在 Accessibility 中移除 V2T 和 MacKeyServer 后重新添加；再打开新版 V2T。'
+      helperNeedsUpgrade
+        ? 'nextAction: 点击“重新安装监听组件”，然后在 Accessibility 中重新添加 MacKeyServer 一次。'
+        : 'nextAction: 如果 helper 已验证，不需要重新授权；如果未授权，只给上方 helperPath 对应的 MacKeyServer 授权。'
     );
   } else if (process.platform === 'win32') {
     lines.push(

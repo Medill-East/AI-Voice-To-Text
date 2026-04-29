@@ -8,6 +8,8 @@ import { lexiconPatchFromText, lexiconText, mergeLexicon, normalizeLexicon } fro
 
 const execFileAsync = promisify(execFile);
 const LEXICON_JSON = 'lexicon.json';
+const USAGE_SUMMARY = 'stats/usage-summary.json';
+const REMOTE_USAGE_SUMMARY = 'stats/remote-usage-summary.json';
 const LEXICON_TEXT_FILES: Array<[LexiconTextKind, string]> = [
   ['terms', 'lexicon/terms.txt'],
   ['replacements', 'lexicon/replacements.txt'],
@@ -148,6 +150,7 @@ export class GitHubSyncService {
 
   async status(message?: string, patch: Partial<GitHubSyncStatus> = {}): Promise<GitHubSyncStatus> {
     const dirty = existsSync(join(this.repoDir, '.git')) ? await this.isDirty() : false;
+    const usageSummaryStatus = await readUsageSummarySyncStatus(this.dataDir);
     return {
       configured: Boolean(this.repoUrl || existsSync(join(this.repoDir, '.git'))),
       repoUrl: this.repoUrl,
@@ -157,6 +160,7 @@ export class GitHubSyncService {
       message,
       defaultRepoPath: this.defaultRepoPath,
       usingDefaultRepoPath: this.defaultRepoPath ? this.repoDir === this.defaultRepoPath : undefined,
+      ...usageSummaryStatus,
       ...patch
     };
   }
@@ -203,6 +207,10 @@ export class GitHubSyncService {
       }
 
       const incoming = await readFile(source, 'utf8');
+      if (relativePath === USAGE_SUMMARY) {
+        await importRemoteUsageSummary(this.dataDir, incoming);
+        continue;
+      }
       await backupIfChanged(target, this.dataDir, incoming);
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, incoming, 'utf8');
@@ -339,6 +347,10 @@ export class GitHubSyncService {
       if (isLexiconSyncPath(relativePath)) {
         continue;
       }
+      if (relativePath === USAGE_SUMMARY) {
+        await importRemoteUsageSummary(this.dataDir, incoming);
+        continue;
+      }
 
       if (relativePath.startsWith('history/')) {
         await mergeHistoryFile(join(this.dataDir, relativePath), incoming);
@@ -364,6 +376,10 @@ export class GitHubSyncService {
     await mergeLexiconBundleIntoData(this.dataDir, files);
     for (const [relativePath, incoming] of files) {
       if (isLexiconSyncPath(relativePath)) {
+        continue;
+      }
+      if (relativePath === USAGE_SUMMARY) {
+        await importRemoteUsageSummary(this.dataDir, incoming);
         continue;
       }
       if (relativePath.startsWith('prompts/')) {
@@ -418,7 +434,7 @@ export class GitHubSyncService {
 }
 
 export function syncFileAllowlist(includeHistory = true): string[] {
-  const files = ['settings.json', LEXICON_JSON, ...LEXICON_TEXT_FILES.map(([, path]) => path), 'prompts/natural.md', 'prompts/structured.md', 'stats/usage-summary.json'];
+  const files = ['settings.json', LEXICON_JSON, ...LEXICON_TEXT_FILES.map(([, path]) => path), 'prompts/natural.md', 'prompts/structured.md', USAGE_SUMMARY];
   return includeHistory ? [...files, 'history/'] : files;
 }
 
@@ -572,14 +588,62 @@ async function listFiles(root: string): Promise<string[]> {
 
 async function writeUsageSummaryFile(dataDir: string): Promise<void> {
   const summary = await buildUsageSummary(dataDir);
-  const target = join(dataDir, 'stats', 'usage-summary.json');
+  const target = join(dataDir, USAGE_SUMMARY);
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
 }
 
-async function buildUsageSummary(dataDir: string, days = 30): Promise<UsageStatistics & { generatedAt: string; source: string }> {
+async function importRemoteUsageSummary(dataDir: string, incoming: string): Promise<void> {
+  const parsed = JSON.parse(incoming) as UsageStatistics & { generatedAt?: string; source?: string; sourceDeviceIds?: string[] };
+  const target = join(dataDir, REMOTE_USAGE_SUMMARY);
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(
+    target,
+    `${JSON.stringify(
+      {
+        ...parsed,
+        importedAt: new Date().toISOString(),
+        source: parsed.source ?? 'v2t-remote-summary'
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+}
+
+async function readUsageSummarySyncStatus(dataDir: string): Promise<Pick<GitHubSyncStatus, 'statsLocalGeneratedAt' | 'statsRemoteImportedAt' | 'statsDeviceCount'>> {
+  const local = await readOptionalJson<UsageStatistics & { generatedAt?: string; sourceDeviceIds?: string[] }>(join(dataDir, USAGE_SUMMARY));
+  const remote = await readOptionalJson<UsageStatistics & { importedAt?: string; sourceDeviceIds?: string[] }>(join(dataDir, REMOTE_USAGE_SUMMARY));
+  const deviceIds = new Set<string>();
+  for (const id of local?.sourceDeviceIds ?? []) {
+    deviceIds.add(id);
+  }
+  for (const id of remote?.sourceDeviceIds ?? []) {
+    deviceIds.add(id);
+  }
+  return {
+    statsLocalGeneratedAt: local?.generatedAt,
+    statsRemoteImportedAt: remote?.importedAt,
+    statsDeviceCount: deviceIds.size || undefined
+  };
+}
+
+async function readOptionalJson<T>(filePath: string): Promise<T | undefined> {
+  if (!existsSync(filePath)) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(await readFile(filePath, 'utf8')) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+async function buildUsageSummary(dataDir: string, days = 30): Promise<UsageStatistics & { generatedAt: string; source: string; sourceDeviceIds: string[] }> {
   const cutoff = Date.now() - Math.max(1, days) * 24 * 60 * 60 * 1000;
   const entries = (await readAllHistoryEntries(join(dataDir, 'history'))).filter((entry) => Date.parse(entry.createdAt) >= cutoff);
+  const sourceDeviceIds = [...new Set(entries.map((entry) => entry.sourceDeviceId).filter((value): value is string => Boolean(value)))].sort();
   const totals = createUsageAccumulator('total', '全部输入');
   const byAsr = new Map<string, UsageAccumulator>();
   const byPostProcessor = new Map<string, UsageAccumulator>();
@@ -597,6 +661,8 @@ async function buildUsageSummary(dataDir: string, days = 30): Promise<UsageStati
   return {
     generatedAt: new Date().toISOString(),
     source: 'v2t-local-history',
+    sourceDeviceIds,
+    localDeviceCount: sourceDeviceIds.length,
     days,
     totalCount: totals.count,
     totalAudioSeconds: roundUsage(totals.audioDurationSeconds),
@@ -616,9 +682,11 @@ async function readAllHistoryEntries(historyRoot: string): Promise<HistoryEntry[
   const entries: HistoryEntry[] = [];
   for (const file of (await listFiles(historyRoot)).filter((item) => item.endsWith('.jsonl'))) {
     const content = await readFile(file, 'utf8');
+    const sourceDeviceId = relative(historyRoot, file).split(/[\\/]/)[0];
     for (const line of content.split('\n').map((item) => item.trim().replace(/\\n$/, '')).filter(Boolean)) {
       try {
-        entries.push(JSON.parse(line) as HistoryEntry);
+        const parsed = JSON.parse(line) as HistoryEntry;
+        entries.push({ ...parsed, sourceDeviceId: parsed.sourceDeviceId ?? sourceDeviceId });
       } catch {
         // Ignore malformed historical lines instead of blocking sync.
       }

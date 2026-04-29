@@ -2093,6 +2093,13 @@ export function App() {
           </div>
           {usageStatistics ? (
             <>
+              <p className="hint">
+                统计来源：本机历史 {usageStatistics.localDeviceCount ?? 0} 台设备
+                {usageStatistics.remoteImportedAt
+                  ? `；远端摘要${usageStatistics.remoteSummaryIncluded ? '已合并' : '已缓存未合并'}，导入时间 ${new Date(usageStatistics.remoteImportedAt).toLocaleString()}`
+                  : '；暂无远端统计摘要'}
+                {usageStatistics.sourceDeviceIds?.length ? `；参与统计设备 ${usageStatistics.sourceDeviceIds.length} 台` : ''}
+              </p>
               <div className="stats-grid">
                 <StatCard label="输入次数" value={`${usageStatistics.totalCount}`} />
                 <StatCard label="总录音时长" value={formatSeconds(usageStatistics.totalAudioSeconds)} />
@@ -2213,13 +2220,28 @@ export function App() {
                 <dd>{hotkeyStatus.helperSourcePath}</dd>
               </div>
             ) : null}
+            {hotkeyStatus?.nativeHelperVersion || hotkeyStatus?.nativeHelperBundledVersion ? (
+              <div>
+                <dt>组件版本</dt>
+                <dd>
+                  当前 {hotkeyStatus.nativeHelperVersion ?? '未知'}；随包 {hotkeyStatus.nativeHelperBundledVersion ?? '未知'}
+                  {hotkeyStatus.helperReusedExisting ? '；已复用稳定路径组件' : ''}
+                </dd>
+              </div>
+            ) : null}
+            {hotkeyStatus?.helperNeedsUpgrade || hotkeyStatus?.helperUpgradeReason ? (
+              <div>
+                <dt>组件升级</dt>
+                <dd>{hotkeyStatus.helperNeedsUpgrade ? hotkeyStatus.helperUpgradeReason ?? '监听组件需要升级。' : hotkeyStatus.helperUpgradeReason}</dd>
+              </div>
+            ) : null}
             {hotkeyStatus?.helperFileExists !== undefined ? (
               <div>
                 <dt>组件文件</dt>
                 <dd>{hotkeyStatus.helperFileExists ? '存在' : '缺失，请重新安装新版 V2T 或检查 release 包'}</dd>
               </div>
             ) : null}
-            {hotkeyStatus?.repairAttempted !== undefined ? (
+            {hotkeyStatus?.permissionKind === 'windows-native-hook' && hotkeyStatus?.repairAttempted !== undefined ? (
               <div>
                 <dt>旧组件清理</dt>
                 <dd>{hotkeyStatus.repairError ? `失败：${hotkeyStatus.repairError}` : hotkeyStatus.repairAttempted ? '已检查并清理旧 WinKeyServer' : '未执行'}</dd>
@@ -2273,6 +2295,14 @@ export function App() {
               重新检测
             </button>
           </div>
+          {hotkeyStatus?.permissionKind === 'macos-accessibility' ? (
+            <div className="button-row">
+              <button className="secondary" onClick={() => void repairHotkeyHelper()}>
+                重新安装监听组件
+              </button>
+              <p className="hint">只有页面明确提示组件需要升级时才需要点击；普通版本更新会复用已授权组件。</p>
+            </div>
+          ) : null}
           {hotkeyStatus?.permissionKind === 'windows-native-hook' ? (
             <div className="button-row">
               <button className="secondary" onClick={() => void repairHotkeyHelper()}>
@@ -2448,6 +2478,20 @@ export function App() {
                 <p className="hint">
                   默认同步 stats/usage-summary.json，只包含总输入次数、总录音时长、输出字数和模型耗时聚合，不包含历史原文、ASR 原文或音频。
                 </p>
+                <dl>
+                  <div>
+                    <dt>本机摘要生成</dt>
+                    <dd>{syncStatus?.statsLocalGeneratedAt ? new Date(syncStatus.statsLocalGeneratedAt).toLocaleString() : '等待下次同步生成'}</dd>
+                  </div>
+                  <div>
+                    <dt>远端摘要导入</dt>
+                    <dd>{syncStatus?.statsRemoteImportedAt ? new Date(syncStatus.statsRemoteImportedAt).toLocaleString() : '暂无'}</dd>
+                  </div>
+                  <div>
+                    <dt>摘要设备数</dt>
+                    <dd>{syncStatus?.statsDeviceCount ?? '暂无'}</dd>
+                  </div>
+                </dl>
               </section>
               <dl>
                 <div>
@@ -4268,10 +4312,16 @@ function hotkeyPermissionHint(status?: HotkeyStatus): string {
   if (status?.permissionKind === 'none') {
     return '当前快捷键使用系统组合键注册，不需要额外权限。';
   }
-  if (status?.nativeHelperPath) {
-    return `纯修饰键需要 macOS 辅助功能权限；请给监听组件 ${status.nativeHelperPath} 开启权限。如果已添加权限但仍无效，请完全退出 V2T 后重新打开；如果仍失败，移除 MacKeyServer 和 V2T 后重新添加。`;
+  if (status?.helperNeedsUpgrade) {
+    return '监听组件协议版本需要升级。请先点击“重新安装监听组件”，然后只对新的 MacKeyServer 重新授权一次。';
   }
-  return '单键或纯修饰键需要 macOS 辅助功能权限。如果已添加权限但仍无效，请完全退出 V2T 后重新打开；如果仍失败，移除 MacKeyServer 和 V2T 后重新添加。';
+  if (status?.helperVerified || status?.nativeActive) {
+    return '监听组件已经收到系统按键事件，不需要重新添加权限。';
+  }
+  if (status?.nativeHelperPath) {
+    return `纯修饰键需要 macOS 辅助功能权限；请给监听组件 ${status.nativeHelperPath} 开启权限。如果已添加权限但仍无效，请先完全退出 V2T 后重新打开。`;
+  }
+  return '单键或纯修饰键需要 macOS 辅助功能权限。如果已添加权限但仍无效，请先完全退出 V2T 后重新打开。';
 }
 
 function hotkeyBackendLabel(backend: HotkeyStatus['backend']): string {

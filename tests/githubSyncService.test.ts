@@ -156,6 +156,50 @@ describe('GitHubSyncService', () => {
     expect(ignore).toContain('history/');
   });
 
+  it('imports remote usage summary into a separate cache even when text history sync is disabled', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'v2t-sync-remote-stats-'));
+    const dataDir = join(root, 'data');
+    const repoDir = join(root, 'repo');
+    await UserDataStore.create(dataDir, { deviceId: 'device-a' });
+    await mkdir(join(repoDir, 'stats'), { recursive: true });
+    await writeFile(
+      join(repoDir, 'stats', 'usage-summary.json'),
+      JSON.stringify(
+        {
+          generatedAt: '2026-04-30T00:00:00.000Z',
+          source: 'v2t-local-history',
+          sourceDeviceIds: ['device-b'],
+          days: 30,
+          totalCount: 2,
+          totalAudioSeconds: 20,
+          totalOutputChars: 12,
+          asrModels: [{ key: 'qwen3', label: 'Qwen3 ASR', count: 2, audioDurationSeconds: 20, outputCharCount: 12 }],
+          postProcessors: []
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
+
+    const service = new GitHubSyncService({
+      dataDir,
+      repoDir,
+      includeHistory: false,
+      git: fakeGit()
+    });
+
+    await service.importSyncFiles();
+    const status = await service.status();
+    const remote = JSON.parse(await readFile(join(dataDir, 'stats', 'remote-usage-summary.json'), 'utf8'));
+
+    expect(remote.totalCount).toBe(2);
+    expect(remote.importedAt).toBeTruthy();
+    expect(status.statsRemoteImportedAt).toBe(remote.importedAt);
+    expect(status.statsDeviceCount).toBe(1);
+    await expect(readFile(join(dataDir, 'history', 'device-b', '2026-04.jsonl'), 'utf8')).rejects.toThrow();
+  });
+
   it('pushes sync files to a bare repo and another device can pull them', async () => {
     const root = await mkdtemp(join(tmpdir(), 'v2t-sync-git-'));
     const remote = join(root, 'remote.git');

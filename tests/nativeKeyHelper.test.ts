@@ -7,6 +7,7 @@ import {
   cleanupStaleWinKeyServerProcesses,
   cleanupStableWinKeyServer,
   ensureStableMacKeyServer,
+  reinstallStableMacKeyServer,
   resolveBundledV2TAudioControlPath,
   resolveBundledV2TKeyboardListenerPath,
   resolveBundledMacKeyServerPath,
@@ -14,7 +15,8 @@ import {
   stableV2TKeyboardListenerPath,
   stableWinKeyServerPath,
   stableMacKeyServerPath,
-  unpackedAsarPath
+  unpackedAsarPath,
+  V2T_MAC_KEYSERVER_PROTOCOL_VERSION
 } from '../src/main/nativeKeyHelper';
 
 describe('native key helper', () => {
@@ -24,12 +26,67 @@ describe('native key helper', () => {
     const userData = join(root, 'Application Support', 'V2T');
     await writeFile(source, 'fake helper');
 
-    const target = await ensureStableMacKeyServer(source, userData);
+    const result = await ensureStableMacKeyServer(source, userData, {
+      readVersion: () => ({ protocolVersion: V2T_MAC_KEYSERVER_PROTOCOL_VERSION })
+    });
+    const target = result.path;
 
     expect(target).toBe(join(userData, 'keyboard-listener', 'MacKeyServer'));
     expect(target).toBe(stableMacKeyServerPath(userData));
+    expect(result).toMatchObject({ copied: true, reusedExisting: false, needsHelperUpgrade: false });
     await expect(readFile(target, 'utf8')).resolves.toBe('fake helper');
     expect((await stat(target)).mode & 0o111).not.toBe(0);
+  });
+
+  it('reuses a compatible stable MacKeyServer without overwriting permissions-sensitive file identity', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'v2t-key-helper-reuse-'));
+    const source = join(root, 'source-MacKeyServer');
+    const userData = join(root, 'Application Support', 'V2T');
+    const target = stableMacKeyServerPath(userData);
+    await mkdir(join(userData, 'keyboard-listener'), { recursive: true });
+    await writeFile(source, 'new helper');
+    await writeFile(target, 'already authorized helper');
+    const before = await stat(target);
+
+    const result = await ensureStableMacKeyServer(source, userData, {
+      readVersion: (filePath) => (filePath === target ? { protocolVersion: V2T_MAC_KEYSERVER_PROTOCOL_VERSION } : { protocolVersion: V2T_MAC_KEYSERVER_PROTOCOL_VERSION })
+    });
+
+    expect(result).toMatchObject({ copied: false, reusedExisting: true, needsHelperUpgrade: false });
+    await expect(readFile(target, 'utf8')).resolves.toBe('already authorized helper');
+    expect((await stat(target)).mtimeMs).toBe(before.mtimeMs);
+  });
+
+  it('reports a helper upgrade requirement without silently replacing incompatible MacKeyServer', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'v2t-key-helper-upgrade-'));
+    const source = join(root, 'source-MacKeyServer');
+    const userData = join(root, 'Application Support', 'V2T');
+    const target = stableMacKeyServerPath(userData);
+    await mkdir(join(userData, 'keyboard-listener'), { recursive: true });
+    await writeFile(source, 'new helper');
+    await writeFile(target, 'old helper');
+
+    const result = await ensureStableMacKeyServer(source, userData, {
+      readVersion: (filePath) => (filePath === target ? { protocolVersion: '0' } : { protocolVersion: V2T_MAC_KEYSERVER_PROTOCOL_VERSION })
+    });
+
+    expect(result).toMatchObject({ copied: false, reusedExisting: false, needsHelperUpgrade: true });
+    await expect(readFile(target, 'utf8')).resolves.toBe('old helper');
+  });
+
+  it('reinstalls MacKeyServer only when explicitly requested', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'v2t-key-helper-reinstall-'));
+    const source = join(root, 'source-MacKeyServer');
+    const userData = join(root, 'Application Support', 'V2T');
+    const target = stableMacKeyServerPath(userData);
+    await mkdir(join(userData, 'keyboard-listener'), { recursive: true });
+    await writeFile(source, 'new helper');
+    await writeFile(target, 'old helper');
+
+    const result = await reinstallStableMacKeyServer(source, userData);
+
+    expect(result).toMatchObject({ copied: true, needsHelperUpgrade: false });
+    await expect(readFile(target, 'utf8')).resolves.toBe('new helper');
   });
 
   it('resolves packaged asar paths to asar.unpacked paths', () => {

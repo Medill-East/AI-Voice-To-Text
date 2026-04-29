@@ -297,6 +297,68 @@ describe('UserDataStore', () => {
     expect(stats.asrModels[0].label).not.toContain('未知');
   });
 
+  it('merges synced usage summary when detailed history for that device is not present', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-store-remote-stats-'));
+    const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
+    await mkdir(join(dir, 'stats'), { recursive: true });
+    await writeFile(
+      join(dir, 'stats', 'remote-usage-summary.json'),
+      JSON.stringify({
+        generatedAt: '2026-04-30T00:00:00.000Z',
+        importedAt: '2026-04-30T01:00:00.000Z',
+        sourceDeviceIds: ['device-b'],
+        days: 30,
+        totalCount: 2,
+        totalAudioSeconds: 30,
+        totalOutputChars: 20,
+        averageTotalMs: 2000,
+        asrModels: [{ key: 'qwen3', label: 'Qwen3 ASR', count: 2, audioDurationSeconds: 30, outputCharCount: 20, averageTotalMs: 2000 }],
+        postProcessors: [{ key: 'llm-cloud', label: '云端 LLM', count: 2, audioDurationSeconds: 30, outputCharCount: 20 }]
+      }),
+      'utf8'
+    );
+
+    const stats = await store.readUsageStatistics(30);
+
+    expect(stats.totalCount).toBe(2);
+    expect(stats.asrModels[0]).toMatchObject({ key: 'qwen3', label: 'Qwen3 ASR', count: 2 });
+    expect(stats.remoteImportedAt).toBe('2026-04-30T01:00:00.000Z');
+    expect(stats.remoteSummaryIncluded).toBe(true);
+    expect(stats.sourceDeviceIds).toEqual(['device-b']);
+  });
+
+  it('does not double count synced summary when detailed history for the same device exists', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-store-remote-dedupe-'));
+    const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
+    await mkdir(join(dir, 'history', 'device-b'), { recursive: true });
+    await writeFile(
+      join(dir, 'history', 'device-b', '2026-04.jsonl'),
+      '{"id":"history-b","createdAt":"2026-04-30T00:00:00.000Z","mode":"natural","rawText":"a","outputText":"b","injectionMethod":"cursor","asrModelId":"qwen3"}\n',
+      'utf8'
+    );
+    await mkdir(join(dir, 'stats'), { recursive: true });
+    await writeFile(
+      join(dir, 'stats', 'remote-usage-summary.json'),
+      JSON.stringify({
+        importedAt: '2026-04-30T01:00:00.000Z',
+        sourceDeviceIds: ['device-b'],
+        days: 30,
+        totalCount: 1,
+        totalAudioSeconds: 10,
+        totalOutputChars: 10,
+        asrModels: [{ key: 'qwen3', label: 'Qwen3 ASR', count: 1, audioDurationSeconds: 10, outputCharCount: 10 }],
+        postProcessors: []
+      }),
+      'utf8'
+    );
+
+    const stats = await store.readUsageStatistics(30);
+
+    expect(stats.totalCount).toBe(1);
+    expect(stats.remoteSummaryIncluded).toBe(false);
+    expect(stats.sourceDeviceIds).toEqual(['device-b']);
+  });
+
   it('loads recent history from every synced device in reverse chronological order', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'v2t-store-'));
     const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
