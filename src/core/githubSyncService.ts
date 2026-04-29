@@ -3,9 +3,16 @@ import { existsSync } from 'node:fs';
 import { dirname, join, parse, relative } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { GitHubSyncStatus, HistoryEntry, Lexicon, SyncImportStrategy, UsageAggregate, UsageStatistics } from './types';
+import type { GitHubSyncStatus, HistoryEntry, Lexicon, LexiconTextKind, SyncImportStrategy, UsageAggregate, UsageStatistics } from './types';
+import { lexiconPatchFromText, lexiconText, mergeLexicon, normalizeLexicon } from './lexiconTools';
 
 const execFileAsync = promisify(execFile);
+const LEXICON_JSON = 'lexicon.json';
+const LEXICON_TEXT_FILES: Array<[LexiconTextKind, string]> = [
+  ['terms', 'lexicon/terms.txt'],
+  ['replacements', 'lexicon/replacements.txt'],
+  ['blocked', 'lexicon/blocked.txt']
+];
 
 type GitRunner = (args: string[], cwd?: string) => Promise<string>;
 
@@ -157,6 +164,7 @@ export class GitHubSyncService {
   async exportSyncFiles(): Promise<void> {
     await mkdir(this.repoDir, { recursive: true });
     await this.writeRepoIgnore();
+    await writeLexiconTextFilesFromJson(this.dataDir);
     await writeUsageSummaryFile(this.dataDir);
 
     for (const relativePath of syncFileAllowlist(this.includeHistory)) {
@@ -179,9 +187,13 @@ export class GitHubSyncService {
   }
 
   async importSyncFiles(): Promise<void> {
+    await this.importLexiconSyncFiles();
     for (const relativePath of syncFileAllowlist(this.includeHistory)) {
       if (relativePath === 'history/') {
         await this.importHistoryFiles();
+        continue;
+      }
+      if (isLexiconSyncPath(relativePath)) {
         continue;
       }
       const source = join(this.repoDir, relativePath);
@@ -255,6 +267,16 @@ export class GitHubSyncService {
     return files;
   }
 
+  private async importLexiconSyncFiles(): Promise<void> {
+    const files = await this.readRepoLexiconFiles();
+    const incoming = lexiconFromSyncFiles(files);
+    if (!incoming) {
+      return;
+    }
+
+    await writeLexiconBundleReplacingLocal(this.dataDir, incoming);
+  }
+
   private async exportHistoryFiles(): Promise<void> {
     const source = join(this.dataDir, 'history');
     const target = join(this.repoDir, 'history');
@@ -312,9 +334,9 @@ export class GitHubSyncService {
   }
 
   private async mergeRemoteFilesIntoData(remoteFiles: Map<string, string>): Promise<void> {
+    await mergeLexiconBundleIntoData(this.dataDir, remoteFiles);
     for (const [relativePath, incoming] of remoteFiles) {
-      if (relativePath === 'lexicon.json') {
-        await mergeLexiconFile(join(this.dataDir, relativePath), incoming);
+      if (isLexiconSyncPath(relativePath)) {
         continue;
       }
 
@@ -339,17 +361,16 @@ export class GitHubSyncService {
 
   private async mergeRepoFilesIntoDataKeepingLocalPrompts(): Promise<void> {
     const files = await this.readRepoSyncFiles();
+    await mergeLexiconBundleIntoData(this.dataDir, files);
     for (const [relativePath, incoming] of files) {
+      if (isLexiconSyncPath(relativePath)) {
+        continue;
+      }
       if (relativePath.startsWith('prompts/')) {
         const target = join(this.dataDir, relativePath);
         if (!existsSync(target) || (await readFile(target, 'utf8')) !== incoming) {
           await writeConflictBackup(relativePath, this.dataDir, incoming, 'remote');
         }
-        continue;
-      }
-
-      if (relativePath === 'lexicon.json') {
-        await mergeLexiconFile(join(this.dataDir, relativePath), incoming);
         continue;
       }
 
@@ -383,10 +404,21 @@ export class GitHubSyncService {
     }
     return files;
   }
+
+  private async readRepoLexiconFiles(): Promise<Map<string, string>> {
+    const files = new Map<string, string>();
+    for (const relativePath of lexiconSyncPaths()) {
+      const source = join(this.repoDir, relativePath);
+      if (existsSync(source)) {
+        files.set(relativePath, await readFile(source, 'utf8'));
+      }
+    }
+    return files;
+  }
 }
 
 export function syncFileAllowlist(includeHistory = false): string[] {
-  const files = ['settings.json', 'lexicon.json', 'prompts/natural.md', 'prompts/structured.md', 'stats/usage-summary.json'];
+  const files = ['settings.json', LEXICON_JSON, ...LEXICON_TEXT_FILES.map(([, path]) => path), 'prompts/natural.md', 'prompts/structured.md', 'stats/usage-summary.json'];
   return includeHistory ? [...files, 'history/'] : files;
 }
 
@@ -434,42 +466,75 @@ async function backupIfChanged(filePath: string, dataDir: string, incoming: stri
   await writeConflictBackup(filePath, dataDir, current, 'conflict');
 }
 
-async function mergeLexiconFile(filePath: string, incoming: string): Promise<void> {
-  const remote = JSON.parse(incoming) as Lexicon;
-  if (!existsSync(filePath)) {
-    await mkdir(dirname(filePath), { recursive: true });
-    await writeFile(filePath, `${JSON.stringify(remote, null, 2)}\n`, 'utf8');
+async function writeLexiconTextFilesFromJson(dataDir: string): Promise<void> {
+  const lexiconPath = join(dataDir, LEXICON_JSON);
+  if (!existsSync(lexiconPath)) {
     return;
   }
-  const local = JSON.parse(await readFile(filePath, 'utf8')) as Lexicon;
-  const merged: Lexicon = {
-    version: Math.max(local.version ?? 1, remote.version ?? 1),
-    terms: mergeTerms(local.terms, remote.terms),
-    replacements: mergeReplacements(local.replacements, remote.replacements),
-    blocked: uniqueStrings([...local.blocked, ...remote.blocked])
-  };
-  await writeFile(filePath, `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
+
+  const lexicon = normalizeLexicon(JSON.parse(await readFile(lexiconPath, 'utf8')) as Lexicon);
+  await writeLexiconBundleFiles(dataDir, lexicon);
 }
 
-function mergeTerms(local: Lexicon['terms'], remote: Lexicon['terms']): Lexicon['terms'] {
-  const byPhrase = new Map<string, Lexicon['terms'][number]>();
-  for (const term of [...remote, ...local]) {
-    const current = byPhrase.get(term.phrase);
-    byPhrase.set(term.phrase, {
-      ...current,
-      ...term,
-      aliases: uniqueStrings([...(current?.aliases ?? []), ...(term.aliases ?? [])])
-    });
-  }
-  return [...byPhrase.values()];
+async function writeLexiconBundleReplacingLocal(dataDir: string, incoming: Lexicon): Promise<void> {
+  const normalized = normalizeLexicon(incoming);
+  const target = join(dataDir, LEXICON_JSON);
+  const serialized = `${JSON.stringify(normalized, null, 2)}\n`;
+  await backupIfChanged(target, dataDir, serialized);
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, serialized, 'utf8');
+  await writeLexiconBundleFiles(dataDir, normalized);
 }
 
-function mergeReplacements(local: Lexicon['replacements'], remote: Lexicon['replacements']): Lexicon['replacements'] {
-  const rules = new Map<string, Lexicon['replacements'][number]>();
-  for (const rule of [...remote, ...local]) {
-    rules.set(`${rule.from}\u0000${rule.to}`, { ...rules.get(`${rule.from}\u0000${rule.to}`), ...rule });
+async function mergeLexiconBundleIntoData(dataDir: string, files: Map<string, string>): Promise<void> {
+  const incoming = lexiconFromSyncFiles(files);
+  if (!incoming) {
+    return;
   }
-  return [...rules.values()];
+
+  const target = join(dataDir, LEXICON_JSON);
+  const local = existsSync(target) ? normalizeLexicon(JSON.parse(await readFile(target, 'utf8')) as Lexicon) : emptyLexicon();
+  const merged = normalizeLexicon(mergeLexicon(local, incoming));
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
+  await writeLexiconBundleFiles(dataDir, merged);
+}
+
+async function writeLexiconBundleFiles(dataDir: string, lexicon: Lexicon): Promise<void> {
+  await Promise.all(
+    LEXICON_TEXT_FILES.map(async ([kind, relativePath]) => {
+      const target = join(dataDir, relativePath);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, lexiconText(kind, lexicon), 'utf8');
+    })
+  );
+}
+
+function lexiconFromSyncFiles(files: Map<string, string>): Lexicon | undefined {
+  if (!lexiconSyncPaths().some((relativePath) => files.has(relativePath))) {
+    return undefined;
+  }
+
+  let lexicon = files.has(LEXICON_JSON) ? normalizeLexicon(JSON.parse(files.get(LEXICON_JSON) ?? '{}') as Lexicon) : emptyLexicon();
+  for (const [kind, relativePath] of LEXICON_TEXT_FILES) {
+    const content = files.get(relativePath);
+    if (content !== undefined) {
+      lexicon = mergeLexicon(lexicon, lexiconPatchFromText(kind, content));
+    }
+  }
+  return normalizeLexicon(lexicon);
+}
+
+function emptyLexicon(): Lexicon {
+  return { version: 1, terms: [], replacements: [], blocked: [] };
+}
+
+function lexiconSyncPaths(): string[] {
+  return [LEXICON_JSON, ...LEXICON_TEXT_FILES.map(([, relativePath]) => relativePath)];
+}
+
+function isLexiconSyncPath(relativePath: string): boolean {
+  return relativePath === LEXICON_JSON || LEXICON_TEXT_FILES.some(([, path]) => path === relativePath);
 }
 
 async function mergeHistoryFile(filePath: string, incoming: string): Promise<void> {
@@ -671,10 +736,6 @@ async function writeConflictBackup(filePath: string, dataDir: string, content: s
   const conflictsDir = join(dataDir, 'conflicts');
   await mkdir(conflictsDir, { recursive: true });
   await writeFile(join(conflictsDir, `${parsed.name}.${stamp}.${kind}${parsed.ext}`), content, 'utf8');
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return [...new Set(values.filter(Boolean))];
 }
 
 async function runGit(args: string[], cwd?: string): Promise<string> {

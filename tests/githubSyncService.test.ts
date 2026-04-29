@@ -10,7 +10,7 @@ import { UserDataStore } from '../src/core/userDataStore';
 const execFileAsync = promisify(execFile);
 
 describe('GitHubSyncService', () => {
-  it('syncs only settings, lexicon, and prompts into the git repo', async () => {
+  it('syncs settings, prompts, stats, lexicon json, and editable lexicon text files into the git repo', async () => {
     const root = await mkdtemp(join(tmpdir(), 'v2t-sync-'));
     const dataDir = join(root, 'data');
     const repoDir = join(root, 'repo');
@@ -30,6 +30,13 @@ describe('GitHubSyncService', () => {
       }
     });
     await writeFile(join(dataDir, 'history', 'device-a', '2026-04.jsonl'), '{"secret":"history"}\n', 'utf8');
+    const lexicon = await store.loadLexicon();
+    await store.saveLexicon({
+      ...lexicon,
+      terms: [{ phrase: '王小波', aliases: ['王小博'] }],
+      replacements: [{ from: 'Github', to: 'GitHub', enabled: true }],
+      blocked: ['嗯']
+    });
 
     const service = new GitHubSyncService({
       dataDir,
@@ -42,6 +49,9 @@ describe('GitHubSyncService', () => {
     expect(syncFileAllowlist()).toEqual([
       'settings.json',
       'lexicon.json',
+      'lexicon/terms.txt',
+      'lexicon/replacements.txt',
+      'lexicon/blocked.txt',
       'prompts/natural.md',
       'prompts/structured.md',
       'stats/usage-summary.json'
@@ -53,6 +63,9 @@ describe('GitHubSyncService', () => {
     expect(exportedSettings.sync.github.localPath).toBeUndefined();
     expect(exportedSettings.sync.github.lastSyncAt).toBeUndefined();
     await expect(readFile(join(repoDir, 'lexicon.json'), 'utf8')).resolves.toContain('"terms"');
+    await expect(readFile(join(repoDir, 'lexicon', 'terms.txt'), 'utf8')).resolves.toContain('王小波, 王小博');
+    await expect(readFile(join(repoDir, 'lexicon', 'replacements.txt'), 'utf8')).resolves.toContain('Github -> GitHub');
+    await expect(readFile(join(repoDir, 'lexicon', 'blocked.txt'), 'utf8')).resolves.toContain('嗯');
     await expect(readFile(join(repoDir, 'prompts', 'natural.md'), 'utf8')).resolves.toContain('保守');
     await expect(readFile(join(repoDir, 'stats', 'usage-summary.json'), 'utf8')).resolves.toContain('"totalCount"');
     await expect(readFile(join(repoDir, 'history', 'device-a', '2026-04.jsonl'), 'utf8')).rejects.toThrow();
@@ -61,6 +74,36 @@ describe('GitHubSyncService', () => {
     expect(ignore).toContain('history/');
     expect(ignore).toContain('models/');
     expect(ignore).toContain('.env');
+  });
+
+  it('imports editable lexicon text files and writes normalized lexicon json', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'v2t-sync-lexicon-text-'));
+    const dataDir = join(root, 'data');
+    const repoDir = join(root, 'repo');
+    await UserDataStore.create(dataDir, { deviceId: 'device-a' });
+    await mkdir(join(repoDir, 'lexicon'), { recursive: true });
+    await writeFile(join(repoDir, 'lexicon.json'), '{"version":1,"terms":[{"phrase":"本地旧词"}],"replacements":[],"blocked":[]}\n', 'utf8');
+    await writeFile(join(repoDir, 'lexicon', 'terms.txt'), '王小波, 王小博\n许知远\n', 'utf8');
+    await writeFile(join(repoDir, 'lexicon', 'replacements.txt'), 'Github -> GitHub\n', 'utf8');
+    await writeFile(join(repoDir, 'lexicon', 'blocked.txt'), '嗯，呃\n', 'utf8');
+
+    const service = new GitHubSyncService({
+      dataDir,
+      repoDir,
+      git: fakeGit()
+    });
+
+    await service.importSyncFiles();
+
+    const imported = JSON.parse(await readFile(join(dataDir, 'lexicon.json'), 'utf8'));
+    expect(imported.terms).toEqual([
+      { phrase: '本地旧词', aliases: [] },
+      { phrase: '王小波', aliases: ['王小博'] },
+      { phrase: '许知远', aliases: [] }
+    ]);
+    expect(imported.replacements).toEqual([{ from: 'Github', to: 'GitHub', enabled: true }]);
+    expect(imported.blocked).toEqual(['嗯', '呃']);
+    await expect(readFile(join(dataDir, 'lexicon', 'terms.txt'), 'utf8')).resolves.toContain('王小波, 王小博');
   });
 
   it('exports aggregate usage stats by default without syncing raw history', async () => {

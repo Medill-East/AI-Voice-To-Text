@@ -97,6 +97,13 @@ describe('settings navigation structure', () => {
     expect(app).toContain('复制词库诊断');
     expect(app).toContain('批量录入');
     expect(app).toContain('从文本文件导入');
+    expect(app).toContain('lexicon.json 会作为运行时权威数据');
+    expect(app).toContain('打开 terms.txt');
+    expect(app).toContain('打开 replacements.txt');
+    expect(app).toContain('打开 blocked.txt');
+    expect(app).not.toContain('暂无专有名词');
+    expect(app).not.toContain('暂无固定替换');
+    expect(app).not.toContain('暂无禁用词');
     expect(app).toContain('录音上限');
     expect(app).toContain('开机时静默进入菜单栏');
     expect(app).not.toContain('MAX_RECORDING_MS');
@@ -153,7 +160,7 @@ describe('settings navigation structure', () => {
     expect(app).toContain('V2TKeyboardListener.exe');
     expect(app).not.toContain('className=\"mode-switch\"');
     expect(app).toContain('单独的私有仓库');
-    expect(app).toContain('settings.json、lexicon.json、prompts/natural.md、prompts/structured.md');
+    expect(app).toContain('settings.json、lexicon.json、lexicon/*.txt、prompts/natural.md、prompts/structured.md');
     expect(app).toContain('autoCapitalize="off"');
     expect(app).toContain('autoCorrect="off"');
     expect(app).toContain('spellCheck={false}');

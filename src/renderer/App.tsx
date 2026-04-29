@@ -2322,7 +2322,7 @@ export function App() {
       return (
         <section className="page-section lexicon-page">
           <h2>词库</h2>
-          <p className="hint">这些内容保存在 lexicon.json，会随 GitHub 同步推送和拉取。</p>
+          <p className="hint">lexicon.json 会作为运行时权威数据；下方批量录入和三个 TXT 文件是主要维护入口，都会随 GitHub 同步。</p>
           {lexicon ? (
             <>
               <section className="lexicon-group lexicon-trial">
@@ -2346,7 +2346,7 @@ export function App() {
                     </button>
                   </div>
                 </div>
-                <p className="hint">适合一次加入大量词条。导入后会自动保存到 lexicon.json；文本文件只是编辑入口。</p>
+                <p className="hint">适合一次加入大量词条。导入后会自动保存到 lexicon.json，并同步更新 lexicon/terms.txt、lexicon/replacements.txt、lexicon/blocked.txt。</p>
                 <div className="lexicon-bulk-grid">
                   <label>
                     专有名词
@@ -2392,185 +2392,6 @@ export function App() {
                   </label>
                 </div>
               </section>
-              <section className="lexicon-group">
-                <div className="section-heading">
-                  <h3>专有名词</h3>
-                  <button
-                    className="secondary compact"
-                    onClick={() =>
-                      updateLexicon((current) => ({
-                        ...current,
-                        terms: [...current.terms, { phrase: '', aliases: [] }]
-                      }))
-                    }
-                  >
-                    新增
-                  </button>
-                </div>
-                {lexicon.terms.length === 0 ? <p className="empty">暂无专有名词</p> : null}
-                {lexicon.terms.map((term, index) => (
-                  <article className="lexicon-row" key={`term-${index}`}>
-                    <label>
-                      词条
-                      <input
-                        value={term.phrase}
-                        onChange={(event) =>
-                          updateLexicon((current) => {
-                            const terms = [...current.terms];
-                            terms[index] = { ...(terms[index] ?? { phrase: '', aliases: [] }), phrase: event.target.value };
-                            return { ...current, terms };
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      别名
-                      <input
-                        value={(term.aliases ?? []).join(', ')}
-                        placeholder="多个别名用逗号分隔"
-                        onChange={(event) =>
-                          updateLexicon((current) => {
-                            const terms = [...current.terms];
-                            terms[index] = { ...(terms[index] ?? { phrase: '', aliases: [] }), aliases: parseDelimitedList(event.target.value) };
-                            return { ...current, terms };
-                          })
-                        }
-                      />
-                    </label>
-                    <button
-                      className="danger compact"
-                      onClick={() =>
-                        updateLexicon((current) => ({
-                          ...current,
-                          terms: current.terms.filter((_, itemIndex) => itemIndex !== index)
-                        }))
-                      }
-                    >
-                      删除
-                    </button>
-                  </article>
-                ))}
-              </section>
-
-              <section className="lexicon-group">
-                <div className="section-heading">
-                  <h3>固定替换</h3>
-                  <button
-                    className="secondary compact"
-                    onClick={() =>
-                      updateLexicon((current) => ({
-                        ...current,
-                        replacements: [...current.replacements, { from: '', to: '', enabled: true }]
-                      }))
-                    }
-                  >
-                    新增
-                  </button>
-                </div>
-                {lexicon.replacements.length === 0 ? <p className="empty">暂无固定替换</p> : null}
-                {lexicon.replacements.map((rule, index) => (
-                  <article className="lexicon-row replacement" key={`replacement-${index}`}>
-                    <label>
-                      原文
-                      <input
-                        value={rule.from}
-                        onChange={(event) =>
-                          updateLexicon((current) => {
-                            const replacements = [...current.replacements];
-                            replacements[index] = { ...(replacements[index] ?? { from: '', to: '', enabled: true }), from: event.target.value };
-                            return { ...current, replacements };
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      替换为
-                      <input
-                        value={rule.to}
-                        onChange={(event) =>
-                          updateLexicon((current) => {
-                            const replacements = [...current.replacements];
-                            replacements[index] = { ...(replacements[index] ?? { from: '', to: '', enabled: true }), to: event.target.value };
-                            return { ...current, replacements };
-                          })
-                        }
-                      />
-                    </label>
-                    <label className="inline-check">
-                      <input
-                        type="checkbox"
-                        checked={rule.enabled ?? true}
-                        onChange={(event) =>
-                          updateLexicon((current) => {
-                            const replacements = [...current.replacements];
-                            replacements[index] = { ...(replacements[index] ?? { from: '', to: '', enabled: true }), enabled: event.target.checked };
-                            return { ...current, replacements };
-                          })
-                        }
-                      />
-                      启用
-                    </label>
-                    <button
-                      className="danger compact"
-                      onClick={() =>
-                        updateLexicon((current) => ({
-                          ...current,
-                          replacements: current.replacements.filter((_, itemIndex) => itemIndex !== index)
-                        }))
-                      }
-                    >
-                      删除
-                    </button>
-                  </article>
-                ))}
-              </section>
-
-              <section className="lexicon-group">
-                <div className="section-heading">
-                  <h3>禁用词</h3>
-                  <button
-                    className="secondary compact"
-                    onClick={() =>
-                      updateLexicon((current) => ({
-                        ...current,
-                        blocked: [...current.blocked, '']
-                      }))
-                    }
-                  >
-                    新增
-                  </button>
-                </div>
-                {lexicon.blocked.length === 0 ? <p className="empty">暂无禁用词</p> : null}
-                {lexicon.blocked.map((word, index) => (
-                  <article className="lexicon-row blocked" key={`blocked-${index}`}>
-                    <label>
-                      词语
-                      <input
-                        value={word}
-                        onChange={(event) =>
-                          updateLexicon((current) => {
-                            const blocked = [...current.blocked];
-                            blocked[index] = event.target.value;
-                            return { ...current, blocked };
-                          })
-                        }
-                      />
-                    </label>
-                    <button
-                      className="danger compact"
-                      onClick={() =>
-                        updateLexicon((current) => ({
-                          ...current,
-                          blocked: current.blocked.filter((_, itemIndex) => itemIndex !== index)
-                        }))
-                      }
-                    >
-                      删除
-                    </button>
-                  </article>
-                ))}
-              </section>
-
               <div className="lexicon-actions">
                 <p className="sync-message">{lexiconMessage ?? (lexiconDirty ? '等待自动保存' : '已自动保存')}</p>
               </div>
@@ -2590,7 +2411,7 @@ export function App() {
             <>
               <p className="hint">
                 建议使用一个单独的私有仓库，例如 v2t-sync。先选择本地同步仓库位置，再连接 GitHub 仓库；连接不会自动覆盖本机提示词。
-                settings.json、lexicon.json、prompts/natural.md、prompts/structured.md。词库页保存只改本地 lexicon.json，需要点击“推送”才会写入 GitHub。
+                settings.json、lexicon.json、lexicon/*.txt、prompts/natural.md、prompts/structured.md。词库页保存只改本地数据，需要点击“推送”才会写入 GitHub。
                 模型和密钥不会同步；同步历史默认关闭，可以在这里单独开启。
               </p>
               <div className="sync-repo-path-block">
@@ -4434,13 +4255,6 @@ function hotkeyPermissionHint(status?: HotkeyStatus): string {
 
 function hotkeyBackendLabel(backend: HotkeyStatus['backend']): string {
   return backend === 'native-listener' ? '系统监听' : 'Electron 快捷键';
-}
-
-function parseDelimitedList(value: string): string[] {
-  return value
-    .split(/[,，\n]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 
 function capturedKeysFromEvent(event: React.KeyboardEvent<HTMLButtonElement>): string[] {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeLexicon, normalizeLexicon, parseBulkBlocked, parseBulkReplacements, parseBulkTerms } from '../src/core/lexiconTools';
+import { lexiconPatchFromText, mergeLexicon, normalizeLexicon, parseBulkBlocked, parseBulkReplacements, parseBulkTerms } from '../src/core/lexiconTools';
 
 describe('lexicon tools', () => {
   it('parses bulk terms separated by lines and punctuation', () => {
@@ -15,6 +15,19 @@ describe('lexicon tools', () => {
       { from: 'Github', to: 'GitHub', enabled: true },
       { from: '错别词', to: '正确词', enabled: true }
     ]);
+  });
+
+  it('parses editable lexicon text files with trimming and dedupe', () => {
+    expect(lexiconPatchFromText('terms', '王小波, 王小博\n许知远，许知远\n')).toEqual({
+      terms: [
+        { phrase: '王小波', aliases: ['王小博'], tags: undefined, caseSensitive: undefined },
+        { phrase: '许知远', aliases: [], tags: undefined, caseSensitive: undefined }
+      ]
+    });
+    expect(lexiconPatchFromText('blocked', '嗯，呃\n嗯\n')).toEqual({ blocked: ['嗯', '呃'] });
+    expect(lexiconPatchFromText('replacements', ' Github -> GitHub \nGithub -> GitHub\n')).toEqual({
+      replacements: [{ from: 'Github', to: 'GitHub', enabled: true }]
+    });
   });
 
   it('normalizes and merges lexicon content without empty duplicates', () => {
