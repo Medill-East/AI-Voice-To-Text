@@ -40,7 +40,7 @@ export class GitHubSyncService {
     this.repoDir = options.repoDir;
     this.branch = options.branch ?? 'main';
     this.repoUrl = options.repoUrl;
-    this.includeHistory = options.includeHistory ?? false;
+    this.includeHistory = options.includeHistory ?? true;
     this.defaultRepoPath = options.defaultRepoPath;
     this.git = options.git ?? runGit;
   }
@@ -417,7 +417,7 @@ export class GitHubSyncService {
   }
 }
 
-export function syncFileAllowlist(includeHistory = false): string[] {
+export function syncFileAllowlist(includeHistory = true): string[] {
   const files = ['settings.json', LEXICON_JSON, ...LEXICON_TEXT_FILES.map(([, path]) => path), 'prompts/natural.md', 'prompts/structured.md', 'stats/usage-summary.json'];
   return includeHistory ? [...files, 'history/'] : files;
 }

@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { resolveMacSigningIdentity } from './macos-signing-identity.mjs';
 
 if (process.platform !== 'darwin') {
   process.exit(0);
@@ -25,7 +26,7 @@ if (result.status !== 0) {
   process.exit(result.status ?? 1);
 }
 
-const identity = resolveSigningIdentity();
+const identity = resolveMacSigningIdentity();
 if (identity) {
   const sign = spawnSync('codesign', ['--force', '--sign', identity, output], {
     cwd: process.cwd(),
@@ -37,23 +38,4 @@ if (identity) {
   if (sign.status !== 0) {
     process.exit(sign.status ?? 1);
   }
-}
-
-function resolveSigningIdentity() {
-  if (process.env.V2T_CODESIGN_IDENTITY) {
-    return process.env.V2T_CODESIGN_IDENTITY;
-  }
-  if (process.env.CSC_NAME) {
-    return process.env.CSC_NAME;
-  }
-
-  const identities = spawnSync('security', ['find-identity', '-v', '-p', 'codesigning'], {
-    encoding: 'utf8'
-  });
-  if (identities.status !== 0 || !identities.stdout) {
-    return undefined;
-  }
-
-  const match = identities.stdout.match(/"([^"]+)"/);
-  return match?.[1];
 }

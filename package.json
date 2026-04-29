@@ -1,6 +1,6 @@
 {
   "name": "v2t",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "private": true,
   "description": "Cross-platform voice-to-text desktop app MVP.",
   "author": "Haodong",
@@ -13,8 +13,8 @@
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
     "write-build-info": "node scripts/write-build-info.mjs",
-    "package": "npm run build && node scripts/patch-osx-sign-no-timestamp.mjs && electron-builder --dir",
-    "dist": "npm run build && node scripts/patch-osx-sign-no-timestamp.mjs && electron-builder --publish=never",
+    "package": "npm run build && node scripts/patch-osx-sign-no-timestamp.mjs && node scripts/run-electron-builder.mjs --publish=never --dir",
+    "dist": "npm run build && node scripts/patch-osx-sign-no-timestamp.mjs && node scripts/run-electron-builder.mjs --publish=never",
     "dist:mac:ci": "npm run build && electron-builder --mac --publish=never -c.mac.identity=null",
     "dist:win": "npm run build && electron-builder --win --publish=never && npm run verify:win-release",
     "verify:win-release": "node scripts/verify-windows-release.mjs",
@@ -85,7 +85,6 @@
         "dmg",
         "zip"
       ],
-      "identity": "Apple Development: medilleast@outlook.com (2FJL6NHLF9)",
       "timestamp": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false

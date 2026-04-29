@@ -22,7 +22,7 @@ describe('settings navigation structure', () => {
     expect(app).toContain('公开榜单');
     expect(app).toContain('官方评测');
     expect(app).toContain('V2T 适配分');
-    expect(app).toContain('同步历史');
+    expect(app).toContain('同步文字历史');
     expect(app).toContain('自动同步');
     expect(app).toContain('一键同步');
     expect(app).toContain('选择本地同步仓库位置');
@@ -112,6 +112,11 @@ describe('settings navigation structure', () => {
     expect(app).toContain('muteSystemAudioForRecording');
     expect(app).toContain('restoreSystemAudioAfterRecording');
     expect(app).toContain('copySystemAudioDiagnostics');
+    expect(app).toContain('应用版本');
+    expect(app).toContain('构建号');
+    expect(app).toContain('Release 标签');
+    expect(app).not.toContain('v{setup.appInfo.version} · {setup.appInfo.buildCommit}');
+    expect(app).not.toContain('当前版本 v{setup.appInfo.version} · {setup.appInfo.buildCommit}');
     expect(app).toContain('cloudSortDirection');
     expect(app).toContain('按发布时间倒序');
     expect(app).toContain('cloudLlmTags');
@@ -195,6 +200,14 @@ describe('settings navigation structure', () => {
     expect(styles).toContain('.cloud-test-summary');
     expect(styles).toContain('.cloud-paid-hidden-notice');
     expect(styles).toContain('.cloud-model-list-rows');
+    expect(styles).toContain('--font-meta');
+    expect(styles).toContain('--font-body');
+    expect(styles).toContain('--control-height');
+    expect(styles).toContain('--control-height-compact');
+    expect(styles).toContain('--radius-control');
+    expect(styles).toContain('--space-3');
+    expect(styles).toContain('.version-list');
+    expect(styles).toContain('.ui-meta');
     expect(styles).not.toContain('min-width: 1120px');
     expect(styles).toContain('.row-check input[type="checkbox"]');
     expect(styles).toContain('.voice-options');

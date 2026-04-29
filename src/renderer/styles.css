@@ -17,6 +17,24 @@
   --color-danger-border: #b94b42;
   --color-warning: #c48a2c;
   --color-track: #ded9cf;
+  --color-control: var(--color-soft);
+  --font-meta: 11px;
+  --font-small: 12px;
+  --font-body: 13px;
+  --font-ui: 14px;
+  --font-section: 15px;
+  --font-title: 34px;
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 10px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 22px;
+  --radius-control: 6px;
+  --radius-panel: 8px;
+  --control-height: 36px;
+  --control-height-compact: 30px;
   color: var(--color-text);
   background: var(--color-bg);
   font-family:
@@ -45,6 +63,7 @@
   --color-danger-border: #9b5a55;
   --color-warning: #d5a251;
   --color-track: #2c352f;
+  --color-control: var(--color-soft);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -67,6 +86,7 @@
     --color-danger-border: #9b5a55;
     --color-warning: #d5a251;
     --color-track: #2c352f;
+    --color-control: var(--color-soft);
   }
 }
 
@@ -87,6 +107,13 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+button {
+  min-height: var(--control-height);
+  border-radius: var(--radius-control);
+  font-size: var(--font-body);
+  line-height: 1;
 }
 
 .shell {
@@ -147,7 +174,7 @@ label,
 .page-nav {
   display: grid;
   align-content: start;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .page-nav button {
@@ -155,9 +182,9 @@ label,
   align-items: center;
   width: 100%;
   min-height: 38px;
-  padding: 0 11px;
+  padding: 0 var(--space-5);
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--color-muted);
   text-align: left;
@@ -198,7 +225,23 @@ label,
 .build-info {
   margin-top: 7px;
   color: var(--color-muted-2);
-  font-size: 12px;
+  font-size: var(--font-small);
+}
+
+.version-list {
+  max-width: 520px;
+  margin-top: var(--space-5);
+}
+
+.version-list div {
+  grid-template-columns: 112px minmax(0, 1fr);
+  align-items: baseline;
+}
+
+.ui-meta {
+  color: var(--color-muted-2);
+  font-size: var(--font-meta);
+  line-height: 1.35;
 }
 
 h1,
@@ -208,14 +251,14 @@ p {
 }
 
 h1 {
-  font-size: 34px;
+  font-size: var(--font-title);
   line-height: 1.08;
   letter-spacing: 0;
 }
 
 h2 {
   margin-bottom: 14px;
-  font-size: 15px;
+  font-size: var(--font-section);
   letter-spacing: 0;
 }
 
@@ -224,7 +267,7 @@ h2 {
   align-items: center;
   gap: 8px;
   color: var(--color-muted);
-  font-size: 14px;
+  font-size: var(--font-ui);
 }
 
 .status-dot {
@@ -274,16 +317,16 @@ h2 {
 .setup-callout p,
 .hint {
   color: var(--color-muted);
-  font-size: 13px;
+  font-size: var(--font-body);
   line-height: 1.45;
 }
 
 .setup-callout button,
 .model-row button,
 .secondary {
-  height: 36px;
+  min-height: var(--control-height);
   border: 1px solid var(--color-text);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--color-text);
   color: var(--color-surface);
   cursor: pointer;
@@ -333,10 +376,10 @@ li {
 
 .history-meta {
   display: flex;
-  gap: 12px;
-  margin-bottom: 8px;
+  gap: var(--space-5);
+  margin-bottom: var(--space-3);
   color: var(--color-muted-2);
-  font-size: 12px;
+  font-size: var(--font-small);
 }
 
 pre {
@@ -361,32 +404,32 @@ dl div {
 
 dt {
   color: var(--color-muted-2);
-  font-size: 12px;
+  font-size: var(--font-small);
 }
 
 dd {
   overflow-wrap: anywhere;
   margin: 0;
   color: var(--color-text);
-  font-size: 13px;
+  font-size: var(--font-body);
   line-height: 1.35;
 }
 
 label {
   display: grid;
-  gap: 7px;
-  margin-bottom: 12px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
   color: var(--color-muted-2);
-  font-size: 12px;
+  font-size: var(--font-small);
 }
 
 input,
 select,
 textarea {
   width: 100%;
-  height: 36px;
+  height: var(--control-height);
   border: 1px solid var(--color-control-border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-text);
   padding: 0 10px;
@@ -403,10 +446,10 @@ textarea {
 .record-control {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 12px;
+  gap: var(--space-5);
   align-items: center;
   margin-top: 16px;
-  padding: 12px 0;
+  padding: var(--space-5) 0;
   border-top: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
 }
@@ -420,12 +463,12 @@ textarea {
 .gesture-settings span,
 .record-control p {
   color: var(--color-muted-2);
-  font-size: 12px;
+  font-size: var(--font-small);
 }
 
 .gesture-settings strong,
 .record-control strong {
-  font-size: 13px;
+  font-size: var(--font-body);
 }
 
 .record-control {
@@ -459,7 +502,7 @@ textarea {
 
 .comparison-panel h3 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--font-ui);
 }
 
 .catalog-refresh {
@@ -486,7 +529,7 @@ textarea {
 .catalog-refresh p {
   margin: 4px 0 0;
   color: var(--color-muted-2);
-  font-size: 12px;
+  font-size: var(--font-small);
 }
 
 .catalog-refresh .error-text {
@@ -552,13 +595,13 @@ textarea {
 
 .comparison-head {
   color: var(--color-muted-2);
-  font-size: 11px;
+  font-size: var(--font-meta);
 }
 
 .comparison-row {
   min-height: 36px;
   color: var(--color-text);
-  font-size: 12px;
+  font-size: var(--font-small);
 }
 
 .comparison-row strong {
@@ -1010,7 +1053,7 @@ textarea {
 .progress-meta {
   margin: 0;
   color: var(--color-muted-2);
-  font-size: 11px;
+  font-size: var(--font-meta);
 }
 
 .model-row button:disabled,
@@ -1038,6 +1081,7 @@ textarea {
 .secondary.compact,
 .danger.compact {
   align-self: end;
+  min-height: var(--control-height-compact);
   min-width: 72px;
   padding: 0 12px;
 }
@@ -1058,9 +1102,9 @@ textarea {
 }
 
 .danger {
-  height: 36px;
+  min-height: var(--control-height);
   border: 1px solid var(--color-danger-border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--color-error);
   cursor: pointer;
@@ -1070,7 +1114,7 @@ textarea {
 .sync-message {
   margin-top: 12px;
   color: var(--color-success);
-  font-size: 12px;
+  font-size: var(--font-small);
   line-height: 1.4;
 }
 
@@ -1145,35 +1189,6 @@ textarea {
 .lexicon-trial-result ul {
   margin: 6px 0 0;
   padding-left: 18px;
-}
-
-.lexicon-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: end;
-}
-
-.lexicon-row.replacement {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
-}
-
-.lexicon-row.blocked {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.inline-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  margin-bottom: 12px;
-  color: var(--color-text);
-}
-
-.inline-check input {
-  width: 16px;
-  height: 16px;
 }
 
 .lexicon-actions {
@@ -1791,9 +1806,9 @@ textarea {
 
 .save {
   width: 100%;
-  height: 38px;
+  min-height: 38px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--color-text);
   color: var(--color-surface);
   cursor: pointer;

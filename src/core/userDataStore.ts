@@ -60,7 +60,7 @@ const DEFAULT_SETTINGS: Settings = {
     kind: 'local-folder',
     github: {
       branch: 'main',
-      includeHistory: false,
+      includeHistory: true,
       autoSync: false
     }
   },
@@ -187,32 +187,28 @@ export class UserDataStore {
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)
-      .map((line) => JSON.parse(line) as HistoryEntry);
+      .map((line) => withSourceDevice(JSON.parse(line) as HistoryEntry, deviceId));
   }
 
   async readRecentHistory(limit = 30): Promise<HistoryEntry[]> {
-    const historyDir = join(this.baseDir, 'history', this.deviceId);
-    if (!existsSync(historyDir)) {
-      return [];
-    }
-
-    const files = (await readdir(historyDir))
-      .filter((file) => /^\d{4}-\d{2}\.jsonl$/.test(file))
-      .sort()
-      .reverse();
     const entries: HistoryEntry[] = [];
 
-    for (const file of files) {
-      const content = await readFile(join(historyDir, file), 'utf8');
-      entries.push(
-        ...content
-          .split('\n')
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((line) => JSON.parse(line) as HistoryEntry)
-      );
-      if (entries.length >= limit) {
-        break;
+    for (const deviceId of await this.listHistoryDeviceIds()) {
+      const historyDir = join(this.baseDir, 'history', deviceId);
+      const files = (await readdir(historyDir))
+        .filter((file) => /^\d{4}-\d{2}\.jsonl$/.test(file))
+        .sort()
+        .reverse();
+
+      for (const file of files) {
+        const content = await readFile(join(historyDir, file), 'utf8');
+        entries.push(
+          ...content
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => withSourceDevice(JSON.parse(line) as HistoryEntry, deviceId))
+        );
       }
     }
 
@@ -258,24 +254,35 @@ export class UserDataStore {
   }
 
   private async readAllDeviceHistory(): Promise<HistoryEntry[]> {
-    const historyDir = join(this.baseDir, 'history', this.deviceId);
-    if (!existsSync(historyDir)) {
+    const entries: HistoryEntry[] = [];
+    for (const deviceId of await this.listHistoryDeviceIds()) {
+      const historyDir = join(this.baseDir, 'history', deviceId);
+      const files = (await readdir(historyDir)).filter((file) => /^\d{4}-\d{2}\.jsonl$/.test(file)).sort();
+      for (const file of files) {
+        const content = await readFile(join(historyDir, file), 'utf8');
+        entries.push(
+          ...content
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => withSourceDevice(JSON.parse(line) as HistoryEntry, deviceId))
+        );
+      }
+    }
+    return entries;
+  }
+
+  private async listHistoryDeviceIds(): Promise<string[]> {
+    const historyRoot = join(this.baseDir, 'history');
+    if (!existsSync(historyRoot)) {
       return [];
     }
 
-    const files = (await readdir(historyDir)).filter((file) => /^\d{4}-\d{2}\.jsonl$/.test(file)).sort();
-    const entries: HistoryEntry[] = [];
-    for (const file of files) {
-      const content = await readFile(join(historyDir, file), 'utf8');
-      entries.push(
-        ...content
-          .split('\n')
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((line) => JSON.parse(line) as HistoryEntry)
-      );
-    }
-    return entries;
+    const entries = await readdir(historyRoot, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((left, right) => (left === this.deviceId ? -1 : right === this.deviceId ? 1 : left.localeCompare(right)));
   }
 
   getBaseDir(): string {
@@ -442,6 +449,13 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
       ...DEFAULT_SETTINGS.updates,
       ...(raw.updates ?? {})
     }
+  };
+}
+
+function withSourceDevice(entry: HistoryEntry, deviceId: string): HistoryEntry {
+  return {
+    ...entry,
+    sourceDeviceId: entry.sourceDeviceId ?? deviceId
   };
 }
 

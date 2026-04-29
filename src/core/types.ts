@@ -409,6 +409,7 @@ export interface PromptFiles {
 export interface HistoryEntry {
   id: string;
   createdAt: string;
+  sourceDeviceId?: string;
   mode: InputMode;
   rawText: string;
   outputText: string;

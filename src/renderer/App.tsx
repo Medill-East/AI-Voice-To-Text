@@ -96,6 +96,7 @@ const CLOUD_MODELS_PAGE_SIZE = 20;
 
 interface LocalHistoryItem extends VoiceInputPipelineResult {
   createdAt: string;
+  sourceDeviceId?: string;
   mode: InputMode;
 }
 
@@ -1623,6 +1624,7 @@ export function App() {
                     <div className="history-meta">
                       <span>{item.mode === 'natural' ? '自然' : '结构'}</span>
                       <span>{new Date(item.createdAt).toLocaleTimeString()}</span>
+                      {item.sourceDeviceId ? <span>{item.sourceDeviceId}</span> : null}
                       <span>{item.injection.method === 'cursor' ? '已输入' : '剪贴板'}</span>
                     </div>
                     <pre>{item.outputText}</pre>
@@ -2411,8 +2413,8 @@ export function App() {
             <>
               <p className="hint">
                 建议使用一个单独的私有仓库，例如 v2t-sync。先选择本地同步仓库位置，再连接 GitHub 仓库；连接不会自动覆盖本机提示词。
-                settings.json、lexicon.json、lexicon/*.txt、prompts/natural.md、prompts/structured.md。词库页保存只改本地数据，需要点击“推送”才会写入 GitHub。
-                模型和密钥不会同步；同步历史默认关闭，可以在这里单独开启。
+                settings.json、lexicon.json、lexicon/*.txt、prompts/natural.md、prompts/structured.md 和文字历史。词库页保存只改本地数据，需要点击“推送”才会写入 GitHub。
+                默认同步语音输入文字历史；音频、模型和密钥不会同步。
               </p>
               <div className="sync-repo-path-block">
                 <div className="button-row">
@@ -2451,12 +2453,12 @@ export function App() {
               <label className="check sync-history-toggle">
                 <input
                   type="checkbox"
-                  checked={settings.sync.github.includeHistory ?? false}
+                  checked={settings.sync.github.includeHistory ?? true}
                   onChange={(event) => void updateIncludeHistory(event.target.checked)}
                 />
-                同步历史
+                同步文字历史
               </label>
-              <p className="hint">开启后会把本机文字历史同步到 GitHub 私有仓库；仍不会同步音频、模型或密钥。</p>
+              <p className="hint">默认开启，会把多端语音输入文本历史同步到 GitHub 私有仓库；仍不会同步音频、模型或密钥。</p>
               <label className="check sync-history-toggle">
                 <input
                   type="checkbox"
@@ -2466,7 +2468,7 @@ export function App() {
                 自动同步
               </label>
               <p className="hint">
-                开启后，每次成功输入、保存词库或保存提示词都会排队同步；如果要同步录音历史，请同时开启“同步历史”。
+                开启后，每次成功输入、保存词库或保存提示词都会排队同步；文字历史是否进入同步由“同步文字历史”开关控制。
               </p>
               <section className="sync-stats-note">
                 <h3>统计摘要同步</h3>
@@ -2698,9 +2700,20 @@ export function App() {
           </section>
         ) : null}
         {setup ? (
-          <p className="build-info">
-            当前版本 v{setup.appInfo.version} · {setup.appInfo.buildCommit}
-          </p>
+          <dl className="version-list">
+            <div>
+              <dt>应用版本</dt>
+              <dd>{setup.appInfo.version}</dd>
+            </div>
+            <div>
+              <dt>构建号</dt>
+              <dd>{setup.appInfo.buildCommit}</dd>
+            </div>
+            <div>
+              <dt>Release 标签</dt>
+              <dd>v{setup.appInfo.version}-{setup.appInfo.buildCommit}</dd>
+            </div>
+          </dl>
         ) : null}
          {settings && appUpdateState ? (
            <section className="update-panel">
@@ -2781,7 +2794,7 @@ export function App() {
           <h1>语音输入</h1>
           {setup ? (
             <p className="build-info">
-              v{setup.appInfo.version} · {setup.appInfo.buildCommit}
+              版本 {setup.appInfo.version}
             </p>
           ) : null}
         </div>
@@ -3820,6 +3833,7 @@ function historyEntryToLocalItem(entry: HistoryEntry): LocalHistoryItem {
     rawText: entry.rawText,
     outputText: entry.outputText,
     createdAt: entry.createdAt,
+    sourceDeviceId: entry.sourceDeviceId,
     mode: entry.mode,
     injection: {
       method: entry.injectionMethod,

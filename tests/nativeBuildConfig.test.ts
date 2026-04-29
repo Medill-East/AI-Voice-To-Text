@@ -8,6 +8,10 @@ describe('native helper build configuration', () => {
       build: { asarUnpack: string[]; mac: { identity?: string } };
     };
     const nativeBuildScript = await readFile(new URL('../scripts/build-native.mjs', import.meta.url), 'utf8');
+    const macBuildScript = await readFile(new URL('../scripts/build-mac-key-server.mjs', import.meta.url), 'utf8');
+    const macSigningScript = await readFile(new URL('../scripts/macos-signing-identity.mjs', import.meta.url), 'utf8');
+    const builderScript = await readFile(new URL('../scripts/run-electron-builder.mjs', import.meta.url), 'utf8');
+    const signingPatchScript = await readFile(new URL('../scripts/patch-osx-sign-no-timestamp.mjs', import.meta.url), 'utf8');
     const windowsBuildScript = await readFile(new URL('../scripts/build-windows-key-listener.mjs', import.meta.url), 'utf8');
     const windowsVerifyScript = await readFile(new URL('../scripts/verify-windows-release.mjs', import.meta.url), 'utf8');
     const cargoToml = await readFile(new URL('../native/windows-key-listener/Cargo.toml', import.meta.url), 'utf8');
@@ -18,11 +22,19 @@ describe('native helper build configuration', () => {
 
     expect(packageJson.scripts['build:native']).toBe('node scripts/build-native.mjs');
     expect(packageJson.scripts.build).toContain('npm run build:native');
+    expect(packageJson.scripts.dist).toContain('run-electron-builder.mjs');
+    expect(packageJson.scripts.package).toContain('run-electron-builder.mjs --publish=never --dir');
     expect(packageJson.build.asarUnpack).toContain('dist/native/**/*');
     expect(packageJson.build.asarUnpack).not.toContain('node_modules/node-global-key-listener/**/*');
     expect(JSON.stringify(packageJson.build)).toContain('!node_modules/node-global-key-listener/bin/WinKeyServer.exe');
     expect(packageJson.build.mac.identity).not.toBe('-');
     expect(nativeBuildScript).toContain('build-windows-key-listener.mjs');
+    expect(macBuildScript).toContain('resolveMacSigningIdentity');
+    expect(macSigningScript).toContain('parseSigningIdentities');
+    expect(macSigningScript).toContain('hash');
+    expect(builderScript).toContain('-c.mac.identity=');
+    expect(signingPatchScript).toContain('app-builder-lib');
+    expect(signingPatchScript).toContain('identity.hash || identity.name');
     expect(windowsBuildScript).toContain('V2TKeyboardListener.exe');
     expect(windowsBuildScript).toContain('V2TAudioControl.exe');
     expect(windowsBuildScript).toContain('cargo');

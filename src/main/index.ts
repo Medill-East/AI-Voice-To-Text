@@ -1598,7 +1598,7 @@ function createSyncService(repoUrl = settings.sync.github.repoUrl): GitHubSyncSe
     repoDir: settings.sync.github.localPath ?? defaultRepoPath,
     repoUrl,
     branch: settings.sync.github.branch,
-    includeHistory: settings.sync.github.includeHistory ?? false,
+    includeHistory: settings.sync.github.includeHistory ?? true,
     defaultRepoPath
   });
 }

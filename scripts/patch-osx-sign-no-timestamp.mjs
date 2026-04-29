@@ -44,3 +44,20 @@ for (const file of files) {
   }
   throw new Error(`Unable to patch timestamp behavior in ${file}`);
 }
+
+const macPackagerFile = join('node_modules', 'app-builder-lib', 'out', 'macPackager.js');
+const identityNameNeedle =
+  'return customSign ? Promise.resolve(customSign(opts, this)) : (0, macCodeSign_1.sign)({ ...opts, identity: identity ? identity.name : undefined });';
+const identityHashReplacement =
+  'return customSign ? Promise.resolve(customSign(opts, this)) : (0, macCodeSign_1.sign)({ ...opts, identity: identity ? identity.hash || identity.name : undefined });';
+
+let macPackagerSource = await readFile(macPackagerFile, 'utf8');
+if (macPackagerSource.includes(identityNameNeedle)) {
+  macPackagerSource = macPackagerSource.replace(identityNameNeedle, identityHashReplacement);
+  await writeFile(macPackagerFile, macPackagerSource);
+  console.log(`patched ${macPackagerFile}`);
+} else if (macPackagerSource.includes(identityHashReplacement)) {
+  console.log(`already patched ${macPackagerFile}`);
+} else {
+  throw new Error(`Unable to patch macOS signing identity behavior in ${macPackagerFile}`);
+}

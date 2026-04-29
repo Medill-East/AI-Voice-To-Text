@@ -10,7 +10,7 @@ import { UserDataStore } from '../src/core/userDataStore';
 const execFileAsync = promisify(execFile);
 
 describe('GitHubSyncService', () => {
-  it('syncs settings, prompts, stats, lexicon json, and editable lexicon text files into the git repo', async () => {
+  it('syncs settings, prompts, stats, text history, lexicon json, and editable lexicon text files into the git repo by default', async () => {
     const root = await mkdtemp(join(tmpdir(), 'v2t-sync-'));
     const dataDir = join(root, 'data');
     const repoDir = join(root, 'repo');
@@ -54,7 +54,8 @@ describe('GitHubSyncService', () => {
       'lexicon/blocked.txt',
       'prompts/natural.md',
       'prompts/structured.md',
-      'stats/usage-summary.json'
+      'stats/usage-summary.json',
+      'history/'
     ]);
     const exportedSettings = JSON.parse(await readFile(join(repoDir, 'settings.json'), 'utf8'));
     expect(exportedSettings.defaultMode).toBe('natural');
@@ -68,10 +69,10 @@ describe('GitHubSyncService', () => {
     await expect(readFile(join(repoDir, 'lexicon', 'blocked.txt'), 'utf8')).resolves.toContain('嗯');
     await expect(readFile(join(repoDir, 'prompts', 'natural.md'), 'utf8')).resolves.toContain('保守');
     await expect(readFile(join(repoDir, 'stats', 'usage-summary.json'), 'utf8')).resolves.toContain('"totalCount"');
-    await expect(readFile(join(repoDir, 'history', 'device-a', '2026-04.jsonl'), 'utf8')).rejects.toThrow();
+    await expect(readFile(join(repoDir, 'history', 'device-a', '2026-04.jsonl'), 'utf8')).resolves.toContain('"secret":"history"');
 
     const ignore = await readFile(join(repoDir, '.gitignore'), 'utf8');
-    expect(ignore).toContain('history/');
+    expect(ignore).not.toContain('history/');
     expect(ignore).toContain('models/');
     expect(ignore).toContain('.env');
   });
@@ -106,7 +107,7 @@ describe('GitHubSyncService', () => {
     await expect(readFile(join(dataDir, 'lexicon', 'terms.txt'), 'utf8')).resolves.toContain('王小波, 王小博');
   });
 
-  it('exports aggregate usage stats by default without syncing raw history', async () => {
+  it('exports aggregate usage stats and text history by default', async () => {
     const root = await mkdtemp(join(tmpdir(), 'v2t-sync-stats-'));
     const dataDir = join(root, 'data');
     const repoDir = join(root, 'repo');
@@ -125,14 +126,14 @@ describe('GitHubSyncService', () => {
 
     await service.exportSyncFiles();
 
-    await expect(readFile(join(repoDir, 'history', 'device-a', '2026-04.jsonl'), 'utf8')).rejects.toThrow();
+    await expect(readFile(join(repoDir, 'history', 'device-a', '2026-04.jsonl'), 'utf8')).resolves.toContain('history-a');
     const summary = JSON.parse(await readFile(join(repoDir, 'stats', 'usage-summary.json'), 'utf8'));
     expect(summary.totalCount).toBe(1);
     expect(summary.asrModels[0].label).toBe('Qwen3 ASR');
     expect(summary.postProcessors[0].key).toBe('llm-cloud');
   });
 
-  it('can include text-only history in the sync archive when the user enables it', async () => {
+  it('can exclude text-only history in the sync archive when the user disables it', async () => {
     const root = await mkdtemp(join(tmpdir(), 'v2t-sync-history-'));
     const dataDir = join(root, 'data');
     const repoDir = join(root, 'repo');
@@ -142,16 +143,17 @@ describe('GitHubSyncService', () => {
     const service = new GitHubSyncService({
       dataDir,
       repoDir,
-      includeHistory: true,
+      includeHistory: false,
       git: fakeGit()
     });
 
     await service.exportSyncFiles();
 
     expect(syncFileAllowlist(true)).toContain('history/');
-    await expect(readFile(join(repoDir, 'history', 'device-a', '2026-04.jsonl'), 'utf8')).resolves.toContain('history-a');
+    expect(syncFileAllowlist(false)).not.toContain('history/');
+    await expect(readFile(join(repoDir, 'history', 'device-a', '2026-04.jsonl'), 'utf8')).rejects.toThrow();
     const ignore = await readFile(join(repoDir, '.gitignore'), 'utf8');
-    expect(ignore).not.toContain('history/');
+    expect(ignore).toContain('history/');
   });
 
   it('pushes sync files to a bare repo and another device can pull them', async () => {

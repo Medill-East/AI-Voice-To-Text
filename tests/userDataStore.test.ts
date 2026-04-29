@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -16,6 +16,7 @@ describe('UserDataStore', () => {
     expect(settings.providers.asr.kind).toBe('local-sherpa-onnx');
     expect(settings.providers.asr.modelId).toBeUndefined();
     expect(settings.sync.kind).toBe('local-folder');
+    expect(settings.sync.github.includeHistory).toBe(true);
     expect(settings.sync.github.autoSync).toBe(false);
     expect(settings.startup.openAtLogin).toBe(false);
     expect(settings.startup.silentOpenAtLogin).toBe(true);
@@ -57,6 +58,42 @@ describe('UserDataStore', () => {
 
     expect(settings.recording.muteSystemAudio).toBe(true);
     expect(settings.recording.maxDurationMinutes).toBe(10);
+  });
+
+  it('migrates legacy sync settings to include text history by default while preserving explicit opt-out', async () => {
+    const legacyDir = await mkdtemp(join(tmpdir(), 'v2t-store-sync-history-default-'));
+    await writeFile(
+      join(legacyDir, 'settings.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        defaultMode: 'natural',
+        sync: { kind: 'github', github: { branch: 'main' } },
+        providers: {
+          asr: { kind: 'local-sherpa-onnx', language: 'zh' },
+          llm: { enabled: false, kind: 'openai-compatible', baseUrl: '', model: '', apiKeyRef: 'system-keychain:v2t/openai-compatible' }
+        }
+      }),
+      'utf8'
+    );
+    const legacyStore = await UserDataStore.create(legacyDir, { deviceId: 'device-a' });
+    await expect(legacyStore.loadSettings()).resolves.toMatchObject({ sync: { github: { includeHistory: true } } });
+
+    const optOutDir = await mkdtemp(join(tmpdir(), 'v2t-store-sync-history-optout-'));
+    await writeFile(
+      join(optOutDir, 'settings.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        defaultMode: 'natural',
+        sync: { kind: 'github', github: { branch: 'main', includeHistory: false } },
+        providers: {
+          asr: { kind: 'local-sherpa-onnx', language: 'zh' },
+          llm: { enabled: false, kind: 'openai-compatible', baseUrl: '', model: '', apiKeyRef: 'system-keychain:v2t/openai-compatible' }
+        }
+      }),
+      'utf8'
+    );
+    const optOutStore = await UserDataStore.create(optOutDir, { deviceId: 'device-a' });
+    await expect(optOutStore.loadSettings()).resolves.toMatchObject({ sync: { github: { includeHistory: false } } });
   });
 
   it('keeps editable lexicon text files in sync with lexicon.json', async () => {
@@ -223,7 +260,7 @@ describe('UserDataStore', () => {
     expect(stats.asrModels[0].label).not.toContain('未知');
   });
 
-  it('loads recent history for the current device in reverse chronological order', async () => {
+  it('loads recent history from every synced device in reverse chronological order', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'v2t-store-'));
     const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
 
@@ -243,9 +280,19 @@ describe('UserDataStore', () => {
       outputText: '新文本',
       injectionMethod: 'clipboard'
     });
+    await mkdir(join(dir, 'history', 'device-b'), { recursive: true });
+    await writeFile(
+      join(dir, 'history', 'device-b', '2026-04.jsonl'),
+      '{"id":"remote","createdAt":"2026-04-26T10:20:30.000Z","mode":"natural","rawText":"远端文本","outputText":"远端文本","injectionMethod":"cursor"}\n',
+      'utf8'
+    );
 
-    await expect(store.readRecentHistory(30)).resolves.toMatchObject([{ id: 'new' }, { id: 'old' }]);
-    await expect(store.readRecentHistory(1)).resolves.toMatchObject([{ id: 'new' }]);
+    await expect(store.readRecentHistory(30)).resolves.toMatchObject([
+      { id: 'remote', sourceDeviceId: 'device-b' },
+      { id: 'new', sourceDeviceId: 'device-a' },
+      { id: 'old', sourceDeviceId: 'device-a' }
+    ]);
+    await expect(store.readRecentHistory(1)).resolves.toMatchObject([{ id: 'remote', sourceDeviceId: 'device-b' }]);
   });
 
   it('backs up externally changed settings before overwriting them', async () => {
