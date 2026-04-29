@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join, parse } from 'node:path';
-import type { HistoryEntry, InputMode, Lexicon, LexiconTextKind, PromptFiles, Settings, UsageAggregate, UsageStatistics } from './types';
+import type { HistoryEntry, InputMode, Lexicon, LexiconTextFiles, LexiconTextKind, PromptFiles, Settings, UsageAggregate, UsageStatistics } from './types';
 import { lexiconPatchFromText, lexiconText, normalizeLexicon } from './lexiconTools';
 import { naturalPrompt, structuredPrompt } from './postProcessor';
 
@@ -117,6 +117,22 @@ export class UserDataStore {
       replacements: this.lexiconTextPath('replacements'),
       blocked: this.lexiconTextPath('blocked')
     };
+  }
+
+  async readLexiconTextFiles(): Promise<LexiconTextFiles> {
+    return {
+      terms: await this.readLexiconTextFile('terms'),
+      replacements: await this.readLexiconTextFile('replacements'),
+      blocked: await this.readLexiconTextFile('blocked')
+    };
+  }
+
+  async saveLexiconTextFiles(files: LexiconTextFiles): Promise<{ lexicon: Lexicon; files: LexiconTextFiles }> {
+    await Promise.all(
+      (['terms', 'replacements', 'blocked'] as const).map((kind) => this.writeTextTracked(this.lexiconTextPath(kind), files[kind]?.content ?? ''))
+    );
+    const lexicon = await this.importLexiconTextFiles();
+    return { lexicon, files: await this.readLexiconTextFiles() };
   }
 
   async importLexiconTextFiles(): Promise<Lexicon> {
@@ -325,6 +341,14 @@ export class UserDataStore {
 
   private lexiconTextPath(kind: LexiconTextKind): string {
     return join(this.baseDir, 'lexicon', `${kind}.txt`);
+  }
+
+  private async readLexiconTextFile(kind: LexiconTextKind): Promise<LexiconTextFiles[LexiconTextKind]> {
+    const filePath = this.lexiconTextPath(kind);
+    return {
+      path: filePath,
+      content: existsSync(filePath) ? await this.readTextTracked(filePath) : ''
+    };
   }
 
   private async writeLexiconTextFiles(lexicon: Lexicon): Promise<void> {

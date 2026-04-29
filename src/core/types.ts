@@ -42,6 +42,13 @@ export interface Lexicon {
 
 export type LexiconTextKind = 'terms' | 'replacements' | 'blocked';
 
+export interface LexiconTextFile {
+  path: string;
+  content: string;
+}
+
+export type LexiconTextFiles = Record<LexiconTextKind, LexiconTextFile>;
+
 export interface LexiconHit {
   kind: 'term' | 'replacement' | 'blocked';
   from: string;

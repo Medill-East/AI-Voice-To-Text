@@ -3,7 +3,6 @@ import type { MouseEvent } from 'react';
 import { cloudLlmTags, sortCloudLlmModels } from '../core/cloudLlmCatalogShared';
 import type { CloudLlmSortDirection } from '../core/cloudLlmCatalogShared';
 import { analyzeLexicon } from '../core/postProcessor';
-import { mergeLexicon, normalizeLexicon, parseBulkBlocked, parseBulkReplacements, parseBulkTerms } from '../core/lexiconTools';
 import { oneClickEligibility, oneClickInstallableModels, publicChineseMetrics, referenceModels, scoreModel } from '../core/modelCatalog';
 import { hotkeyLabelForPlatform } from '../core/hotkeyLabels';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
@@ -19,6 +18,8 @@ import type {
   InputMode,
   InstalledModelView,
   Lexicon,
+  LexiconTextFiles,
+  LexiconTextKind,
   LlmInstallerTarget,
   LlmProviderDetection,
   ModelBenchmarkResult,
@@ -160,12 +161,10 @@ export function App() {
   const [testingHotkey, setTestingHotkey] = useState(false);
   const [hotkeyTestMessage, setHotkeyTestMessage] = useState<string | null>(null);
   const [lexicon, setLexicon] = useState<Lexicon | null>(null);
-  const [lexiconDirty, setLexiconDirty] = useState(false);
+  const [lexiconTextFiles, setLexiconTextFiles] = useState<LexiconTextFiles | null>(null);
+  const [lexiconTextDirty, setLexiconTextDirty] = useState(false);
   const [lexiconMessage, setLexiconMessage] = useState<string | null>(null);
   const [lexiconTrialInput, setLexiconTrialInput] = useState('');
-  const [lexiconBulkTerms, setLexiconBulkTerms] = useState('');
-  const [lexiconBulkReplacements, setLexiconBulkReplacements] = useState('');
-  const [lexiconBulkBlocked, setLexiconBulkBlocked] = useState('');
   const [prompts, setPrompts] = useState<PromptFiles | null>(null);
   const [promptDrafts, setPromptDrafts] = useState<{ natural: string; structured: string }>({ natural: '', structured: '' });
   const [promptDirty, setPromptDirty] = useState<{ natural: boolean; structured: boolean }>({ natural: false, structured: false });
@@ -302,6 +301,13 @@ export function App() {
     void window.v2t
       .getLexicon()
       .then(setLexicon)
+      .catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
+  }, []);
+
+  useEffect(() => {
+    void window.v2t
+      .getLexiconTextFiles()
+      .then(setLexiconTextFiles)
       .catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
   }, []);
 
@@ -689,81 +695,62 @@ export function App() {
     applySetup(nextSetup);
   };
 
-  const updateLexicon = (updater: (current: Lexicon) => Lexicon) => {
-    setLexicon((current) => (current ? updater(current) : current));
-    setLexiconDirty(true);
+  const updateLexiconTextFile = (kind: LexiconTextKind, content: string) => {
+    setLexiconTextFiles((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        [kind]: {
+          ...current[kind],
+          content
+        }
+      };
+    });
+    setLexiconTextDirty(true);
     setLexiconMessage('等待自动保存');
   };
 
-  const saveLexicon = async (lexiconToSave: Lexicon | null = lexicon) => {
-    if (!lexiconToSave) {
+  const saveLexiconTextFiles = async (filesToSave: LexiconTextFiles | null = lexiconTextFiles) => {
+    if (!filesToSave) {
       return;
     }
 
     setError(null);
     setLexiconMessage('正在保存');
-    const result = await window.v2t.saveLexicon(normalizeLexicon(lexiconToSave));
+    const result = await window.v2t.saveLexiconTextFiles(filesToSave);
     if (result.ok && result.lexicon) {
       setLexicon(result.lexicon);
-      setLexiconDirty(false);
-      setLexiconMessage('已自动保存');
+      if (result.textFiles) {
+        setLexiconTextFiles(result.textFiles);
+      }
+      setLexiconTextDirty(false);
+      setLexiconMessage('已保存');
       return;
     }
 
     setLexiconMessage('保存失败');
-    setError(result.error ?? '词库保存失败');
+    setError(result.error ?? '词库 TXT 保存失败');
   };
 
-  const importLexiconTextFiles = async () => {
+  const reloadLexiconTextFiles = async () => {
     setError(null);
-    setLexiconMessage('正在从文本文件导入');
-    const result = await window.v2t.importLexiconTextFiles();
-    if (result.ok && result.lexicon) {
-      setLexicon(result.lexicon);
-      setLexiconDirty(false);
-      setLexiconMessage('已从文本文件导入并保存');
-      return;
+    setLexiconMessage('正在从磁盘读取');
+    try {
+      const [nextLexicon, nextFiles] = await Promise.all([window.v2t.getLexicon(), window.v2t.getLexiconTextFiles()]);
+      setLexicon(nextLexicon);
+      setLexiconTextFiles(nextFiles);
+      setLexiconTextDirty(false);
+      setLexiconMessage('已从磁盘读取');
+    } catch (caught) {
+      setLexiconMessage('读取失败');
+      setError(caught instanceof Error ? caught.message : String(caught));
     }
-    setLexiconMessage('导入失败');
-    setError(result.error ?? '词库文本文件导入失败');
-  };
-
-  const addBulkLexiconTerms = () => {
-    const terms = parseBulkTerms(lexiconBulkTerms);
-    if (!terms.length) {
-      setLexiconMessage('没有可导入的专有名词');
-      return;
-    }
-    updateLexicon((current) => mergeLexicon(current, { terms }));
-    setLexiconBulkTerms('');
-  };
-
-  const addBulkLexiconReplacements = () => {
-    const replacements = parseBulkReplacements(lexiconBulkReplacements);
-    if (!replacements.length) {
-      setLexiconMessage('没有可导入的固定替换；请使用“错误词 -> 正确词”格式');
-      return;
-    }
-    updateLexicon((current) => mergeLexicon(current, { replacements }));
-    setLexiconBulkReplacements('');
-  };
-
-  const addBulkLexiconBlocked = () => {
-    const blocked = parseBulkBlocked(lexiconBulkBlocked);
-    if (!blocked.length) {
-      setLexiconMessage('没有可导入的禁用词');
-      return;
-    }
-    updateLexicon((current) => mergeLexicon(current, { blocked }));
-    setLexiconBulkBlocked('');
   };
 
   useEffect(() => {
-    if (!lexiconDirty || !lexicon) {
-      return;
-    }
-    if (hasIncompleteLexiconDraft(lexicon)) {
-      setLexiconMessage('填写完整后自动保存');
+    if (!lexiconTextDirty || !lexiconTextFiles) {
       return;
     }
     if (lexiconSaveTimerRef.current !== undefined) {
@@ -771,7 +758,7 @@ export function App() {
     }
     lexiconSaveTimerRef.current = window.setTimeout(() => {
       lexiconSaveTimerRef.current = undefined;
-      void saveLexicon(lexicon);
+      void saveLexiconTextFiles(lexiconTextFiles);
     }, 900);
     return () => {
       if (lexiconSaveTimerRef.current !== undefined) {
@@ -779,7 +766,7 @@ export function App() {
         lexiconSaveTimerRef.current = undefined;
       }
     };
-  }, [lexicon, lexiconDirty]);
+  }, [lexiconTextFiles, lexiconTextDirty]);
 
   const applyPrompts = (nextPrompts: PromptFiles) => {
     setPrompts(nextPrompts);
@@ -1110,6 +1097,7 @@ export function App() {
       setPathMessage('同步数据目录已迁移并切换');
       void window.v2t.getPrompts().then(applyPrompts);
       void window.v2t.getLexicon().then(setLexicon);
+      void window.v2t.getLexiconTextFiles().then(setLexiconTextFiles);
       void window.v2t.getHistory(30).then((entries) => setHistory(entries.map(historyEntryToLocalItem)));
     } else if (result.error) {
       setError(result.error);
@@ -2324,7 +2312,7 @@ export function App() {
       return (
         <section className="page-section lexicon-page">
           <h2>词库</h2>
-          <p className="hint">lexicon.json 会作为运行时权威数据；下方批量录入和三个 TXT 文件是主要维护入口，都会随 GitHub 同步。</p>
+          <p className="hint">lexicon.json 会作为运行时权威数据；这里直接编辑三个 TXT 文件，保存后会自动解析、去重并同步更新 lexicon.json。</p>
           {lexicon ? (
             <>
               <section className="lexicon-group lexicon-trial">
@@ -2339,63 +2327,48 @@ export function App() {
                 />
                 <LexiconTrialResult input={lexiconTrialInput} lexicon={lexicon} />
               </section>
-              <section className="lexicon-group lexicon-bulk">
+              <section className="lexicon-group lexicon-text-files">
                 <div className="section-heading">
-                  <h3>批量录入</h3>
+                  <h3>TXT 文件编辑器</h3>
                   <div className="inline-actions">
-                    <button className="secondary compact" onClick={() => void importLexiconTextFiles()}>
-                      从文本文件导入
+                    <button className="secondary compact" onClick={() => void reloadLexiconTextFiles()}>
+                      重新从磁盘读取
                     </button>
                   </div>
                 </div>
-                <p className="hint">适合一次加入大量词条。导入后会自动保存到 lexicon.json，并同步更新 lexicon/terms.txt、lexicon/replacements.txt、lexicon/blocked.txt。</p>
-                <div className="lexicon-bulk-grid">
-                  <label>
-                    专有名词
-                    <textarea
-                      className="no-drag"
-                      value={lexiconBulkTerms}
-                      placeholder="每行或逗号分隔，例如：王小波，许知远，Qwen3-ASR"
-                      onContextMenu={showEditMenu}
-                      onChange={(event) => setLexiconBulkTerms(event.target.value)}
-                    />
-                    <div className="inline-actions">
-                      <button className="secondary compact" onClick={addBulkLexiconTerms}>加入专有名词</button>
-                      <button className="secondary compact" onClick={() => void window.v2t.openLexiconTextFile('terms')}>打开 terms.txt</button>
-                    </div>
-                  </label>
-                  <label>
-                    固定替换
-                    <textarea
-                      className="no-drag"
-                      value={lexiconBulkReplacements}
-                      placeholder={'每行一个，例如：\n错别词 -> 正确词\nGithub => GitHub'}
-                      onContextMenu={showEditMenu}
-                      onChange={(event) => setLexiconBulkReplacements(event.target.value)}
-                    />
-                    <div className="inline-actions">
-                      <button className="secondary compact" onClick={addBulkLexiconReplacements}>加入固定替换</button>
-                      <button className="secondary compact" onClick={() => void window.v2t.openLexiconTextFile('replacements')}>打开 replacements.txt</button>
-                    </div>
-                  </label>
-                  <label>
-                    禁用词
-                    <textarea
-                      className="no-drag"
-                      value={lexiconBulkBlocked}
-                      placeholder="每行或逗号分隔，例如：嗯，呃，啊"
-                      onContextMenu={showEditMenu}
-                      onChange={(event) => setLexiconBulkBlocked(event.target.value)}
-                    />
-                    <div className="inline-actions">
-                      <button className="secondary compact" onClick={addBulkLexiconBlocked}>加入禁用词</button>
-                      <button className="secondary compact" onClick={() => void window.v2t.openLexiconTextFile('blocked')}>打开 blocked.txt</button>
-                    </div>
-                  </label>
+                <p className="hint">按 TXT 内容维护词库：专有名词支持同行别名，固定替换使用 `错误词 -&gt; 正确词`，禁用词按行或逗号分隔。编辑后会自动保存。</p>
+                <div className="lexicon-text-grid">
+                  <LexiconTextEditor
+                    title="专有名词 terms.txt"
+                    description="每行第一个词是标准词，同行逗号后的内容会作为别名。"
+                    file={lexiconTextFiles?.terms}
+                    placeholder="王小波, 王小博\n许知远, 许之远\nQwen3-ASR"
+                    onChange={(value) => updateLexiconTextFile('terms', value)}
+                    onOpen={() => void window.v2t.openLexiconTextFile('terms')}
+                    onContextMenu={showEditMenu}
+                  />
+                  <LexiconTextEditor
+                    title="固定替换 replacements.txt"
+                    description="每行一个规则，支持 -> 或 =>。"
+                    file={lexiconTextFiles?.replacements}
+                    placeholder={'Github -> GitHub\n错别词 => 正确词'}
+                    onChange={(value) => updateLexiconTextFile('replacements', value)}
+                    onOpen={() => void window.v2t.openLexiconTextFile('replacements')}
+                    onContextMenu={showEditMenu}
+                  />
+                  <LexiconTextEditor
+                    title="禁用词 blocked.txt"
+                    description="按行、逗号、中文逗号或顿号分隔。"
+                    file={lexiconTextFiles?.blocked}
+                    placeholder="嗯\n呃\n啊"
+                    onChange={(value) => updateLexiconTextFile('blocked', value)}
+                    onOpen={() => void window.v2t.openLexiconTextFile('blocked')}
+                    onContextMenu={showEditMenu}
+                  />
                 </div>
               </section>
               <div className="lexicon-actions">
-                <p className="sync-message">{lexiconMessage ?? (lexiconDirty ? '等待自动保存' : '已自动保存')}</p>
+                <p className="sync-message">{lexiconMessage ?? (lexiconTextDirty ? '等待自动保存' : '已保存')}</p>
               </div>
             </>
           ) : (
@@ -3261,6 +3234,40 @@ function CloudTestResultPanel({ result }: { result?: CloudLlmTestResultView }) {
         <p className="empty">还没有测试结果。选择模型后点击“测试”或“测试已选模型”。</p>
       )}
     </section>
+  );
+}
+
+function LexiconTextEditor({
+  title,
+  description,
+  file,
+  placeholder,
+  onChange,
+  onOpen,
+  onContextMenu
+}: {
+  title: string;
+  description: string;
+  file?: { path: string; content: string };
+  placeholder: string;
+  onChange: (value: string) => void;
+  onOpen: () => void;
+  onContextMenu: (event: MouseEvent<HTMLTextAreaElement>) => void;
+}) {
+  return (
+    <article className="lexicon-text-editor">
+      <div className="lexicon-text-editor-head">
+        <div>
+          <h4>{title}</h4>
+          <p>{description}</p>
+        </div>
+        <button className="secondary compact" onClick={onOpen}>
+          打开文件
+        </button>
+      </div>
+      <textarea className="no-drag" value={file?.content ?? ''} placeholder={placeholder} onContextMenu={onContextMenu} onChange={(event) => onChange(event.target.value)} />
+      {file?.path ? <small>{file.path}</small> : <small>正在读取文件内容</small>}
+    </article>
   );
 }
 
@@ -4391,14 +4398,6 @@ function naturalAsrRecommendations(catalog: ModelCatalogItem[]): Array<{ id: str
       reason: '高速轻量，适合短句和快速试用；自然长句可与上面两个模型对比。'
     }
   ];
-}
-
-function hasIncompleteLexiconDraft(lexicon: Lexicon): boolean {
-  return (
-    lexicon.terms.some((term) => !term.phrase.trim()) ||
-    lexicon.replacements.some((rule) => !rule.from.trim() || !rule.to.trim()) ||
-    lexicon.blocked.some((word) => !word.trim())
-  );
 }
 
 function encodeWav(chunks: Float32Array[], inputSampleRate: number, outputSampleRate: number): Uint8Array {

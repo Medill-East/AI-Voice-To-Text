@@ -121,6 +121,43 @@ describe('UserDataStore', () => {
     expect(imported.blocked).toEqual(['呃', '啊']);
   });
 
+  it('reads and saves editable lexicon text files as the primary editing surface', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-store-lexicon-text-edit-'));
+    const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
+
+    await store.saveLexiconTextFiles({
+      terms: {
+        path: '',
+        content: '王小波, 王小博\n许知远，许之远\n'
+      },
+      replacements: {
+        path: '',
+        content: 'Github => GitHub\n错别词 -> 正确词\nGithub -> GitHub\n'
+      },
+      blocked: {
+        path: '',
+        content: '嗯，呃\n啊\n嗯\n'
+      }
+    });
+
+    const lexicon = await store.loadLexicon();
+    expect(lexicon.terms).toEqual([
+      { phrase: '王小波', aliases: ['王小博'], tags: undefined, caseSensitive: undefined },
+      { phrase: '许知远', aliases: ['许之远'], tags: undefined, caseSensitive: undefined }
+    ]);
+    expect(lexicon.replacements).toEqual([
+      { from: 'Github', to: 'GitHub', enabled: true },
+      { from: '错别词', to: '正确词', enabled: true }
+    ]);
+    expect(lexicon.blocked).toEqual(['嗯', '呃', '啊']);
+
+    const textFiles = await store.readLexiconTextFiles();
+    expect(textFiles.terms.content).toBe('王小波, 王小博\n许知远, 许之远\n');
+    expect(textFiles.replacements.content).toBe('Github -> GitHub\n错别词 -> 正确词\n');
+    expect(textFiles.blocked.content).toBe('嗯\n呃\n啊\n');
+    expect(textFiles.terms.path).toBe(join(dir, 'lexicon', 'terms.txt'));
+  });
+
   it('migrates legacy HTTP-only ASR settings to advanced HTTP mode', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'v2t-store-'));
     await writeFile(

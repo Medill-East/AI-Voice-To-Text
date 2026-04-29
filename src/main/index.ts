@@ -36,6 +36,7 @@ import type {
   SyncImportStrategy,
   LlmProviderDetection,
   LlmProviderKind,
+  LexiconTextFiles,
   LexiconTextKind,
   Settings
 } from '../core/types';
@@ -331,6 +332,7 @@ function registerIpc(): void {
   });
   ipcMain.handle('v2t:get-lexicon', async () => store.loadLexicon());
   ipcMain.handle('v2t:get-lexicon-text-paths', async () => store.getLexiconTextPaths());
+  ipcMain.handle('v2t:get-lexicon-text-files', async () => store.readLexiconTextFiles());
   ipcMain.handle('v2t:open-lexicon-text-file', async (_event, kind: LexiconTextKind) => {
     const path = store.getLexiconTextPaths()[kind];
     const error = await shell.openPath(path);
@@ -341,6 +343,15 @@ function registerIpc(): void {
       const lexicon = await store.importLexiconTextFiles();
       scheduleAutoSync('lexicon-text-import');
       return { ok: true, lexicon };
+    } catch (error) {
+      return { ok: false, error: readableError(error) };
+    }
+  });
+  ipcMain.handle('v2t:save-lexicon-text-files', async (_event, files: LexiconTextFiles) => {
+    try {
+      const result = await store.saveLexiconTextFiles(files);
+      scheduleAutoSync('lexicon-text-save');
+      return { ok: true, lexicon: result.lexicon, textFiles: result.files };
     } catch (error) {
       return { ok: false, error: readableError(error) };
     }

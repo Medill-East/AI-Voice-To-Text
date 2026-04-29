@@ -10,6 +10,7 @@ import type {
   HistoryEntry,
   InstalledModelView,
   Lexicon,
+  LexiconTextFiles,
   LexiconTextKind,
   LlmInstallerActionResult,
   LlmInstallerTarget,
@@ -58,8 +59,10 @@ export interface V2TApi {
   getLexicon(): Promise<Lexicon>;
   saveLexicon(lexicon: Lexicon): Promise<LexiconSaveResult>;
   getLexiconTextPaths(): Promise<Record<LexiconTextKind, string>>;
+  getLexiconTextFiles(): Promise<LexiconTextFiles>;
   openLexiconTextFile(kind: LexiconTextKind): Promise<{ ok: boolean; path: string; error?: string }>;
   importLexiconTextFiles(): Promise<LexiconSaveResult>;
+  saveLexiconTextFiles(files: LexiconTextFiles): Promise<LexiconSaveResult>;
   getPrompts(): Promise<PromptFiles>;
   savePrompt(mode: InputMode, content: string): Promise<PromptSaveResult>;
   resetPrompt(mode: InputMode): Promise<PromptSaveResult>;
@@ -173,6 +176,7 @@ interface HotkeyUpdateResult {
 interface LexiconSaveResult {
   ok: boolean;
   lexicon?: Lexicon;
+  textFiles?: LexiconTextFiles;
   error?: string;
 }
 
@@ -217,8 +221,10 @@ const api: V2TApi = {
   getLexicon: () => ipcRenderer.invoke('v2t:get-lexicon'),
   saveLexicon: (lexicon) => ipcRenderer.invoke('v2t:save-lexicon', lexicon),
   getLexiconTextPaths: () => ipcRenderer.invoke('v2t:get-lexicon-text-paths'),
+  getLexiconTextFiles: () => ipcRenderer.invoke('v2t:get-lexicon-text-files'),
   openLexiconTextFile: (kind) => ipcRenderer.invoke('v2t:open-lexicon-text-file', kind),
   importLexiconTextFiles: () => ipcRenderer.invoke('v2t:import-lexicon-text-files'),
+  saveLexiconTextFiles: (files) => ipcRenderer.invoke('v2t:save-lexicon-text-files', files),
   getPrompts: () => ipcRenderer.invoke('v2t:get-prompts'),
   savePrompt: (mode, content) => ipcRenderer.invoke('v2t:save-prompt', mode, content),
   resetPrompt: (mode) => ipcRenderer.invoke('v2t:reset-prompt', mode),

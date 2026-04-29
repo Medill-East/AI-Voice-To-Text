@@ -9,13 +9,17 @@ describe('lexicon IPC surface', () => {
     expect(preload).toContain('getLexicon(): Promise<Lexicon>');
     expect(preload).toContain('saveLexicon(lexicon: Lexicon): Promise<LexiconSaveResult>');
     expect(preload).toContain('getLexiconTextPaths(): Promise<Record<LexiconTextKind, string>>');
+    expect(preload).toContain('getLexiconTextFiles(): Promise<LexiconTextFiles>');
     expect(preload).toContain('openLexiconTextFile(kind: LexiconTextKind)');
     expect(preload).toContain('importLexiconTextFiles(): Promise<LexiconSaveResult>');
+    expect(preload).toContain('saveLexiconTextFiles(files: LexiconTextFiles): Promise<LexiconSaveResult>');
     expect(preload).toContain("ipcRenderer.invoke('v2t:get-lexicon')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:save-lexicon', lexicon)");
     expect(preload).toContain("ipcRenderer.invoke('v2t:get-lexicon-text-paths')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:get-lexicon-text-files')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:open-lexicon-text-file', kind)");
     expect(preload).toContain("ipcRenderer.invoke('v2t:import-lexicon-text-files')");
+    expect(preload).toContain("ipcRenderer.invoke('v2t:save-lexicon-text-files', files)");
     expect(preload).toContain("ipcRenderer.invoke('v2t:copy-hotkey-diagnostics')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:repair-hotkey-helper')");
     expect(preload).toContain("ipcRenderer.invoke('v2t:cleanup-stale-hotkey-helpers')");
@@ -79,8 +83,10 @@ describe('lexicon IPC surface', () => {
     expect(main).toContain("ipcMain.handle('v2t:get-lexicon'");
     expect(main).toContain("ipcMain.handle('v2t:save-lexicon'");
     expect(main).toContain("ipcMain.handle('v2t:get-lexicon-text-paths'");
+    expect(main).toContain("ipcMain.handle('v2t:get-lexicon-text-files'");
     expect(main).toContain("ipcMain.handle('v2t:open-lexicon-text-file'");
     expect(main).toContain("ipcMain.handle('v2t:import-lexicon-text-files'");
+    expect(main).toContain("ipcMain.handle('v2t:save-lexicon-text-files'");
     expect(main).toContain("ipcMain.handle('v2t:copy-hotkey-diagnostics'");
     expect(main).toContain("ipcMain.handle('v2t:repair-hotkey-helper'");
     expect(main).toContain("ipcMain.handle('v2t:cleanup-stale-hotkey-helpers'");
