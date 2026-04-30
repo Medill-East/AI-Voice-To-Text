@@ -1781,13 +1781,13 @@ export function App() {
           {settings ? (
             <>
               <p className="hint">LLM 负责自然输入纠错和结构输入整理；ASR 只负责听写，不等于 LLM。未启用 LLM 时，Prompt 不会参与处理，结构输入只会使用本地基础规则。</p>
-              <section className="llm-current">
-                <div>
-                  <span>当前整理引擎</span>
-                  <strong>{llmEngineLabel(settings)}</strong>
-                  <p>{llmEngineDescription(settings)}</p>
+              <section className="section-summary llm-current-summary">
+                <div className="section-summary-main">
+                  <span className="status-meta">当前整理引擎</span>
+                  <strong className="section-summary-title">{llmEngineLabel(settings)}</strong>
+                  <p className="section-summary-copy">{llmEngineDescription(settings)}</p>
                 </div>
-                <div className="inline-actions">
+                <div className="action-toolbar section-summary-actions">
                   <button className="secondary compact" onClick={() => void refreshLlmInstallers()} disabled={Boolean(llmInstallerBusy)}>
                     {llmInstallerBusy === 'detect' ? '检测中' : '重新检测'}
                   </button>

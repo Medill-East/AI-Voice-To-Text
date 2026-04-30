@@ -229,6 +229,11 @@ describe('settings navigation structure', () => {
     expect(styles).not.toMatch(/\.secondary\s*\{[^}]*border:\s*1px solid var\(--color-text\)/s);
     expect(styles).toContain('.version-list');
     expect(styles).toContain('.ui-meta');
+    expect(styles).toContain('.section-summary');
+    expect(styles).toContain('.section-summary-title');
+    expect(styles).toContain('.section-summary-copy');
+    expect(styles).toContain('.status-meta');
+    expect(styles).toContain('.badge-row');
     expect(styles).not.toContain('min-width: 1120px');
     expect(styles).toContain('.row-check input[type="checkbox"]');
     expect(styles).toContain('.voice-options');
@@ -248,14 +253,25 @@ describe('settings navigation structure', () => {
     expect(styles).toMatch(/\.engine-card\s*\{[^}]*overflow-wrap:\s*anywhere/s);
     expect(styles).toContain('.engine-card.active span');
     expect(styles).toContain('.local-llm-suggestions');
+    expect(styles).toMatch(/\.section-summary\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto/s);
+    expect(styles).toMatch(/\.action-toolbar\s*\{[^}]*gap:\s*var\(--control-gap-y\)\s*var\(--control-gap-x\)/s);
+    expect(styles).not.toContain('.llm-current span {');
+    expect(styles).not.toContain('.llm-current strong,');
 
     const design = await readFile(new URL('../DESIGN.md', import.meta.url), 'utf8');
+    expect(design.startsWith('---\n')).toBe(true);
+    expect(design).toContain('name: V2T');
+    expect(design).toContain('typography:');
+    expect(design).toContain('components:');
+    expect(design).toContain('button-secondary:');
+    expect(design).toContain('setting-strip:');
     expect(design).toContain('V2T Design Guidelines');
     expect(design).toContain('整表横向滚动');
     expect(design).toContain('primary / secondary / danger');
     expect(design).toContain('action-toolbar');
     expect(design).toContain('全局 button 不强制 nowrap');
     expect(design).toContain('说明型按钮卡片必须允许换行');
+    expect(design).toContain('标题、说明、状态、按钮文字');
     expect(design).toContain('同一设置区内 checkbox、segmented control 和诊断按钮必须使用统一高度');
   });
 });
