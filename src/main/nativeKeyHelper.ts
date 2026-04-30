@@ -152,9 +152,13 @@ export async function reinstallStableMacKeyServer(sourcePath: string, userDataPa
   };
 }
 
-export function readMacKeyServerVersion(filePath: string): MacKeyServerVersion | undefined {
-  const result = spawnSync(filePath, ['--version'], { encoding: 'utf8' });
-  if (result.status !== 0) {
+export function readMacKeyServerVersion(filePath: string, options: { timeoutMs?: number } = {}): MacKeyServerVersion | undefined {
+  const result = spawnSync(filePath, ['--version'], {
+    encoding: 'utf8',
+    timeout: options.timeoutMs ?? 1000,
+    killSignal: 'SIGTERM'
+  });
+  if (result.error || result.status !== 0) {
     return undefined;
   }
   const text = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();

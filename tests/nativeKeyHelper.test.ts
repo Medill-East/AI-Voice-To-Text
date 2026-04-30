@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -7,6 +7,7 @@ import {
   cleanupStaleWinKeyServerProcesses,
   cleanupStableWinKeyServer,
   ensureStableMacKeyServer,
+  readMacKeyServerVersion,
   reinstallStableMacKeyServer,
   resolveBundledV2TAudioControlPath,
   resolveBundledV2TKeyboardListenerPath,
@@ -72,6 +73,38 @@ describe('native key helper', () => {
 
     expect(result).toMatchObject({ copied: false, reusedExisting: false, needsHelperUpgrade: true });
     await expect(readFile(target, 'utf8')).resolves.toBe('old helper');
+  });
+
+  it.skipIf(process.platform === 'win32')('does not hang when an old MacKeyServer ignores --version', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'v2t-key-helper-hang-'));
+    const helper = join(root, 'old-MacKeyServer');
+    await writeFile(helper, '#!/bin/sh\nsleep 2\n');
+    await chmod(helper, 0o755);
+
+    const startedAt = Date.now();
+    const version = (readMacKeyServerVersion as (filePath: string, options: { timeoutMs: number }) => unknown)(helper, { timeoutMs: 100 });
+
+    expect(version).toBeUndefined();
+    expect(Date.now() - startedAt).toBeLessThan(1200);
+  });
+
+  it.skipIf(process.platform === 'win32')('marks a hanging stable MacKeyServer for upgrade without blocking startup', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'v2t-key-helper-startup-hang-'));
+    const source = join(root, 'source-MacKeyServer');
+    const userData = join(root, 'Application Support', 'V2T');
+    const target = stableMacKeyServerPath(userData);
+    await mkdir(join(userData, 'keyboard-listener'), { recursive: true });
+    await writeFile(source, '#!/bin/sh\necho \'{"protocolVersion":"1"}\'\n');
+    await writeFile(target, '#!/bin/sh\nsleep 2\n');
+    await chmod(source, 0o755);
+    await chmod(target, 0o755);
+
+    const startedAt = Date.now();
+    const result = await ensureStableMacKeyServer(source, userData);
+
+    expect(result).toMatchObject({ copied: false, reusedExisting: false, needsHelperUpgrade: true });
+    expect(Date.now() - startedAt).toBeLessThan(1800);
+    await expect(readFile(target, 'utf8')).resolves.toContain('sleep 2');
   });
 
   it('reinstalls MacKeyServer only when explicitly requested', async () => {
