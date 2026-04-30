@@ -210,6 +210,15 @@ describe('settings navigation structure', () => {
     expect(styles).toContain('--control-height-compact');
     expect(styles).toContain('--radius-control');
     expect(styles).toContain('--space-3');
+    expect(styles).toContain('--button-font-weight');
+    expect(styles).toContain('.primary');
+    expect(styles).toContain('.action-toolbar');
+    expect(styles).toContain('.save,');
+    expect(styles).toContain('.primary {');
+    expect(styles).toContain('border: 1px solid var(--color-control-border)');
+    expect(styles).not.toContain('.setup-callout button,');
+    expect(styles).not.toContain('.model-row button,');
+    expect(styles).not.toMatch(/\.secondary\s*\{[^}]*border:\s*1px solid var\(--color-text\)/s);
     expect(styles).toContain('.version-list');
     expect(styles).toContain('.ui-meta');
     expect(styles).not.toContain('min-width: 1120px');
@@ -227,5 +236,7 @@ describe('settings navigation structure', () => {
     const design = await readFile(new URL('../DESIGN.md', import.meta.url), 'utf8');
     expect(design).toContain('V2T Design Guidelines');
     expect(design).toContain('整表横向滚动');
+    expect(design).toContain('primary / secondary / danger');
+    expect(design).toContain('action-toolbar');
   });
 });

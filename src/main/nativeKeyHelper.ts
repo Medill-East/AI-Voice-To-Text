@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { dirname, join, win32 } from 'node:path';
 
 export const V2T_MAC_KEYSERVER_PROTOCOL_VERSION = '1';
+const MAC_KEYSERVER_VERSION_TIMEOUT_MS = 250;
 
 export interface MacKeyServerVersion {
   protocolVersion: string;
@@ -155,7 +156,7 @@ export async function reinstallStableMacKeyServer(sourcePath: string, userDataPa
 export function readMacKeyServerVersion(filePath: string, options: { timeoutMs?: number } = {}): MacKeyServerVersion | undefined {
   const result = spawnSync(filePath, ['--version'], {
     encoding: 'utf8',
-    timeout: options.timeoutMs ?? 1000,
+    timeout: options.timeoutMs ?? MAC_KEYSERVER_VERSION_TIMEOUT_MS,
     killSignal: 'SIGTERM'
   });
   if (result.error || result.status !== 0) {

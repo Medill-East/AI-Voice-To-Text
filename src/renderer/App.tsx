@@ -1500,7 +1500,7 @@ export function App() {
                 <h2>本地模型未配置</h2>
                 <p>推荐安装 {topRecommendation.model.name}。配置完成后可以离线转写，不需要手动启动服务。</p>
               </div>
-              <button onClick={() => void installModel(topRecommendation.model.id)} disabled={Boolean(installingModelId)}>
+              <button className="primary" onClick={() => void installModel(topRecommendation.model.id)} disabled={Boolean(installingModelId)}>
                 {installingModelId === topRecommendation.model.id ? '安装中' : '立即配置'}
               </button>
             </section>
@@ -3014,7 +3014,7 @@ function InstalledModelRow({
         <small>{model.modelPath ?? model.modelId}</small>
       </div>
       <div className="model-row-actions">
-        <button onClick={() => void onActivate(model.modelId)} disabled={!model.canActivate || activating || model.current}>
+        <button className="primary" onClick={() => void onActivate(model.modelId)} disabled={!model.canActivate || activating || model.current}>
           {model.current ? '当前' : activating ? '启用中' : '启用'}
         </button>
         {model.canReinstall ? (
@@ -3558,7 +3558,9 @@ function ReferenceModelRow({ model }: { model: ModelCatalogItem }) {
         <small>{model.sourceUrl}</small>
       </div>
       <div className="model-row-actions">
-        <button disabled>{model.availability === 'manual' ? '手动配置' : '待接入'}</button>
+        <button className="secondary" disabled>
+          {model.availability === 'manual' ? '手动配置' : '待接入'}
+        </button>
       </div>
     </article>
   );
@@ -3640,6 +3642,7 @@ function ModelRow({
        </div>
       <div className="model-row-actions">
         <button
+          className="primary"
           onClick={() => void (installed ? onActivate(recommendation.model.id) : onInstall(recommendation.model.id))}
           disabled={installing || isCurrent}
         >

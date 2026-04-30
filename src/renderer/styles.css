@@ -35,6 +35,7 @@
   --radius-panel: 8px;
   --control-height: 36px;
   --control-height-compact: 30px;
+  --button-font-weight: 650;
   color: var(--color-text);
   background: var(--color-bg);
   font-family:
@@ -110,10 +111,31 @@ textarea {
 }
 
 button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   min-height: var(--control-height);
+  padding: 0 var(--space-5);
+  border: 1px solid var(--color-control-border);
   border-radius: var(--radius-control);
+  background: var(--color-control);
+  color: var(--color-text);
   font-size: var(--font-body);
+  font-weight: var(--button-font-weight);
   line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    opacity 140ms ease;
+}
+
+button:hover {
+  background: var(--color-hover);
+  border-color: var(--color-border-strong);
 }
 
 .shell {
@@ -321,21 +343,34 @@ h2 {
   line-height: 1.45;
 }
 
-.setup-callout button,
-.model-row button,
-.secondary {
+.save,
+.primary {
   min-height: var(--control-height);
   border: 1px solid var(--color-text);
-  border-radius: var(--radius-control);
   background: var(--color-text);
   color: var(--color-surface);
-  cursor: pointer;
-  white-space: nowrap;
 }
 
-.setup-callout button,
-.model-row button {
-  padding: 0 15px;
+.primary {
+  width: auto;
+}
+
+.primary:hover,
+.save:hover {
+  background: var(--color-text);
+  border-color: var(--color-text);
+  color: var(--color-surface);
+}
+
+.secondary {
+  border: 1px solid var(--color-control-border);
+  background: var(--color-control);
+  color: var(--color-text);
+}
+
+.secondary:hover {
+  background: var(--color-hover);
+  border-color: var(--color-border-strong);
 }
 
 .mode-hint {
@@ -694,15 +729,19 @@ textarea {
   line-height: 1.2;
 }
 
-.table-action-grid {
+.action-toolbar,
+.table-action-grid,
+.inline-actions,
+.action-strip,
+.model-row-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-3);
+  align-items: center;
 }
 
 .action-strip {
   flex-wrap: nowrap;
-  align-items: center;
   overflow-x: auto;
   white-space: nowrap;
 }
@@ -881,12 +920,6 @@ textarea {
   border-top: 1px solid var(--color-border);
 }
 
-.model-row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .model-row.current {
   border-top-color: var(--color-border-strong);
 }
@@ -1056,16 +1089,10 @@ textarea {
   font-size: var(--font-meta);
 }
 
-.model-row button:disabled,
-.setup-callout button:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
 .button-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: var(--space-3);
   margin-top: 14px;
 }
 
@@ -1073,11 +1100,8 @@ textarea {
   grid-template-columns: repeat(3, 1fr);
 }
 
-.secondary {
-  background: transparent;
-  color: var(--color-text);
-}
-
+.primary.compact,
+.save.compact,
 .secondary.compact,
 .danger.compact {
   align-self: end;
@@ -1104,11 +1128,13 @@ textarea {
 .danger {
   min-height: var(--control-height);
   border: 1px solid var(--color-danger-border);
-  border-radius: var(--radius-control);
-  background: transparent;
+  background: color-mix(in srgb, var(--color-error) 8%, transparent);
   color: var(--color-error);
-  cursor: pointer;
-  white-space: nowrap;
+}
+
+.danger:hover {
+  background: color-mix(in srgb, var(--color-error) 12%, transparent);
+  border-color: var(--color-error);
 }
 
 .sync-message {
@@ -1242,11 +1268,6 @@ textarea {
   overflow-wrap: anywhere;
 }
 
-.inline-actions {
-  display: flex;
-  gap: 8px;
-}
-
 .sync-history-toggle {
   margin-top: 14px;
 }
@@ -1297,8 +1318,8 @@ textarea {
   min-height: 38px;
   padding: 3px;
   border: 1px solid var(--color-control-border);
-  border-radius: 8px;
-  background: var(--color-soft);
+  border-radius: var(--radius-control);
+  background: var(--color-control);
 }
 
 .segmented-control.compact {
@@ -1331,11 +1352,18 @@ textarea {
 }
 
 .segmented-control button {
+  min-height: calc(var(--control-height) - 8px);
+  padding: 0 var(--space-4);
   border: 0;
-  border-radius: 6px;
+  border-radius: calc(var(--radius-control) - 1px);
   background: transparent;
   color: var(--color-muted);
   cursor: pointer;
+}
+
+.segmented-control button:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
 }
 
 .segmented-control button.active {
@@ -1836,16 +1864,13 @@ textarea {
 
 .save {
   width: 100%;
-  min-height: 38px;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: var(--color-text);
-  color: var(--color-surface);
-  cursor: pointer;
 }
 
+.primary:disabled,
 .save:disabled,
-.secondary:disabled {
+.secondary:disabled,
+.danger:disabled,
+button:disabled {
   cursor: default;
   opacity: 0.55;
 }
