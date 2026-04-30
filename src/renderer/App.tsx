@@ -143,6 +143,7 @@ export function App() {
   const [catalogMessage, setCatalogMessage] = useState<string | null>(null);
   const [cudaMessage, setCudaMessage] = useState<string | null>(null);
   const [cudaDetecting, setCudaDetecting] = useState(false);
+  const [cudaInstalling, setCudaInstalling] = useState(false);
   const [installProgressById, setInstallProgressById] = useState<Record<string, ModelStatusRecord>>({});
   const [downloadProbeById, setDownloadProbeById] = useState<Record<string, ModelDownloadProbeResult>>({});
   const [probingModelId, setProbingModelId] = useState<string | null>(null);
@@ -373,6 +374,29 @@ export function App() {
 
   useEffect(() => {
     return window.v2t.onAppUpdateStatus(setAppUpdateState);
+  }, []);
+
+  useEffect(() => {
+    return window.v2t.onAsrCudaRuntimeProgress((progress) => {
+      setSetup((current) =>
+        current
+          ? {
+              ...current,
+              asrCudaStatus: {
+                ...current.asrCudaStatus,
+                runtime: {
+                  ...current.asrCudaStatus.runtime,
+                  installProgress: progress,
+                  installStatus:
+                    progress.phase === 'downloading' || progress.phase === 'extracting' || progress.phase === 'verifying'
+                      ? progress.phase
+                      : current.asrCudaStatus.runtime.installStatus
+                }
+              }
+            }
+          : current
+      );
+    });
   }, []);
 
   const stopRecording = useCallback(() => {
@@ -733,6 +757,43 @@ export function App() {
     const result = await window.v2t.disableAsrCuda();
     applySetup(result.setup);
     setCudaMessage('已回退到 CPU stable 后端。');
+  };
+
+  const installAsrCudaRuntime = async () => {
+    setCudaInstalling(true);
+    setCudaMessage('正在安装 V2T CUDA 后端。下载和解压可能需要几分钟。');
+    try {
+      const result = await window.v2t.installAsrCudaRuntime();
+      applySetup(result.setup);
+      setCudaMessage(result.ok ? 'CUDA 后端已安装并通过 smoke test，可以启用后做输出测速。' : result.error ?? result.status.diagnostic);
+    } finally {
+      setCudaInstalling(false);
+    }
+  };
+
+  const cancelAsrCudaRuntimeInstall = async () => {
+    const result = await window.v2t.cancelAsrCudaRuntimeInstall();
+    applySetup(result.setup);
+    setCudaInstalling(false);
+    setCudaMessage('已取消 CUDA 后端安装。');
+  };
+
+  const clearAsrCudaRuntime = async () => {
+    const result = await window.v2t.clearAsrCudaRuntime();
+    applySetup(result.setup);
+    setCudaMessage(result.ok ? '已清除 CUDA 后端并回退 CPU。' : result.error ?? result.status.diagnostic);
+  };
+
+  const runAsrCudaSmokeTest = async () => {
+    setCudaDetecting(true);
+    setCudaMessage('正在运行 CUDA runtime smoke test。');
+    try {
+      const result = await window.v2t.runAsrCudaSmokeTest();
+      applySetup(result.setup);
+      setCudaMessage(result.ok ? 'CUDA runtime smoke test 通过，可以启用实验 CUDA。' : result.error ?? result.status.diagnostic);
+    } finally {
+      setCudaDetecting(false);
+    }
   };
 
   const updateOpenAtLogin = async (openAtLogin: boolean, silentOpenAtLogin = settings?.startup.silentOpenAtLogin ?? true) => {
@@ -1740,14 +1801,37 @@ export function App() {
                       <span>CUDA runtime</span>
                       <strong>{setup.asrCudaStatus.cudaRuntimeDlls.length > 0 ? `${setup.asrCudaStatus.cudaRuntimeDlls.length} 个 DLL` : '未检测到'}</strong>
                       <span>sherpa CUDA runtime</span>
-                      <strong>{setup.asrCudaStatus.sherpaCudaRuntimeAvailable ? '可用' : '当前包未包含'}</strong>
+                      <strong>{asrCudaRuntimeText(setup.asrCudaStatus)}</strong>
+                      <span>smoke test</span>
+                      <strong>{setup.asrCudaStatus.runtime.smokeTestPassed ? `通过${setup.asrCudaStatus.runtime.smokeTestedAt ? ` · ${new Date(setup.asrCudaStatus.runtime.smokeTestedAt).toLocaleDateString()}` : ''}` : '未通过'}</strong>
                       <span>建议</span>
                       <strong>{setup.asrCudaStatus.recommendedAction}</strong>
                     </div>
+                    {setup.asrCudaStatus.runtime.installProgress ? (
+                      <div className="cuda-progress">
+                        <span>{cudaProgressLabel(setup.asrCudaStatus.runtime.installProgress.phase)}</span>
+                        <strong>
+                          {typeof setup.asrCudaStatus.runtime.installProgress.percent === 'number'
+                            ? `${Math.round(setup.asrCudaStatus.runtime.installProgress.percent)}%`
+                            : setup.asrCudaStatus.runtime.installProgress.message ?? '进行中'}
+                        </strong>
+                      </div>
+                    ) : null}
                     {cudaMessage ? <p className="sync-message">{cudaMessage}</p> : null}
                     <div className="action-toolbar">
                       <button className="secondary compact" onClick={() => void refreshAsrCuda()} disabled={cudaDetecting}>
                         {cudaDetecting ? '检测中' : '检测 CUDA'}
+                      </button>
+                      <button className="secondary compact" onClick={() => void installAsrCudaRuntime()} disabled={!setup.asrCudaStatus.runtime.canInstall || cudaInstalling || cudaDetecting}>
+                        {setup.asrCudaStatus.runtime.hasRuntimeFiles ? '重新安装 CUDA 后端' : '安装 CUDA 后端'}
+                      </button>
+                      {setup.asrCudaStatus.runtime.canCancel || cudaInstalling ? (
+                        <button className="secondary compact" onClick={() => void cancelAsrCudaRuntimeInstall()}>
+                          取消下载
+                        </button>
+                      ) : null}
+                      <button className="secondary compact" onClick={() => void runAsrCudaSmokeTest()} disabled={!setup.asrCudaStatus.runtime.canSmokeTest || cudaDetecting || cudaInstalling}>
+                        运行 smoke test
                       </button>
                       <button className="secondary compact" onClick={() => void window.v2t.openAsrCudaDocs()}>
                         sherpa CUDA 文档
@@ -1757,6 +1841,9 @@ export function App() {
                       </button>
                       <button className="secondary compact" onClick={() => void enableAsrCuda()} disabled={!setup.asrCudaStatus.canEnable || setup.asrCudaStatus.active || cudaDetecting}>
                         启用实验 CUDA
+                      </button>
+                      <button className="secondary compact" onClick={() => void clearAsrCudaRuntime()} disabled={!setup.asrCudaStatus.runtime.canClear || cudaInstalling}>
+                        清除 CUDA 后端
                       </button>
                       {setup.asrCudaStatus.active ? (
                         <button className="secondary compact" onClick={() => void disableAsrCuda()}>
@@ -4295,6 +4382,47 @@ function asrCudaBadge(status: AsrCudaStatus): string {
     return '可启用';
   }
   return '不可用';
+}
+
+function asrCudaRuntimeText(status: AsrCudaStatus): string {
+  if (status.runtime.installStatus === 'active') {
+    return `已启用 · ${status.runtime.installedVersion ?? status.runtime.catalogItem?.version ?? '未知版本'}`;
+  }
+  if (status.runtime.smokeTestPassed) {
+    return `已安装 · ${status.runtime.installedVersion ?? status.runtime.catalogItem?.version ?? '未知版本'}`;
+  }
+  if (status.runtime.hasRuntimeFiles) {
+    return '已安装，待 smoke test';
+  }
+  if (status.runtime.installStatus === 'downloading' || status.runtime.installStatus === 'extracting' || status.runtime.installStatus === 'verifying') {
+    return '安装中';
+  }
+  if (status.runtime.installStatus === 'failed') {
+    return '安装失败';
+  }
+  return status.runtime.canInstall ? '可一键安装' : '无兼容包';
+}
+
+function cudaProgressLabel(phase: string): string {
+  if (phase === 'downloading') {
+    return '下载';
+  }
+  if (phase === 'extracting') {
+    return '解压';
+  }
+  if (phase === 'verifying') {
+    return '校验';
+  }
+  if (phase === 'ready') {
+    return '已就绪';
+  }
+  if (phase === 'failed') {
+    return '失败';
+  }
+  if (phase === 'cancelled') {
+    return '已取消';
+  }
+  return phase;
 }
 
 function asrThreadOptions(): Array<{ label: string; value: Settings['providers']['asr']['runtime']['numThreads'] }> {

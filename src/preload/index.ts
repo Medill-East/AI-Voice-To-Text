@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   GitHubSyncStatus,
   AppUpdateState,
+  AsrCudaInstallProgress,
+  AsrCudaRuntimeStatus,
   AsrCudaStatus,
   AsrBenchmarkBatchState,
   AutoSyncState,
@@ -119,6 +121,11 @@ export interface V2TApi {
   openModelDownloadUrl(modelId: string): Promise<{ ok: boolean; error?: string }>;
   copyModelDownloadUrl(modelId: string): Promise<{ ok: boolean; error?: string }>;
   detectAsrCuda(): Promise<AsrCudaStatus>;
+  getAsrCudaRuntimeStatus(): Promise<AsrCudaRuntimeStatus>;
+  installAsrCudaRuntime(): Promise<AsrCudaRuntimeActionResult>;
+  cancelAsrCudaRuntimeInstall(): Promise<AsrCudaRuntimeActionResult>;
+  clearAsrCudaRuntime(): Promise<AsrCudaRuntimeActionResult>;
+  runAsrCudaSmokeTest(): Promise<AsrCudaRuntimeActionResult>;
   enableAsrCuda(): Promise<AsrCudaActionResult>;
   disableAsrCuda(): Promise<AsrCudaActionResult>;
   openAsrCudaDocs(): Promise<{ ok: true }>;
@@ -131,6 +138,7 @@ export interface V2TApi {
   onModelCatalogRefresh(callback: (setup: SetupPayload) => void): () => void;
   onAutoSyncStatus(callback: (status: AutoSyncState) => void): () => void;
   onAppUpdateStatus(callback: (status: AppUpdateState) => void): () => void;
+  onAsrCudaRuntimeProgress(callback: (progress: AsrCudaInstallProgress) => void): () => void;
 }
 
 export interface SetupPayload {
@@ -205,6 +213,10 @@ interface AsrCudaActionResult {
   status: AsrCudaStatus;
   setup: SetupPayload;
   error?: string;
+}
+
+interface AsrCudaRuntimeActionResult extends AsrCudaActionResult {
+  runtime: AsrCudaRuntimeStatus;
 }
 
 interface LlmEnableResult {
@@ -294,6 +306,11 @@ const api: V2TApi = {
   openModelDownloadUrl: (modelId) => ipcRenderer.invoke('v2t:open-model-download-url', modelId),
   copyModelDownloadUrl: (modelId) => ipcRenderer.invoke('v2t:copy-model-download-url', modelId),
   detectAsrCuda: () => ipcRenderer.invoke('v2t:detect-asr-cuda'),
+  getAsrCudaRuntimeStatus: () => ipcRenderer.invoke('v2t:get-asr-cuda-runtime-status'),
+  installAsrCudaRuntime: () => ipcRenderer.invoke('v2t:install-asr-cuda-runtime'),
+  cancelAsrCudaRuntimeInstall: () => ipcRenderer.invoke('v2t:cancel-asr-cuda-runtime-install'),
+  clearAsrCudaRuntime: () => ipcRenderer.invoke('v2t:clear-asr-cuda-runtime'),
+  runAsrCudaSmokeTest: () => ipcRenderer.invoke('v2t:run-asr-cuda-smoke-test'),
   enableAsrCuda: () => ipcRenderer.invoke('v2t:enable-asr-cuda'),
   disableAsrCuda: () => ipcRenderer.invoke('v2t:disable-asr-cuda'),
   openAsrCudaDocs: () => ipcRenderer.invoke('v2t:open-asr-cuda-docs'),
@@ -339,6 +356,11 @@ const api: V2TApi = {
     const listener = (_event: Electron.IpcRendererEvent, status: AppUpdateState) => callback(status);
     ipcRenderer.on('v2t:app-update-status', listener);
     return () => ipcRenderer.off('v2t:app-update-status', listener);
+  },
+  onAsrCudaRuntimeProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: AsrCudaInstallProgress) => callback(progress);
+    ipcRenderer.on('v2t:asr-cuda-runtime-progress', listener);
+    return () => ipcRenderer.off('v2t:asr-cuda-runtime-progress', listener);
   }
 };
 

@@ -130,6 +130,10 @@ describe('settings navigation structure', () => {
     expect(app).toContain('ASR CPU 线程数');
     expect(app).toContain('实验 CUDA 后端');
     expect(app).toContain('检测 CUDA');
+    expect(app).toContain('安装 CUDA 后端');
+    expect(app).toContain('取消下载');
+    expect(app).toContain('运行 smoke test');
+    expect(app).toContain('清除 CUDA 后端');
     expect(app).toContain('启用实验 CUDA');
     expect(app).toContain('NVIDIA CUDA 下载');
     expect(app).toContain('sherpa CUDA 文档');
@@ -279,6 +283,7 @@ describe('settings navigation structure', () => {
     expect(styles).toContain('.asr-runtime-panel');
     expect(styles).toContain('.asr-cuda-panel');
     expect(styles).toContain('.asr-cuda-grid');
+    expect(styles).toContain('.cuda-progress');
     expect(styles).toContain('.status-pill.cuda-experimental-active');
     expect(styles).toContain('.asr-model-tags');
     expect(styles).toContain('repeat(auto-fit, minmax(260px, 1fr))');

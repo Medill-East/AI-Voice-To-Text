@@ -10,6 +10,7 @@ export interface AsrTranscriptionRunnerRequest {
   sherpaModelType?: SherpaModelType;
   language: string;
   runtime?: ResolvedAsrRuntime;
+  runtimeEnvPath?: string;
   processing: ProcessingDiagnostic & { mode: InputMode };
 }
 
@@ -40,6 +41,8 @@ export class AsrTranscriptionRunner {
     const child = forkProcess(this.options.workerPath, [], {
       env: {
         ...process.env,
+        PATH: request.runtimeEnvPath ? `${request.runtimeEnvPath}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH ?? ''}` : process.env.PATH,
+        Path: request.runtimeEnvPath && process.platform === 'win32' ? `${request.runtimeEnvPath};${process.env.Path ?? process.env.PATH ?? ''}` : process.env.Path,
         ELECTRON_RUN_AS_NODE: '1'
       },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],

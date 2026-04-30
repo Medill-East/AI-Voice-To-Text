@@ -95,4 +95,35 @@ describe('ASR CUDA diagnostics', () => {
     expect(status.canEnable).toBe(true);
     expect(status.backendStatus).toBe('cuda-experimental-available');
   });
+
+  it('keeps CUDA unavailable when runtime files exist but smoke test has not passed', async () => {
+    const spawn = () => ({
+      status: 0,
+      stdout: 'NVIDIA RTX 4090, 560.10\n',
+      stderr: ''
+    });
+    const cudaDir = await mkdtemp(join(tmpdir(), 'v2t-cuda-'));
+    await writeFile(join(cudaDir, 'cudart64_12.dll'), '');
+    const status = detectAsrCudaStatus(baseSettings(), {
+      platform: 'win32',
+      spawn: spawn as never,
+      env: { PATH: cudaDir },
+      runtimeStatus: {
+        installStatus: 'installed-unverified',
+        runtimeRoot: 'C:\\Users\\test\\AppData\\Roaming\\V2T\\runtimes\\sherpa-onnx-cuda',
+        runtimePath: 'C:\\Users\\test\\AppData\\Roaming\\V2T\\runtimes\\sherpa-onnx-cuda\\runtime',
+        hasRuntimeFiles: true,
+        missingFiles: [],
+        smokeTestPassed: false,
+        canInstall: true,
+        canCancel: false,
+        canClear: true,
+        canSmokeTest: true
+      }
+    });
+
+    expect(status.canEnable).toBe(false);
+    expect(status.diagnostic).toContain('尚未通过 smoke test');
+    expect(status.recommendedAction).toContain('smoke test');
+  });
 });

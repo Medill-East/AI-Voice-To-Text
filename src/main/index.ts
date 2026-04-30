@@ -25,6 +25,7 @@ import { TextInjectionService } from '../core/textInjection';
 import { UserDataStore } from '../core/userDataStore';
 import type {
   AppUpdateState,
+  AsrCudaInstallProgress,
   AsrCudaStatus,
   AsrBenchmarkBatchState,
   AutoSyncState,
@@ -43,6 +44,7 @@ import type {
   Settings
 } from '../core/types';
 import { detectAsrCudaStatus, NVIDIA_CUDA_DOWNLOAD_URL, SHERPA_WINDOWS_CUDA_DOCS_URL } from './asrCudaDiagnostics';
+import { AsrCudaRuntimeManager } from './asrCudaRuntimeManager';
 import { AsrBenchmarkRunner } from './asrBenchmarkRunner';
 import { AsrTranscriptionRunner, type AsrTranscriptionRunnerRequest } from './asrTranscriptionRunner';
 import { getFocusedAppName } from './focusedApp';
@@ -121,6 +123,8 @@ let modelCatalogRefreshState: ModelCatalogRefreshState = {
 };
 let lastProcessingDiagnostic: ProcessingDiagnostic | undefined;
 let lastAsrDiagnostic: { error: string; diagnostic?: AsrErrorDiagnostic; processing?: ProcessingDiagnostic; at: string } | undefined;
+let lastAsrCudaStatus: AsrCudaStatus | undefined;
+let asrCudaRuntimeManager: AsrCudaRuntimeManager | undefined;
 let activeAsrBenchmarkRunner: AsrBenchmarkRunner | undefined;
 let cancelAsrBenchmarkRequested = false;
 let asrBenchmarkBatchState: AsrBenchmarkBatchState = {
@@ -148,6 +152,8 @@ async function bootstrap(): Promise<void> {
   await mkdir(modelRoot, { recursive: true });
   settings = normalizeRuntimeSettings(settings);
   await store.saveSettings(settings);
+  asrCudaRuntimeManager = new AsrCudaRuntimeManager({ userDataDir: app.getPath('userData') });
+  lastAsrCudaStatus = await detectCurrentAsrCudaStatus();
   lastProcessingDiagnostic = await readProcessingMarker();
 
   nativeHelperPath = await setupNativeKeyHelper();
@@ -460,6 +466,11 @@ function registerIpc(): void {
     clipboard.writeText(url);
     return { ok: true };
   });
+  ipcMain.handle('v2t:get-asr-cuda-runtime-status', async () => getCurrentAsrCudaRuntimeStatus());
+  ipcMain.handle('v2t:install-asr-cuda-runtime', async () => installAsrCudaRuntime());
+  ipcMain.handle('v2t:cancel-asr-cuda-runtime-install', async () => cancelAsrCudaRuntimeInstall());
+  ipcMain.handle('v2t:clear-asr-cuda-runtime', async () => clearAsrCudaRuntime());
+  ipcMain.handle('v2t:run-asr-cuda-smoke-test', async () => runAsrCudaSmokeTest());
   ipcMain.handle('v2t:detect-asr-cuda', async () => detectCurrentAsrCudaStatus());
   ipcMain.handle('v2t:enable-asr-cuda', async () => enableAsrCudaRuntime());
   ipcMain.handle('v2t:disable-asr-cuda', async () => disableAsrCudaRuntime());
@@ -927,6 +938,10 @@ function createAsrProvider(diagnostic: ProcessingDiagnostic) {
         sherpaModelType: settings.providers.asr.sherpaModelType,
         language: settings.providers.asr.language,
         runtime: resolveCurrentAsrRuntime(),
+        runtimeEnvPath:
+          settings.providers.asr.runtime.provider === 'cuda' && settings.providers.asr.runtime.cudaExperimental
+            ? settings.providers.asr.runtime.cudaRuntimePath
+            : undefined,
         processing: diagnostic
       };
       return runner.transcribe(request);
@@ -1250,7 +1265,7 @@ async function getSetupPayload() {
     modelRoot,
     catalog: modelCatalog,
     modelCatalogRefresh: modelCatalogRefreshState,
-    asrCudaStatus: detectCurrentAsrCudaStatus(),
+    asrCudaStatus: await detectCurrentAsrCudaStatus(),
     modelStatuses: rawStatuses,
     recommendations: recommendModels(modelCatalog, hardware, statusMap),
     installedModels: await manager.listInstalledModelViews(settings),
@@ -1338,7 +1353,11 @@ function createAsrBenchmarkRunner(): AsrBenchmarkRunner {
     modelRoot,
     dataDir: store.getBaseDir(),
     deviceId: deviceId(),
-    catalog: modelCatalog
+    catalog: modelCatalog,
+    runtimeEnvPath:
+      settings.providers.asr.runtime.provider === 'cuda' && settings.providers.asr.runtime.cudaExperimental
+        ? settings.providers.asr.runtime.cudaRuntimePath
+        : undefined
   });
 }
 
@@ -1510,12 +1529,65 @@ function normalizeRuntimeSettings(nextSettings: Settings): Settings {
   };
 }
 
-function detectCurrentAsrCudaStatus(): AsrCudaStatus {
-  return detectAsrCudaStatus(settings);
+function cudaRuntimeManager(): AsrCudaRuntimeManager {
+  asrCudaRuntimeManager ??= new AsrCudaRuntimeManager({ userDataDir: app.getPath('userData') });
+  return asrCudaRuntimeManager;
+}
+
+async function getCurrentAsrCudaRuntimeStatus() {
+  return cudaRuntimeManager().getStatus(settings);
+}
+
+async function detectCurrentAsrCudaStatus(): Promise<AsrCudaStatus> {
+  const runtimeStatus = await getCurrentAsrCudaRuntimeStatus();
+  lastAsrCudaStatus = detectAsrCudaStatus(settings, { runtimeStatus });
+  return lastAsrCudaStatus;
+}
+
+async function installAsrCudaRuntime() {
+  try {
+    const status = await cudaRuntimeManager().install({
+      onProgress: (progress) => broadcastAsrCudaRuntimeProgress(progress)
+    });
+    lastAsrCudaStatus = await detectCurrentAsrCudaStatus();
+    return { ok: true, runtime: status, status: lastAsrCudaStatus, setup: await getSetupPayload() };
+  } catch (error) {
+    lastAsrCudaStatus = await detectCurrentAsrCudaStatus();
+    return { ok: false, runtime: lastAsrCudaStatus.runtime, status: lastAsrCudaStatus, setup: await getSetupPayload(), error: readableError(error) };
+  }
+}
+
+async function cancelAsrCudaRuntimeInstall() {
+  cudaRuntimeManager().cancel();
+  const runtime = await getCurrentAsrCudaRuntimeStatus();
+  lastAsrCudaStatus = await detectCurrentAsrCudaStatus();
+  return { ok: true, runtime, status: lastAsrCudaStatus, setup: await getSetupPayload() };
+}
+
+async function clearAsrCudaRuntime() {
+  await cudaRuntimeManager().clear();
+  await disableAsrCudaRuntime();
+  lastAsrCudaStatus = await detectCurrentAsrCudaStatus();
+  return { ok: true, runtime: lastAsrCudaStatus.runtime, status: lastAsrCudaStatus, setup: await getSetupPayload() };
+}
+
+async function runAsrCudaSmokeTest() {
+  try {
+    const runtime = await cudaRuntimeManager().runSmokeTest();
+    lastAsrCudaStatus = await detectCurrentAsrCudaStatus();
+    return { ok: true, runtime, status: lastAsrCudaStatus, setup: await getSetupPayload() };
+  } catch (error) {
+    lastAsrCudaStatus = await detectCurrentAsrCudaStatus();
+    return { ok: false, runtime: lastAsrCudaStatus.runtime, status: lastAsrCudaStatus, setup: await getSetupPayload(), error: readableError(error) };
+  }
+}
+
+function broadcastAsrCudaRuntimeProgress(progress: AsrCudaInstallProgress): void {
+  mainWindow?.webContents.send('v2t:asr-cuda-runtime-progress', progress);
 }
 
 async function enableAsrCudaRuntime() {
-  const cudaStatus = detectCurrentAsrCudaStatus();
+  const cudaStatus = await detectCurrentAsrCudaStatus();
   if (!cudaStatus.canEnable) {
     return {
       ok: false,
@@ -1533,13 +1605,15 @@ async function enableAsrCudaRuntime() {
         runtime: {
           ...settings.providers.asr.runtime,
           provider: 'cuda',
-          cudaExperimental: true
+          cudaExperimental: true,
+          cudaRuntimeId: cudaStatus.runtime.installedRuntimeId ?? cudaStatus.runtime.catalogItem?.id,
+          cudaRuntimePath: cudaStatus.runtime.runtimePath
         }
       }
     }
   });
   await store.saveSettings(settings);
-  return { ok: true, status: detectCurrentAsrCudaStatus(), setup: await getSetupPayload() };
+  return { ok: true, status: await detectCurrentAsrCudaStatus(), setup: await getSetupPayload() };
 }
 
 async function disableAsrCudaRuntime() {
@@ -1552,31 +1626,40 @@ async function disableAsrCudaRuntime() {
         runtime: {
           ...settings.providers.asr.runtime,
           provider: 'cpu',
-          cudaExperimental: false
+          cudaExperimental: false,
+          cudaRuntimeId: settings.providers.asr.runtime.cudaRuntimeId,
+          cudaRuntimePath: settings.providers.asr.runtime.cudaRuntimePath
         }
       }
     }
   });
   await store.saveSettings(settings);
-  return { ok: true, status: detectCurrentAsrCudaStatus(), setup: await getSetupPayload() };
+  return { ok: true, status: await detectCurrentAsrCudaStatus(), setup: await getSetupPayload() };
 }
 
 function resolveCurrentAsrRuntime() {
-  const cudaStatus = detectCurrentAsrCudaStatus();
+  const cudaStatus = lastAsrCudaStatus;
   return resolveLocalSherpaRuntime(settings.providers.asr.runtime, {
     cpuCores: cpus().length,
     platform: process.platform,
-    cudaRuntimeAvailable: cudaStatus.canEnable,
-    cudaUnavailableReason: cudaStatus.diagnostic || cudaUnavailableReason()
+    cudaRuntimeAvailable: cudaStatus?.canEnable,
+    cudaUnavailableReason: cudaStatus?.diagnostic || cudaUnavailableReason()
   });
 }
 
 function resolveStoredAsrRuntime(runtime: Settings['providers']['asr']['runtime'] | undefined): Settings['providers']['asr']['runtime'] {
-  return {
+  const normalized: Settings['providers']['asr']['runtime'] = {
     provider: runtime?.provider === 'cuda' ? 'cuda' : 'cpu',
     numThreads: runtime?.numThreads === 2 || runtime?.numThreads === 4 || runtime?.numThreads === 6 || runtime?.numThreads === 8 ? runtime.numThreads : 'auto',
     cudaExperimental: runtime?.cudaExperimental ?? false
   };
+  if (typeof runtime?.cudaRuntimeId === 'string') {
+    normalized.cudaRuntimeId = runtime.cudaRuntimeId;
+  }
+  if (typeof runtime?.cudaRuntimePath === 'string') {
+    normalized.cudaRuntimePath = runtime.cudaRuntimePath;
+  }
+  return normalized;
 }
 
 function cudaUnavailableReason(): string {

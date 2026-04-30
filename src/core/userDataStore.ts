@@ -719,11 +719,18 @@ function normalizeAsrRuntime(runtime: Partial<Settings['providers']['asr']['runt
   const provider = runtime?.provider === 'cuda' ? 'cuda' : 'cpu';
   const threadSetting = runtime?.numThreads;
   const numThreads = threadSetting === 2 || threadSetting === 4 || threadSetting === 6 || threadSetting === 8 ? threadSetting : 'auto';
-  return {
+  const normalized: Settings['providers']['asr']['runtime'] = {
     provider,
     numThreads,
     cudaExperimental: runtime?.cudaExperimental ?? false
   };
+  if (typeof runtime?.cudaRuntimeId === 'string') {
+    normalized.cudaRuntimeId = runtime.cudaRuntimeId;
+  }
+  if (typeof runtime?.cudaRuntimePath === 'string') {
+    normalized.cudaRuntimePath = runtime.cudaRuntimePath;
+  }
+  return normalized;
 }
 
 function oppositeMode(mode: InputMode): InputMode {

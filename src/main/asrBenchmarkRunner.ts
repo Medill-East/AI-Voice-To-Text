@@ -16,6 +16,7 @@ interface AsrBenchmarkRunnerOptions {
   deviceId: string;
   catalog: ModelCatalogItem[];
   timeoutMs?: number;
+  runtimeEnvPath?: string;
   forkProcess?: typeof fork;
 }
 
@@ -32,6 +33,8 @@ export class AsrBenchmarkRunner {
     const child = forkProcess(this.options.workerPath, [], {
       env: {
         ...process.env,
+        PATH: this.options.runtimeEnvPath ? `${this.options.runtimeEnvPath}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH ?? ''}` : process.env.PATH,
+        Path: this.options.runtimeEnvPath && process.platform === 'win32' ? `${this.options.runtimeEnvPath};${process.env.Path ?? process.env.PATH ?? ''}` : process.env.Path,
         ELECTRON_RUN_AS_NODE: '1'
       },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc']

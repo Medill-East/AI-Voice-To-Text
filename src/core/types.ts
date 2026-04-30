@@ -6,6 +6,7 @@ export type SherpaModelType = 'senseVoice' | 'funasrNano' | 'fireRedAsr' | 'fire
 export type AsrRuntimeProvider = 'cpu' | 'cuda';
 export type AsrThreadSetting = 'auto' | 2 | 4 | 6 | 8;
 export type AsrBackendStatus = 'cpu-stable' | 'cuda-experimental-unavailable' | 'cuda-experimental-available' | 'cuda-experimental-active';
+export type AsrCudaRuntimeInstallStatus = 'not-installed' | 'downloading' | 'extracting' | 'verifying' | 'installed-unverified' | 'ready' | 'active' | 'failed';
 export type WindowsUpdateStage = 'metadata' | 'differential' | 'full-package' | 'downloaded';
 export type ModelInstallStatus =
   | 'not-installed'
@@ -105,6 +106,8 @@ export interface Settings {
         provider: AsrRuntimeProvider;
         numThreads: AsrThreadSetting;
         cudaExperimental: boolean;
+        cudaRuntimeId?: string;
+        cudaRuntimePath?: string;
       };
     };
     llm: {
@@ -401,6 +404,51 @@ export interface AsrCudaStatus {
   recommendedAction: string;
   docsUrl: string;
   cudaDownloadUrl: string;
+  runtime: AsrCudaRuntimeStatus;
+}
+
+export interface AsrCudaRuntimeCatalogItem {
+  id: string;
+  version: string;
+  sherpaVersion: string;
+  platform: 'win32';
+  arch: 'x64';
+  sourceLabel: string;
+  sourceUrl: string;
+  docsUrl: string;
+  archiveType: 'tar.bz2';
+  sizeMb?: number;
+  checksum?: string;
+  requiredFiles: string[];
+}
+
+export interface AsrCudaInstallProgress {
+  runtimeId: string;
+  phase: 'downloading' | 'extracting' | 'verifying' | 'ready' | 'failed' | 'cancelled';
+  downloadedBytes?: number;
+  totalBytes?: number;
+  percent?: number;
+  bytesPerSecond?: number;
+  message?: string;
+}
+
+export interface AsrCudaRuntimeStatus {
+  installStatus: AsrCudaRuntimeInstallStatus;
+  runtimeRoot: string;
+  runtimePath?: string;
+  catalogItem?: AsrCudaRuntimeCatalogItem;
+  installedRuntimeId?: string;
+  installedVersion?: string;
+  hasRuntimeFiles: boolean;
+  missingFiles: string[];
+  smokeTestPassed: boolean;
+  smokeTestedAt?: string;
+  lastError?: string;
+  canInstall: boolean;
+  canCancel: boolean;
+  canClear: boolean;
+  canSmokeTest: boolean;
+  installProgress?: AsrCudaInstallProgress;
 }
 
 export interface OneClickEligibility {
