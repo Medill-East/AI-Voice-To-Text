@@ -425,6 +425,10 @@ export interface AsrCudaRuntimeCatalogItem {
 export interface AsrCudaInstallProgress {
   runtimeId: string;
   phase: 'downloading' | 'extracting' | 'verifying' | 'ready' | 'failed' | 'cancelled';
+  sourceUrl?: string;
+  sourceLabel?: string;
+  archivePath?: string;
+  runtimePath?: string;
   downloadedBytes?: number;
   totalBytes?: number;
   percent?: number;
@@ -436,6 +440,11 @@ export interface AsrCudaRuntimeStatus {
   installStatus: AsrCudaRuntimeInstallStatus;
   runtimeRoot: string;
   runtimePath?: string;
+  expectedRuntimePath?: string;
+  downloadUrl?: string;
+  downloadSourceLabel?: string;
+  archivePath?: string;
+  downloadDir?: string;
   catalogItem?: AsrCudaRuntimeCatalogItem;
   installedRuntimeId?: string;
   installedVersion?: string;

@@ -83,6 +83,19 @@ describe('AsrCudaRuntimeManager', () => {
     expect(status.installStatus).toBe('ready');
     expect(status.smokeTestPassed).toBe(true);
   });
+
+  it('exposes CUDA runtime download URL and local archive path for manual download diagnostics', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'v2t-cuda-runtime-'));
+    const item = BUILTIN_CUDA_RUNTIME_CATALOG[0];
+    const manager = new AsrCudaRuntimeManager({ userDataDir, platform: 'win32', arch: 'x64' });
+
+    const status = await manager.getStatus(baseSettings());
+
+    expect(status.downloadUrl).toBe(item.sourceUrl);
+    expect(status.downloadSourceLabel).toBe(item.sourceLabel);
+    expect(status.archivePath).toBe(join(userDataDir, 'runtimes', 'sherpa-onnx-cuda', '.download', `${item.id}.tar.bz2`));
+    expect(status.expectedRuntimePath).toBe(join(userDataDir, 'runtimes', 'sherpa-onnx-cuda', item.id));
+  });
 });
 
 function fakeSuccessfulSpawn(): ChildProcess {

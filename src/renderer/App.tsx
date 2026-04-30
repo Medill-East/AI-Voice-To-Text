@@ -796,6 +796,24 @@ export function App() {
     }
   };
 
+  const copyCudaRuntimeText = async (value: string | undefined, label: string) => {
+    if (!value) {
+      setCudaMessage(`${label}为空，无法复制。`);
+      return;
+    }
+    await window.v2t.copyText(value);
+    setCudaMessage(`${label}已复制。`);
+  };
+
+  const openCudaRuntimePath = async (value: string | undefined, label: string) => {
+    if (!value) {
+      setCudaMessage(`${label}为空，无法打开。`);
+      return;
+    }
+    const result = await window.v2t.openPath(value);
+    setCudaMessage(result.ok ? `已打开${label}。` : result.error ?? `无法打开${label}。`);
+  };
+
   const updateOpenAtLogin = async (openAtLogin: boolean, silentOpenAtLogin = settings?.startup.silentOpenAtLogin ?? true) => {
     const result = await window.v2t.setOpenAtLogin(openAtLogin, silentOpenAtLogin);
     setSettings(result.settings);
@@ -1807,6 +1825,45 @@ export function App() {
                       <span>建议</span>
                       <strong>{setup.asrCudaStatus.recommendedAction}</strong>
                     </div>
+                    <div className="cuda-runtime-links">
+                      <h4>CUDA 后端下载信息</h4>
+                      <div>
+                        <span>下载源</span>
+                        <code>{setup.asrCudaStatus.runtime.downloadUrl ?? '暂无可下载 runtime'}</code>
+                        <button className="secondary compact" onClick={() => void openCudaRuntimePath(setup.asrCudaStatus.runtime.downloadUrl, '下载源')}>
+                          打开下载链接
+                        </button>
+                        <button className="secondary compact" onClick={() => void copyCudaRuntimeText(setup.asrCudaStatus.runtime.downloadUrl, '下载链接')}>
+                          复制下载链接
+                        </button>
+                      </div>
+                      <div>
+                        <span>下载文件</span>
+                        <code>{setup.asrCudaStatus.runtime.archivePath ?? '暂无本地下载文件路径'}</code>
+                        <button className="secondary compact" onClick={() => void copyCudaRuntimeText(setup.asrCudaStatus.runtime.archivePath, '下载文件路径')}>
+                          复制路径
+                        </button>
+                      </div>
+                      <div>
+                        <span>安装目录</span>
+                        <code>{setup.asrCudaStatus.runtime.runtimePath ?? setup.asrCudaStatus.runtime.expectedRuntimePath ?? '暂无安装目录'}</code>
+                        <button
+                          className="secondary compact"
+                          onClick={() => void openCudaRuntimePath(setup.asrCudaStatus.runtime.runtimePath ?? setup.asrCudaStatus.runtime.expectedRuntimePath, '安装目录')}
+                        >
+                          打开目录
+                        </button>
+                        <button
+                          className="secondary compact"
+                          onClick={() => void copyCudaRuntimeText(setup.asrCudaStatus.runtime.runtimePath ?? setup.asrCudaStatus.runtime.expectedRuntimePath, '安装目录')}
+                        >
+                          复制路径
+                        </button>
+                      </div>
+                      <p className="progress-meta">
+                        如果进度没有百分比，通常是下载源没有返回总大小；此时仍会显示已下载大小和实时速度。也可以复制下载链接，用浏览器或下载器下载后反馈具体速度。
+                      </p>
+                    </div>
                     {setup.asrCudaStatus.runtime.installProgress ? (
                       <div className="cuda-progress">
                         <span>{cudaProgressLabel(setup.asrCudaStatus.runtime.installProgress.phase)}</span>
@@ -1815,6 +1872,9 @@ export function App() {
                             ? `${Math.round(setup.asrCudaStatus.runtime.installProgress.percent)}%`
                             : setup.asrCudaStatus.runtime.installProgress.message ?? '进行中'}
                         </strong>
+                        <p className="progress-meta">
+                          {cudaProgressDetail(setup.asrCudaStatus.runtime.installProgress)}
+                        </p>
                       </div>
                     ) : null}
                     {cudaMessage ? <p className="sync-message">{cudaMessage}</p> : null}
@@ -4423,6 +4483,26 @@ function cudaProgressLabel(phase: string): string {
     return '已取消';
   }
   return phase;
+}
+
+function cudaProgressDetail(progress: {
+  downloadedBytes?: number;
+  totalBytes?: number;
+  bytesPerSecond?: number;
+  sourceLabel?: string;
+  archivePath?: string;
+}): string {
+  const parts = [
+    progress.sourceLabel,
+    progress.downloadedBytes !== undefined
+      ? progress.totalBytes
+        ? `${formatBytes(progress.downloadedBytes)} / ${formatBytes(progress.totalBytes)}`
+        : `已下载 ${formatBytes(progress.downloadedBytes)}（总大小未知）`
+      : undefined,
+    progress.bytesPerSecond ? `${formatBytes(progress.bytesPerSecond)}/s` : '等待下载数据',
+    progress.archivePath ? `保存到 ${progress.archivePath}` : undefined
+  ].filter(Boolean);
+  return parts.join(' · ');
 }
 
 function asrThreadOptions(): Array<{ label: string; value: Settings['providers']['asr']['runtime']['numThreads'] }> {

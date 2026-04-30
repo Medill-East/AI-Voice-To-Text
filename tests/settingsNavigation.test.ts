@@ -131,6 +131,10 @@ describe('settings navigation structure', () => {
     expect(app).toContain('实验 CUDA 后端');
     expect(app).toContain('检测 CUDA');
     expect(app).toContain('安装 CUDA 后端');
+    expect(app).toContain('CUDA 后端下载信息');
+    expect(app).toContain('下载源');
+    expect(app).toContain('下载文件');
+    expect(app).toContain('复制下载链接');
     expect(app).toContain('取消下载');
     expect(app).toContain('运行 smoke test');
     expect(app).toContain('清除 CUDA 后端');

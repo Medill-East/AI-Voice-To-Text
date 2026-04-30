@@ -73,6 +73,14 @@ export class AsrCudaRuntimeManager {
     return join(this.userDataDir, 'runtimes', RUNTIME_KIND);
   }
 
+  downloadDir(): string {
+    return join(this.runtimeRoot(), '.download');
+  }
+
+  archivePath(item = this.catalogItem()): string | undefined {
+    return item ? join(this.downloadDir(), `${item.id}.tar.bz2`) : undefined;
+  }
+
   statePath(): string {
     return join(this.runtimeRoot(), STATE_FILE);
   }
@@ -87,7 +95,8 @@ export class AsrCudaRuntimeManager {
   async getStatus(settings?: Settings): Promise<AsrCudaRuntimeStatus> {
     const item = this.catalogItem();
     const state = await this.readState();
-    const runtimePath = state.runtimePath ?? (item ? join(this.runtimeRoot(), item.id) : undefined);
+    const expectedRuntimePath = item ? join(this.runtimeRoot(), item.id) : undefined;
+    const runtimePath = state.runtimePath ?? expectedRuntimePath;
     const missingFiles = item && runtimePath ? await missingRequiredFiles(runtimePath, item.requiredFiles) : item?.requiredFiles ?? [];
     const hasRuntimeFiles = Boolean(item && runtimePath && missingFiles.length === 0);
     const active =
@@ -108,6 +117,11 @@ export class AsrCudaRuntimeManager {
       installStatus,
       runtimeRoot: this.runtimeRoot(),
       runtimePath: hasRuntimeFiles ? runtimePath : state.runtimePath,
+      expectedRuntimePath,
+      downloadUrl: item?.sourceUrl,
+      downloadSourceLabel: item?.sourceLabel,
+      archivePath: this.archivePath(item),
+      downloadDir: this.downloadDir(),
       catalogItem: item,
       installedRuntimeId: state.runtimeId,
       installedVersion: state.version,
@@ -134,8 +148,8 @@ export class AsrCudaRuntimeManager {
     const controller = new AbortController();
     this.activeController = controller;
     const runtimeDir = join(this.runtimeRoot(), item.id);
-    const downloadDir = join(this.runtimeRoot(), '.download');
-    const archivePath = join(downloadDir, `${item.id}.tar.bz2`);
+    const downloadDir = this.downloadDir();
+    const archivePath = this.archivePath(item) ?? join(downloadDir, `${item.id}.tar.bz2`);
 
     try {
       await rm(runtimeDir, { recursive: true, force: true });
@@ -144,6 +158,10 @@ export class AsrCudaRuntimeManager {
       await this.updateState({ runtimeId: item.id, version: item.version, runtimePath: runtimeDir, installStatus: 'downloading' }, options.onProgress, {
         runtimeId: item.id,
         phase: 'downloading',
+        sourceUrl: item.sourceUrl,
+        sourceLabel: item.sourceLabel,
+        archivePath,
+        runtimePath: runtimeDir,
         message: '正在下载 V2T CUDA 后端'
       });
 
@@ -152,6 +170,10 @@ export class AsrCudaRuntimeManager {
       await this.updateState({ installStatus: 'extracting' }, options.onProgress, {
         runtimeId: item.id,
         phase: 'extracting',
+        sourceUrl: item.sourceUrl,
+        sourceLabel: item.sourceLabel,
+        archivePath,
+        runtimePath: runtimeDir,
         message: '正在解压 CUDA runtime'
       });
       await extractArchive(archivePath, runtimeDir);
@@ -159,6 +181,10 @@ export class AsrCudaRuntimeManager {
       await this.updateState({ installStatus: 'verifying' }, options.onProgress, {
         runtimeId: item.id,
         phase: 'verifying',
+        sourceUrl: item.sourceUrl,
+        sourceLabel: item.sourceLabel,
+        archivePath,
+        runtimePath: runtimeDir,
         message: '正在校验 runtime 文件'
       });
       await this.verifyChecksum(item, archivePath);
@@ -170,6 +196,10 @@ export class AsrCudaRuntimeManager {
       await this.updateState({ installStatus: 'failed', lastError: message }, options.onProgress, {
         runtimeId: item.id,
         phase: controller.signal.aborted ? 'cancelled' : 'failed',
+        sourceUrl: item.sourceUrl,
+        sourceLabel: item.sourceLabel,
+        archivePath,
+        runtimePath: runtimeDir,
         message
       });
       throw error;
@@ -251,6 +281,10 @@ export class AsrCudaRuntimeManager {
         const progress: AsrCudaInstallProgress = {
           runtimeId: item.id,
           phase: 'downloading',
+          sourceUrl: item.sourceUrl,
+          sourceLabel: item.sourceLabel,
+          archivePath: targetPath,
+          runtimePath: join(this.runtimeRoot(), item.id),
           downloadedBytes,
           totalBytes,
           percent: totalBytes ? Math.min(100, (downloadedBytes / totalBytes) * 100) : undefined,

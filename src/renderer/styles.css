@@ -736,6 +736,41 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.cuda-runtime-links {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-soft);
+}
+
+.cuda-runtime-links h4 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-small);
+}
+
+.cuda-runtime-links > div {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) auto auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.cuda-runtime-links span {
+  color: var(--color-muted);
+  font-size: var(--font-meta);
+}
+
+.cuda-runtime-links code {
+  min-width: 0;
+  color: var(--color-text);
+  font-size: var(--font-meta);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cuda-progress {
   display: grid;
   grid-template-columns: 80px minmax(0, 1fr);
@@ -753,6 +788,12 @@ textarea {
 .cuda-progress strong {
   color: var(--color-text);
   font-weight: 650;
+}
+
+.cuda-progress .progress-meta {
+  grid-column: 1 / -1;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .status-pill {
