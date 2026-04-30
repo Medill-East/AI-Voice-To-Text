@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { cloudLlmTags, sortCloudLlmModels } from '../core/cloudLlmCatalogShared';
 import type { CloudLlmSortDirection } from '../core/cloudLlmCatalogShared';
+import { localSherpaRuntimeLabel } from '../core/asrRuntime';
 import { analyzeLexicon } from '../core/postProcessor';
 import { oneClickEligibility, oneClickInstallableModels, publicChineseMetrics, referenceModels, scoreModel } from '../core/modelCatalog';
 import { hotkeyLabelForPlatform } from '../core/hotkeyLabels';
@@ -1527,10 +1528,13 @@ export function App() {
             当前 ASR：{currentAsrLabel(settings)}，负责把语音转成原始文字。当前结构化引擎：{structuredEngineLabel(settings)}。
             {llmPromptUsageHint(settings)}
           </p>
+          <p className="hint">
+            当前 ASR 后端：{asrRuntimeLabel(settings)}。macOS 和 Windows 即使用同一模型，速度也会受 CPU 架构、内存带宽、系统调度和安全软件扫描影响；GPU/CUDA 需要单独 runtime 验证后才会显示。
+          </p>
           {settings ? (
             <section className="voice-options settings-control-stack">
               <div className="voice-option-row settings-control-row">
-                <label className="setting-check settings-control-strip">
+                <label className="setting-check control-chip">
                   <input
                     type="checkbox"
                     checked={settings.recording.muteSystemAudio}
@@ -1538,9 +1542,9 @@ export function App() {
                   />
                   录音时临时静音系统输出
                 </label>
-                <div className="recording-limit-inline settings-control-strip">
-                  <span>录音上限</span>
-                  <div className="segmented-control compact" role="radiogroup" aria-label="录音上限">
+                <div className="recording-limit-inline settings-field">
+                  <span className="setting-label">录音上限</span>
+                  <div className="choice-group compact" role="radiogroup" aria-label="录音上限">
                     {recordingLimitOptions().map((option) => (
                       <button
                         key={option.label}
@@ -1553,7 +1557,7 @@ export function App() {
                   </div>
                 </div>
               </div>
-              <div className="voice-diagnostics-toolbar settings-diagnostics-toolbar action-toolbar">
+              <div className="voice-diagnostics-toolbar settings-diagnostics-toolbar action-toolbar equal-actions">
                 <button className="secondary compact" onClick={() => void window.v2t.copySystemAudioDiagnostics()}>
                   复制静音诊断
                 </button>
@@ -1568,7 +1572,7 @@ export function App() {
             </section>
           ) : null}
           {voiceMessage ? <p className="sync-message">{voiceMessage}</p> : null}
-          <section className="gesture-settings">
+          <section className="gesture-settings control-row">
             <div>
               <span>单击快捷键</span>
               <strong>{modeLabel(settings?.hotkey.singleClickMode ?? 'natural')}</strong>
@@ -1577,12 +1581,12 @@ export function App() {
               <span>双击快捷键</span>
               <strong>{modeLabel(settings?.hotkey.doubleClickMode ?? 'structured')}</strong>
             </div>
-            <button className="secondary compact" onClick={() => void updateHotkeyClickMode(oppositeMode(settings?.hotkey.singleClickMode ?? 'natural'))}>
+            <button className="secondary compact control-action" onClick={() => void updateHotkeyClickMode(oppositeMode(settings?.hotkey.singleClickMode ?? 'natural'))}>
               互换
             </button>
           </section>
 
-          <section className={`record-control ${state}`}>
+          <section className={`record-control control-row ${state}`}>
             <div>
               <span className={`status-dot ${state}`} />
               <div>
@@ -1591,7 +1595,7 @@ export function App() {
               </div>
             </div>
             <button
-              className={state === 'recording' || state === 'starting' ? 'danger' : 'secondary'}
+              className={`${state === 'recording' || state === 'starting' ? 'danger' : 'secondary'} compact control-action`}
               onClick={() => {
                 if (state === 'recording' || state === 'starting') {
                   stopRecording();
@@ -1619,7 +1623,7 @@ export function App() {
                       {item.sourceDeviceId ? <span>{item.sourceDeviceId}</span> : null}
                       <span>{item.injection.method === 'cursor' ? '已输入' : '剪贴板'}</span>
                     </div>
-                    <pre>{item.outputText}</pre>
+                    <pre className="history-text">{item.outputText}</pre>
                   </li>
                 ))}
               </ol>
@@ -1639,6 +1643,7 @@ export function App() {
                  {setup.hardware.cpuName} · {setup.hardware.memoryGb}GB · {tierLabel(setup.hardware.recommendedTier)}
                </p>
                <p className="hint">ASR 负责把语音转成原始文字；FireRed、SenseVoice、Fun-ASR-Nano 都属于语音识别模型，不负责提示词驱动的结构化整理。</p>
+               <p className="hint">当前本地 ASR 后端：{localSherpaRuntimeLabel()}。当前版本只显示已验证的真实后端；GPU/CUDA 需要单独 runtime 构建和输出测速验证，暂不默认启用。</p>
                <p className="hint">公开中文指标只显示 CER / WER；V2T 适配分表示这台设备上的安装、运行和资源匹配优先级。WER/CER 越低越好，RTFx 越高越快。</p>
                <p className="hint">导入模型可以使用浏览器或下载器先下载官方压缩包，再从这里导入。当前一键下载主要来自 GitHub/k2-fsa Release，速度受 GitHub CDN、地区网络、代理和安全软件扫描影响。</p>
                <p className="hint">只有满足以下条件的模型才显示“一键安装”：V2T 已接入 runtime、知道 required files、下载源可信、checksum 或 smoke test 可验证，并且打包后能在 macOS/Windows 跑通。其他高分模型会放在“公开高分参考 / 待接入”。</p>
@@ -2679,7 +2684,7 @@ export function App() {
             </div>
             <div className="settings-control-stack">
               <div className="settings-control-row">
-                <label className="setting-check settings-control-strip">
+                <label className="setting-check control-chip">
                   <input
                     type="checkbox"
                     checked={settings.startup.openAtLogin}
@@ -2687,7 +2692,7 @@ export function App() {
                   />
                   开机自动启动 V2T
                 </label>
-                <label className="setting-check settings-control-strip">
+                <label className="setting-check control-chip">
                   <input
                     type="checkbox"
                     checked={settings.startup.silentOpenAtLogin}
@@ -2697,7 +2702,7 @@ export function App() {
                 </label>
               </div>
               <div className="settings-control-row">
-                <label className="setting-check settings-control-strip">
+                <label className="setting-check control-chip">
                   <input
                     type="checkbox"
                     checked={settings.recording.muteSystemAudio}
@@ -2705,9 +2710,9 @@ export function App() {
                   />
                   录音时临时静音系统输出
                 </label>
-                <div className="recording-limit-setting settings-control-strip">
-                  <span>录音自动停止</span>
-                  <div className="segmented-control compact" role="radiogroup" aria-label="录音自动停止">
+                <div className="recording-limit-setting settings-field">
+                  <span className="setting-label">录音上限</span>
+                  <div className="choice-group compact" role="radiogroup" aria-label="录音上限">
                     {recordingLimitOptions().map((option) => (
                       <button
                         key={option.label}
@@ -2882,7 +2887,7 @@ function UsageAggregateTable({ title, rows }: { title: string; rows: UsageAggreg
       {rows.length === 0 ? (
         <p className="empty">暂无统计数据</p>
       ) : (
-        <div className="usage-table">
+        <div className="usage-table dense-table">
           <div className="usage-head">
             <span>名称</span>
             <span>次数</span>
@@ -4091,6 +4096,22 @@ function currentAsrLabel(settings: Settings | null): string {
     return 'Whisper.cpp';
   }
   return '本地 sherpa-onnx';
+}
+
+function asrRuntimeLabel(settings: Settings | null): string {
+  if (!settings) {
+    return '加载中';
+  }
+  if (settings.providers.asr.kind === 'local-sherpa-onnx') {
+    return localSherpaRuntimeLabel();
+  }
+  if (settings.providers.asr.kind === 'funasr-http') {
+    return '外部 HTTP 服务';
+  }
+  if (settings.providers.asr.kind === 'whisper-cpp') {
+    return 'Whisper.cpp runtime';
+  }
+  return '未知后端';
 }
 
 function shortModelName(modelName: string): string {

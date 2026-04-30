@@ -1,4 +1,5 @@
 import type { AsrProvider, AsrTranscription, SherpaModelType } from './types';
+import { LOCAL_SHERPA_RUNTIME } from './asrRuntime';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -251,8 +252,8 @@ export function createSherpaOfflineRecognizerConfig(options: {
   const baseModelConfig = {
     tokens: join(options.modelRoot, 'tokens.txt'),
     debug: false,
-    provider: 'cpu',
-    numThreads: 2
+    provider: LOCAL_SHERPA_RUNTIME.provider,
+    numThreads: LOCAL_SHERPA_RUNTIME.numThreads
   };
 
   if (options.sherpaModelType === 'funasrNano') {

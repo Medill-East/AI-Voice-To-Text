@@ -9,6 +9,7 @@ import {
   readWavAsFloat32,
   UserFacingAsrError
 } from '../src/core/asrProviders';
+import { LOCAL_SHERPA_RUNTIME, localSherpaRuntimeLabel } from '../src/core/asrRuntime';
 
 describe('ASR providers', () => {
   it('turns HTTP fetch failures into a user-facing configuration error', async () => {
@@ -45,6 +46,8 @@ describe('ASR providers', () => {
       })
     ).toMatchObject({
       modelConfig: {
+        provider: LOCAL_SHERPA_RUNTIME.provider,
+        numThreads: LOCAL_SHERPA_RUNTIME.numThreads,
         senseVoice: {
           model: '/models/sensevoice/model.int8.onnx',
           language: 'zh',
@@ -53,6 +56,7 @@ describe('ASR providers', () => {
         tokens: '/models/sensevoice/tokens.txt'
       }
     });
+    expect(localSherpaRuntimeLabel()).toBe('CPU · 2 线程');
 
     expect(
       createSherpaOfflineRecognizerConfig({
