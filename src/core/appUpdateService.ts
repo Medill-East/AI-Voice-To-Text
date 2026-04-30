@@ -13,6 +13,8 @@ export interface AppUpdaterLike {
 interface AppUpdateServiceOptions {
   currentVersion: string;
   updater: AppUpdaterLike;
+  platform?: NodeJS.Platform;
+  updateMetadataUrl?: string;
   now?: () => Date;
   onStatus?: (state: AppUpdateState) => void;
 }
@@ -33,6 +35,8 @@ interface DownloadProgressLike {
 export class AppUpdateService {
   private readonly currentVersion: string;
   private readonly updater: AppUpdaterLike;
+  private readonly platform: NodeJS.Platform;
+  private readonly updateMetadataUrl?: string;
   private readonly now: () => Date;
   private readonly onStatus?: (state: AppUpdateState) => void;
   private state: AppUpdateState;
@@ -40,6 +44,8 @@ export class AppUpdateService {
   constructor(options: AppUpdateServiceOptions) {
     this.currentVersion = options.currentVersion;
     this.updater = options.updater;
+    this.platform = options.platform ?? process.platform;
+    this.updateMetadataUrl = options.updateMetadataUrl;
     this.now = options.now ?? (() => new Date());
     this.onStatus = options.onStatus;
     this.state = this.createState('idle');
@@ -51,7 +57,7 @@ export class AppUpdateService {
   }
 
   async checkForUpdates(): Promise<AppUpdateState> {
-    this.setState(this.createState('checking'));
+    this.setState(this.createState('checking', this.windowsUpdatePatch('metadata')));
     try {
       await this.updater.checkForUpdates();
     } catch (error) {
@@ -61,7 +67,7 @@ export class AppUpdateService {
   }
 
   async downloadUpdate(): Promise<AppUpdateState> {
-    this.setState(this.createState('downloading'));
+    this.setState(this.createState('downloading', this.windowsUpdatePatch('differential')));
     try {
       await this.updater.downloadUpdate();
     } catch (error) {
@@ -83,19 +89,23 @@ export class AppUpdateService {
         this.createState('available', {
           latestVersion: update.version,
           releaseName: update.releaseName,
-          releaseNotes: update.releaseNotes
+          releaseNotes: update.releaseNotes,
+          ...this.windowsUpdatePatch('differential')
         })
       );
     });
     this.updater.on('update-not-available', (info) => {
       const update = normalizeUpdateInfo(info);
-      this.setState(this.createState('not-available', { latestVersion: update.version ?? this.currentVersion }));
+      this.setState(this.createState('not-available', { latestVersion: update.version ?? this.currentVersion, ...this.windowsUpdatePatch('downloaded') }));
     });
     this.updater.on('download-progress', (progress) => {
       const value = normalizeDownloadProgress(progress);
+      const fullPackagePatch = this.windowsFullPackagePatch(value);
       this.setState(
         this.createState('downloading', {
           ...keepReleaseInfo(this.state),
+          ...this.windowsUpdatePatch(fullPackagePatch.fullPackage ? 'full-package' : 'differential'),
+          ...fullPackagePatch.patch,
           percent: value.percent,
           bytesPerSecond: value.bytesPerSecond,
           transferred: value.transferred,
@@ -108,7 +118,8 @@ export class AppUpdateService {
       this.setState(
         this.createState('downloaded', {
           ...keepReleaseInfo(this.state),
-          latestVersion: update.version ?? this.state.latestVersion
+          latestVersion: update.version ?? this.state.latestVersion,
+          ...this.windowsUpdatePatch('downloaded')
         })
       );
     });
@@ -129,6 +140,38 @@ export class AppUpdateService {
   private setState(state: AppUpdateState): void {
     this.state = state;
     this.onStatus?.(state);
+  }
+
+  private windowsUpdatePatch(stage: NonNullable<AppUpdateState['windowsUpdateStage']>): Partial<AppUpdateState> {
+    if (this.platform !== 'win32') {
+      return {};
+    }
+    return {
+      windowsUpdateStage: stage,
+      updateMetadataUrl: this.updateMetadataUrl,
+      blockmapExpected: true
+    };
+  }
+
+  private windowsFullPackagePatch(progress: DownloadProgressLike): { fullPackage: boolean; patch: Partial<AppUpdateState> } {
+    if (this.platform !== 'win32') {
+      return { fullPackage: false, patch: {} };
+    }
+    const total = progress.total;
+    const fullPackage = typeof total === 'number' && total >= 50 * 1024 * 1024;
+    return {
+      fullPackage,
+      patch: fullPackage
+        ? {
+            installerSizeBytes: total,
+            differentialFallbackLikely: true,
+            differentialFallbackReason: '本次下载量接近完整安装包，可能是 blockmap 不匹配、包体结构变化或差分块过多，electron-updater 已回退到完整包。'
+          }
+        : {
+            installerSizeBytes: total,
+            differentialFallbackLikely: false
+          }
+    };
   }
 }
 
@@ -168,7 +211,15 @@ function keepReleaseInfo(state: AppUpdateState): Partial<AppUpdateState> {
   return {
     latestVersion: state.latestVersion,
     releaseName: state.releaseName,
-    releaseNotes: state.releaseNotes
+    releaseNotes: state.releaseNotes,
+    releaseUrl: state.releaseUrl,
+    downloadUrl: state.downloadUrl,
+    windowsUpdateStage: state.windowsUpdateStage,
+    updateMetadataUrl: state.updateMetadataUrl,
+    blockmapExpected: state.blockmapExpected,
+    installerSizeBytes: state.installerSizeBytes,
+    differentialFallbackLikely: state.differentialFallbackLikely,
+    differentialFallbackReason: state.differentialFallbackReason
   };
 }
 

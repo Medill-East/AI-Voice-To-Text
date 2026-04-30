@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Menu, Tray, clipboard, dialog, ipcMain, nativeImage, screen, shell, systemPreferences } from 'electron';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { hostname } from 'node:os';
+import { cpus, hostname } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
 import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
@@ -20,6 +20,7 @@ import { detectLocalLlmProviders, testLlmClient } from '../core/llmDiscovery';
 import { getLlmInstallerTargets, LLM_INSTALLER_URLS, officialLlmInstallerUrl } from '../core/llmInstaller';
 import { createVoiceInputPipeline } from '../core/pipeline';
 import { PostProcessor } from '../core/postProcessor';
+import { resolveLocalSherpaRuntime } from '../core/asrRuntime';
 import { TextInjectionService } from '../core/textInjection';
 import { UserDataStore } from '../core/userDataStore';
 import type {
@@ -130,6 +131,7 @@ let asrBenchmarkBatchState: AsrBenchmarkBatchState = {
 };
 const RELEASE_PAGE_URL = 'https://github.com/Medill-East/AI-Voice-To-Text/releases/latest';
 const LATEST_RELEASE_API_URL = 'https://api.github.com/repos/Medill-East/AI-Voice-To-Text/releases/latest';
+const WINDOWS_LATEST_YML_URL = 'https://github.com/Medill-East/AI-Voice-To-Text/releases/latest/download/latest.yml';
 
 app.setName('V2T');
 
@@ -911,6 +913,7 @@ function createAsrProvider(diagnostic: ProcessingDiagnostic) {
         modelPath: settings.providers.asr.modelPath,
         sherpaModelType: settings.providers.asr.sherpaModelType,
         language: settings.providers.asr.language,
+        runtime: resolveCurrentAsrRuntime(),
         processing: diagnostic
       };
       return runner.transcribe(request);
@@ -1270,6 +1273,7 @@ async function clearProcessingMarker(): Promise<void> {
 
 function createProcessingDiagnostic(payload: { bytes: Uint8Array; mode: InputMode }): ProcessingDiagnostic {
   const audioDurationSeconds = estimatePcm16WavDurationSeconds(payload.bytes);
+  const runtime = resolveCurrentAsrRuntime();
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     createdAt: new Date().toISOString(),
@@ -1278,6 +1282,8 @@ function createProcessingDiagnostic(payload: { bytes: Uint8Array; mode: InputMod
     modelId: settings.providers.asr.modelId,
     modelKind: settings.providers.asr.kind,
     sherpaModelType: settings.providers.asr.sherpaModelType,
+    asrRuntimeProvider: runtime.provider,
+    asrRuntimeThreads: runtime.numThreads,
     audioBytes: payload.bytes.byteLength,
     audioDurationSeconds,
     chunkCount: audioDurationSeconds ? Math.max(1, Math.ceil(audioDurationSeconds / 20)) : undefined
@@ -1468,6 +1474,13 @@ function normalizeRuntimeSettings(nextSettings: Settings): Settings {
   return {
     ...nextSettings,
     dataDir: store.getBaseDir(),
+    providers: {
+      ...nextSettings.providers,
+      asr: {
+        ...nextSettings.providers.asr,
+        runtime: resolveStoredAsrRuntime(nextSettings.providers.asr.runtime)
+      }
+    },
     recording: {
       muteSystemAudio: nextSettings.recording?.muteSystemAudio ?? false,
       maxDurationMinutes: normalizeRecordingDuration(nextSettings.recording?.maxDurationMinutes)
@@ -1481,6 +1494,30 @@ function normalizeRuntimeSettings(nextSettings: Settings): Settings {
       modelDir: modelRoot
     }
   };
+}
+
+function resolveCurrentAsrRuntime() {
+  return resolveLocalSherpaRuntime(settings.providers.asr.runtime, {
+    cpuCores: cpus().length,
+    platform: process.platform,
+    cudaRuntimeAvailable: false,
+    cudaUnavailableReason: cudaUnavailableReason()
+  });
+}
+
+function resolveStoredAsrRuntime(runtime: Settings['providers']['asr']['runtime'] | undefined): Settings['providers']['asr']['runtime'] {
+  return {
+    provider: runtime?.provider === 'cuda' ? 'cuda' : 'cpu',
+    numThreads: runtime?.numThreads === 2 || runtime?.numThreads === 4 || runtime?.numThreads === 6 || runtime?.numThreads === 8 ? runtime.numThreads : 'auto',
+    cudaExperimental: runtime?.cudaExperimental ?? false
+  };
+}
+
+function cudaUnavailableReason(): string {
+  if (process.platform !== 'win32') {
+    return '当前版本只规划 Windows NVIDIA CUDA 实验后端；macOS 暂不承诺 Metal。';
+  }
+  return '当前 Windows 包未包含 sherpa-onnx CUDA runtime；需要单独 CUDA 构建和 smoke test 后才能启用。';
 }
 
 function applyLoginItemSettings(openAtLogin: boolean, silentOpenAtLogin: boolean): void {
@@ -1552,6 +1589,8 @@ function createAppUpdateService(): AppUpdateService {
   return new AppUpdateService({
     currentVersion: app.getVersion(),
     updater: autoUpdater,
+    platform: process.platform,
+    updateMetadataUrl: WINDOWS_LATEST_YML_URL,
     onStatus: (state) => {
       appUpdateState = state;
       if (state.status === 'checking' || state.status === 'available' || state.status === 'not-available') {
@@ -2197,6 +2236,12 @@ function createAppUpdateDiagnosticText(): string {
     `releaseUrl: ${state.releaseUrl ?? 'none'}`,
     `downloadUrl: ${state.downloadUrl ?? 'none'}`,
     `percent: ${String(state.percent ?? 'none')}`,
+    `windowsUpdateStage: ${state.windowsUpdateStage ?? 'none'}`,
+    `updateMetadataUrl: ${state.updateMetadataUrl ?? 'none'}`,
+    `blockmapExpected: ${String(state.blockmapExpected ?? 'none')}`,
+    `installerSizeBytes: ${String(state.installerSizeBytes ?? 'none')}`,
+    `differentialFallbackLikely: ${String(state.differentialFallbackLikely ?? 'none')}`,
+    `differentialFallbackReason: ${state.differentialFallbackReason ?? 'none'}`,
     `errorCode: ${state.errorCode ?? 'none'}`,
     `error: ${state.error ?? 'none'}`,
     `updatedAt: ${state.updatedAt}`,

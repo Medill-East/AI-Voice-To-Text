@@ -9,7 +9,7 @@ import {
   readWavAsFloat32,
   UserFacingAsrError
 } from '../src/core/asrProviders';
-import { LOCAL_SHERPA_RUNTIME, localSherpaRuntimeLabel } from '../src/core/asrRuntime';
+import { resolveAsrNumThreads, resolveLocalSherpaRuntime, localSherpaRuntimeLabel } from '../src/core/asrRuntime';
 
 describe('ASR providers', () => {
   it('turns HTTP fetch failures into a user-facing configuration error', async () => {
@@ -46,8 +46,8 @@ describe('ASR providers', () => {
       })
     ).toMatchObject({
       modelConfig: {
-        provider: LOCAL_SHERPA_RUNTIME.provider,
-        numThreads: LOCAL_SHERPA_RUNTIME.numThreads,
+        provider: 'cpu',
+        numThreads: 2,
         senseVoice: {
           model: '/models/sensevoice/model.int8.onnx',
           language: 'zh',
@@ -56,7 +56,40 @@ describe('ASR providers', () => {
         tokens: '/models/sensevoice/tokens.txt'
       }
     });
-    expect(localSherpaRuntimeLabel()).toBe('CPU · 2 线程');
+    expect(resolveAsrNumThreads('auto', 12)).toBe(6);
+    expect(localSherpaRuntimeLabel(resolveLocalSherpaRuntime({ provider: 'cpu', numThreads: 'auto', cudaExperimental: false }, { cpuCores: 12 }))).toBe('CPU · 6 线程');
+    expect(
+      resolveLocalSherpaRuntime(
+        { provider: 'cuda', numThreads: 4, cudaExperimental: true },
+        { cpuCores: 12, platform: 'win32', cudaRuntimeAvailable: false, cudaUnavailableReason: '缺少 CUDA runtime' }
+      )
+    ).toMatchObject({
+      provider: 'cpu',
+      numThreads: 4,
+      backendStatus: 'cuda-experimental-unavailable',
+      unavailableReason: '缺少 CUDA runtime'
+    });
+    expect(
+      resolveLocalSherpaRuntime({ provider: 'cuda', numThreads: 4, cudaExperimental: true }, { cpuCores: 12, platform: 'win32', cudaRuntimeAvailable: true })
+    ).toMatchObject({
+      provider: 'cuda',
+      numThreads: 4,
+      backendStatus: 'cuda-experimental-active'
+    });
+
+    expect(
+      createSherpaOfflineRecognizerConfig({
+        modelRoot: '/models/sensevoice',
+        sherpaModelType: 'senseVoice',
+        language: 'zh',
+        runtime: resolveLocalSherpaRuntime({ provider: 'cpu', numThreads: 8, cudaExperimental: false }, { cpuCores: 12 })
+      })
+    ).toMatchObject({
+      modelConfig: {
+        provider: 'cpu',
+        numThreads: 8
+      }
+    });
 
     expect(
       createSherpaOfflineRecognizerConfig({

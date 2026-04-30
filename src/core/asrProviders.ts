@@ -1,5 +1,5 @@
 import type { AsrProvider, AsrTranscription, SherpaModelType } from './types';
-import { LOCAL_SHERPA_RUNTIME } from './asrRuntime';
+import { resolveLocalSherpaRuntime, type ResolvedAsrRuntime } from './asrRuntime';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,6 +19,7 @@ interface LocalSherpaProviderOptions {
   tokensPath?: string;
   recognizerFactory?: SherpaRecognizerFactory;
   allowEmptyResult?: boolean;
+  runtime?: ResolvedAsrRuntime;
   onChunkProgress?: (current: number, total: number) => void;
 }
 
@@ -108,6 +109,7 @@ export class LocalSherpaAsrProvider implements AsrProvider {
   private readonly language: string;
   private readonly recognizerFactory?: SherpaRecognizerFactory;
   private readonly allowEmptyResult: boolean;
+  private readonly runtime?: ResolvedAsrRuntime;
   private readonly onChunkProgress?: (current: number, total: number) => void;
 
   constructor(options: LocalSherpaProviderOptions) {
@@ -118,6 +120,7 @@ export class LocalSherpaAsrProvider implements AsrProvider {
     this.language = options.language ?? 'zh';
     this.recognizerFactory = options.recognizerFactory;
     this.allowEmptyResult = options.allowEmptyResult ?? false;
+    this.runtime = options.runtime;
     this.onChunkProgress = options.onChunkProgress;
   }
 
@@ -139,7 +142,8 @@ export class LocalSherpaAsrProvider implements AsrProvider {
       recognizerConfig = createSherpaOfflineRecognizerConfig({
         modelRoot: this.modelRoot,
         sherpaModelType: this.sherpaModelType,
-        language: this.language
+        language: this.language,
+        runtime: this.runtime
       });
     } catch (error) {
       throw new UserFacingAsrError(
@@ -248,12 +252,14 @@ export function createSherpaOfflineRecognizerConfig(options: {
   modelRoot: string;
   sherpaModelType: SherpaModelType;
   language: string;
+  runtime?: ResolvedAsrRuntime;
 }): SherpaOfflineRecognizerConfig {
+  const runtime = options.runtime ?? resolveLocalSherpaRuntime(undefined);
   const baseModelConfig = {
     tokens: join(options.modelRoot, 'tokens.txt'),
     debug: false,
-    provider: LOCAL_SHERPA_RUNTIME.provider,
-    numThreads: LOCAL_SHERPA_RUNTIME.numThreads
+    provider: runtime.provider,
+    numThreads: runtime.numThreads
   };
 
   if (options.sherpaModelType === 'funasrNano') {

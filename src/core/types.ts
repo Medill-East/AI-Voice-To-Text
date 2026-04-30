@@ -3,6 +3,10 @@ export type AsrProviderKind = 'local-sherpa-onnx' | 'funasr-http' | 'whisper-cpp
 export type ModelRuntime = 'sherpa-onnx' | 'whisper-cpp' | 'external';
 export type ModelAvailability = 'installable' | 'manual' | 'reference';
 export type SherpaModelType = 'senseVoice' | 'funasrNano' | 'fireRedAsr' | 'fireRedAsrCtc' | 'paraformer' | 'zipformerCtc' | 'qwen3Asr';
+export type AsrRuntimeProvider = 'cpu' | 'cuda';
+export type AsrThreadSetting = 'auto' | 2 | 4 | 6 | 8;
+export type AsrBackendStatus = 'cpu-stable' | 'cuda-experimental-unavailable' | 'cuda-experimental-available' | 'cuda-experimental-active';
+export type WindowsUpdateStage = 'metadata' | 'differential' | 'full-package' | 'downloaded';
 export type ModelInstallStatus =
   | 'not-installed'
   | 'downloading'
@@ -97,6 +101,11 @@ export interface Settings {
       modelPath?: string;
       sherpaModelType?: SherpaModelType;
       language: 'zh' | 'auto' | 'en' | 'yue' | 'ja' | 'ko';
+      runtime: {
+        provider: AsrRuntimeProvider;
+        numThreads: AsrThreadSetting;
+        cudaExperimental: boolean;
+      };
     };
     llm: {
       engine: LlmEngineMode;
@@ -298,6 +307,12 @@ export interface AppUpdateState {
   total?: number;
   error?: string;
   errorCode?: 'mac-signature-mismatch' | 'update-error';
+  windowsUpdateStage?: WindowsUpdateStage;
+  updateMetadataUrl?: string;
+  blockmapExpected?: boolean;
+  installerSizeBytes?: number;
+  differentialFallbackLikely?: boolean;
+  differentialFallbackReason?: string;
   updatedAt: string;
 }
 
@@ -320,6 +335,9 @@ export interface ModelStatusRecord {
   benchmarkAudioSeconds?: number;
   benchmarkRealTimeFactor?: number;
   benchmarkCharsPerSecond?: number;
+  benchmarkPlatform?: NodeJS.Platform;
+  benchmarkRuntimeProvider?: AsrRuntimeProvider;
+  benchmarkRuntimeThreads?: number;
   benchmarkedAt?: string;
   error?: string;
   updatedAt: string;
@@ -358,6 +376,9 @@ export interface ModelBenchmarkResult {
   processMs?: number;
   realTimeFactor?: number;
   charsPerSecond?: number;
+  platform?: NodeJS.Platform;
+  runtimeProvider?: AsrRuntimeProvider;
+  runtimeThreads?: number;
   textPreview?: string;
   benchmarkedAt?: string;
   error?: string;
@@ -396,6 +417,8 @@ export interface ProcessingDiagnostic {
   modelId?: string;
   modelKind?: string;
   sherpaModelType?: SherpaModelType;
+  asrRuntimeProvider?: AsrRuntimeProvider;
+  asrRuntimeThreads?: number;
   audioBytes: number;
   audioDurationSeconds?: number;
   chunkCount?: number;

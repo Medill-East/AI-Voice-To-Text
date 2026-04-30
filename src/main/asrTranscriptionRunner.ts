@@ -1,6 +1,7 @@
 import { fork, type ChildProcess } from 'node:child_process';
 import type { AsrTranscription, InputMode, ProcessingDiagnostic, SherpaModelType } from '../core/types';
 import { UserFacingAsrError, type AsrErrorDiagnostic } from '../core/asrProviders';
+import type { ResolvedAsrRuntime } from '../core/asrRuntime';
 
 export interface AsrTranscriptionRunnerRequest {
   audio: Uint8Array;
@@ -8,6 +9,7 @@ export interface AsrTranscriptionRunnerRequest {
   modelPath?: string;
   sherpaModelType?: SherpaModelType;
   language: string;
+  runtime?: ResolvedAsrRuntime;
   processing: ProcessingDiagnostic & { mode: InputMode };
 }
 

@@ -134,7 +134,8 @@ describe('ModelManager', () => {
           ...storeSettings.providers.asr,
           modelId: 'qwen3-asr-0.6b',
           modelPath: join(modelDir, 'encoder.int8.onnx'),
-          sherpaModelType: 'qwen3Asr'
+          sherpaModelType: 'qwen3Asr',
+          runtime: { provider: 'cpu', numThreads: 2, cudaExperimental: false }
         }
       }
     });
@@ -149,8 +150,11 @@ describe('ModelManager', () => {
     const statuses = await manager.getStatuses();
 
     expect(result).toMatchObject({ ok: true, audioSeconds: 1, processMs: 1 });
+    expect(result).toMatchObject({ platform: process.platform, runtimeProvider: 'cpu', runtimeThreads: 2 });
     expect(statuses['qwen3-asr-0.6b'].benchmarkRealTimeFactor).toBe(1000);
     expect(statuses['qwen3-asr-0.6b'].benchmarkCharsPerSecond).toBeGreaterThan(0);
+    expect(statuses['qwen3-asr-0.6b'].benchmarkRuntimeProvider).toBe('cpu');
+    expect(statuses['qwen3-asr-0.6b'].benchmarkRuntimeThreads).toBe(2);
   });
 
   it('benchmarks old or imported models without model-packaged test wavs', async () => {

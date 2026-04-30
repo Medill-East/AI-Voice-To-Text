@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { cp, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { once } from 'node:events';
+import { cpus } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import * as tar from 'tar';
@@ -19,6 +20,7 @@ import type {
 } from './types';
 import type { UserDataStore } from './userDataStore';
 import { LocalSherpaAsrProvider } from './asrProviders';
+import { resolveLocalSherpaRuntime, type ResolvedAsrRuntime } from './asrRuntime';
 
 const DOWNLOAD_STALL_TIMEOUT_MS = 30_000;
 const activeInstallControllers = new Map<string, AbortController>();
@@ -55,7 +57,7 @@ interface ModelManagerOptions {
   ) => Promise<void>;
   extractor?: (model: ModelCatalogItem, archivePath: string, installDir: string) => Promise<void>;
   verifier?: (model: ModelCatalogItem, installDir: string) => Promise<void>;
-  benchmarkTranscriber?: (model: ModelCatalogItem, modelPath: string, audio: Buffer) => Promise<string>;
+  benchmarkTranscriber?: (model: ModelCatalogItem, modelPath: string, audio: Buffer, runtime: ResolvedAsrRuntime) => Promise<string>;
   probeFetch?: typeof fetch;
   nowMs?: () => number;
 }
@@ -72,7 +74,7 @@ export class ModelManager {
   ) => Promise<void>;
   private readonly extractor: (model: ModelCatalogItem, archivePath: string, installDir: string) => Promise<void>;
   private readonly verifier: (model: ModelCatalogItem, installDir: string) => Promise<void>;
-  private readonly benchmarkTranscriber: (model: ModelCatalogItem, modelPath: string, audio: Buffer) => Promise<string>;
+  private readonly benchmarkTranscriber: (model: ModelCatalogItem, modelPath: string, audio: Buffer, runtime: ResolvedAsrRuntime) => Promise<string>;
   private readonly probeFetch: typeof fetch;
   private readonly nowMs: () => number;
 
@@ -394,6 +396,7 @@ export class ModelManager {
 
     const statuses = await this.getStatuses();
     const settings = await this.store.loadSettings();
+    const runtime = resolveLocalSherpaRuntime(settings.providers.asr.runtime, { cpuCores: cpus().length });
     const modelPath = statuses[modelId]?.modelPath ?? (settings.providers.asr.modelId === modelId ? settings.providers.asr.modelPath : undefined);
     if (!modelPath) {
       return { modelId, ok: false, error: '这个模型尚未安装，不能进行输出测速。' };
@@ -405,7 +408,7 @@ export class ModelManager {
       const startedAt = this.nowMs();
       const texts: string[] = [];
       for (const audio of audios) {
-        texts.push(await this.benchmarkTranscriber(model, modelPath, audio));
+        texts.push(await this.benchmarkTranscriber(model, modelPath, audio, runtime));
       }
       const processMs = Math.max(1, this.nowMs() - startedAt);
       const text = texts.join('\n').trim();
@@ -417,6 +420,9 @@ export class ModelManager {
         processMs,
         realTimeFactor: audioSeconds ? roundTo(audioSeconds / (processMs / 1000), 2) : undefined,
         charsPerSecond: roundTo(chars / (processMs / 1000), 1),
+        platform: process.platform,
+        runtimeProvider: runtime.provider,
+        runtimeThreads: runtime.numThreads,
         textPreview: text.trim().slice(0, 80),
         benchmarkedAt: new Date().toISOString()
       };
@@ -426,6 +432,9 @@ export class ModelManager {
         benchmarkAudioSeconds: benchmark.audioSeconds,
         benchmarkRealTimeFactor: benchmark.realTimeFactor,
         benchmarkCharsPerSecond: benchmark.charsPerSecond,
+        benchmarkPlatform: benchmark.platform,
+        benchmarkRuntimeProvider: benchmark.runtimeProvider,
+        benchmarkRuntimeThreads: benchmark.runtimeThreads,
         benchmarkedAt: benchmark.benchmarkedAt,
         modelPath
       });
@@ -898,12 +907,13 @@ async function smokeTestInstalledModel(model: ModelCatalogItem, installDir: stri
   }
 }
 
-async function defaultBenchmarkTranscriber(model: ModelCatalogItem, modelPath: string, audio: Buffer): Promise<string> {
+async function defaultBenchmarkTranscriber(model: ModelCatalogItem, modelPath: string, audio: Buffer, runtime: ResolvedAsrRuntime): Promise<string> {
   const provider = new LocalSherpaAsrProvider({
     modelId: model.id,
     modelPath,
     sherpaModelType: model.sherpaModelType,
     language: 'zh',
+    runtime,
     allowEmptyResult: true
   });
   const result = await provider.transcribe(audio);

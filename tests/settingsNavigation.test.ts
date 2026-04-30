@@ -126,6 +126,15 @@ describe('settings navigation structure', () => {
     expect(app).toContain('CPU 架构、内存带宽、系统调度和安全软件扫描');
     expect(app).toContain('当前本地 ASR 后端');
     expect(app).toContain('GPU/CUDA 需要单独 runtime');
+    expect(app).toContain('CPU 线程数');
+    expect(app).toContain('ASR CPU 线程数');
+    expect(app).toContain('asrThreadOptions');
+    expect(app).toContain('asrRuntimeDetail');
+    expect(app).toContain('Windows 更新阶段');
+    expect(app).toContain('windowsUpdateStageLabel');
+    expect(app).toContain('回退完整包 / 下载完整安装包');
+    expect(app).toContain('完整包约');
+    expect(app).toContain('本次疑似需要完整安装包');
     expect(app).not.toContain('录音自动停止');
     expect(app).toContain('应用版本');
     expect(app).toContain('构建号');
@@ -260,6 +269,7 @@ describe('settings navigation structure', () => {
     expect(styles).toContain('.dense-table');
     expect(styles).not.toMatch(/\.settings-control-strip\s+\.segmented-control\.compact/s);
     expect(styles).toContain('.natural-asr-recommendation');
+    expect(styles).toContain('.asr-runtime-panel');
     expect(styles).toContain('.asr-model-tags');
     expect(styles).toContain('repeat(auto-fit, minmax(260px, 1fr))');
     expect(styles).toMatch(/\.engine-card\s*\{[^}]*white-space:\s*normal/s);

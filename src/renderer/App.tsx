@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { cloudLlmTags, sortCloudLlmModels } from '../core/cloudLlmCatalogShared';
 import type { CloudLlmSortDirection } from '../core/cloudLlmCatalogShared';
-import { localSherpaRuntimeLabel } from '../core/asrRuntime';
+import { localSherpaRuntimeLabel, resolveLocalSherpaRuntime } from '../core/asrRuntime';
 import { analyzeLexicon } from '../core/postProcessor';
 import { oneClickEligibility, oneClickInstallableModels, publicChineseMetrics, referenceModels, scoreModel } from '../core/modelCatalog';
 import { hotkeyLabelForPlatform } from '../core/hotkeyLabels';
@@ -664,6 +664,31 @@ export function App() {
       recording: {
         ...settings.recording,
         maxDurationMinutes
+      }
+    });
+    setSettings(result.settings);
+    setHotkeyStatus(result.hotkeyStatus);
+    const nextSetup = await window.v2t.getSetup();
+    applySetup(nextSetup);
+  };
+
+  const updateAsrThreadSetting = async (numThreads: Settings['providers']['asr']['runtime']['numThreads']) => {
+    if (!settings) {
+      return;
+    }
+    const result = await window.v2t.saveSettings({
+      ...settings,
+      providers: {
+        ...settings.providers,
+        asr: {
+          ...settings.providers.asr,
+          runtime: {
+            ...settings.providers.asr.runtime,
+            provider: 'cpu',
+            cudaExperimental: false,
+            numThreads
+          }
+        }
       }
     });
     setSettings(result.settings);
@@ -1529,7 +1554,7 @@ export function App() {
             {llmPromptUsageHint(settings)}
           </p>
           <p className="hint">
-            当前 ASR 后端：{asrRuntimeLabel(settings)}。macOS 和 Windows 即使用同一模型，速度也会受 CPU 架构、内存带宽、系统调度和安全软件扫描影响；GPU/CUDA 需要单独 runtime 验证后才会显示。
+            当前 ASR 后端：{asrRuntimeLabel(settings, setup?.hardware.cpuCores)}。macOS 和 Windows 即使用同一模型，速度也会受 CPU 架构、内存带宽、系统调度和安全软件扫描影响；GPU/CUDA 需要单独 runtime 验证后才会显示。
           </p>
           {settings ? (
             <section className="voice-options settings-control-stack">
@@ -1643,7 +1668,26 @@ export function App() {
                  {setup.hardware.cpuName} · {setup.hardware.memoryGb}GB · {tierLabel(setup.hardware.recommendedTier)}
                </p>
                <p className="hint">ASR 负责把语音转成原始文字；FireRed、SenseVoice、Fun-ASR-Nano 都属于语音识别模型，不负责提示词驱动的结构化整理。</p>
-               <p className="hint">当前本地 ASR 后端：{localSherpaRuntimeLabel()}。当前版本只显示已验证的真实后端；GPU/CUDA 需要单独 runtime 构建和输出测速验证，暂不默认启用。</p>
+               <p className="hint">当前本地 ASR 后端：{asrRuntimeLabel(settings, setup.hardware.cpuCores)}。当前版本只显示已验证的真实后端；GPU/CUDA 需要单独 runtime 构建和输出测速验证，暂不默认启用。</p>
+              {settings ? (
+                <section className="asr-runtime-panel">
+                  <div>
+                    <strong>CPU 线程数</strong>
+                    <p>{asrRuntimeDetail(settings, setup.hardware.cpuCores)}</p>
+                  </div>
+                  <div className="choice-group compact" role="radiogroup" aria-label="ASR CPU 线程数">
+                    {asrThreadOptions().map((option) => (
+                      <button
+                        key={option.label}
+                        className={settings.providers.asr.runtime.numThreads === option.value ? 'active' : ''}
+                        onClick={() => void updateAsrThreadSetting(option.value)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
                <p className="hint">公开中文指标只显示 CER / WER；V2T 适配分表示这台设备上的安装、运行和资源匹配优先级。WER/CER 越低越好，RTFx 越高越快。</p>
                <p className="hint">导入模型可以使用浏览器或下载器先下载官方压缩包，再从这里导入。当前一键下载主要来自 GitHub/k2-fsa Release，速度受 GitHub CDN、地区网络、代理和安全软件扫描影响。</p>
                <p className="hint">只有满足以下条件的模型才显示“一键安装”：V2T 已接入 runtime、知道 required files、下载源可信、checksum 或 smoke test 可验证，并且打包后能在 macOS/Windows 跑通。其他高分模型会放在“公开高分参考 / 待接入”。</p>
@@ -2753,6 +2797,12 @@ export function App() {
            <section className="update-panel">
              <h3>应用更新</h3>
              <p className="hint">{appUpdateStatusLabel(appUpdateState)}</p>
+             {appUpdateState.windowsUpdateStage ? (
+               <p className="hint">
+                 Windows 更新阶段：{windowsUpdateStageLabel(appUpdateState)}
+                 {appUpdateState.differentialFallbackLikely ? ' · 本次疑似需要完整安装包' : ''}
+               </p>
+             ) : null}
              {manualUpdateDownload ? (
                <p className="hint">macOS 暂不做无缝自动安装；检测到新版后会下载 DMG。</p>
              ) : null}
@@ -2776,6 +2826,12 @@ export function App() {
               </>
             ) : null}
             {appUpdateState.error ? <p className="error-text">{appUpdateState.error}</p> : null}
+            {appUpdateState.differentialFallbackLikely ? (
+              <p className="hint">
+                {appUpdateState.differentialFallbackReason ?? '本次更新可能从差分下载回退到完整安装包。'}
+                {appUpdateState.installerSizeBytes ? ` 完整包约 ${formatBytes(appUpdateState.installerSizeBytes)}。` : ''}
+              </p>
+            ) : null}
             {appUpdateState.errorCode === 'mac-signature-mismatch' ? (
               <p className="hint">更新包签名不匹配时，当前版本需要先手动安装新版签名包作为桥接版本；之后自动更新会继续使用同一签名校验。</p>
             ) : null}
@@ -4098,12 +4154,12 @@ function currentAsrLabel(settings: Settings | null): string {
   return '本地 sherpa-onnx';
 }
 
-function asrRuntimeLabel(settings: Settings | null): string {
+function asrRuntimeLabel(settings: Settings | null, cpuCores?: number): string {
   if (!settings) {
     return '加载中';
   }
   if (settings.providers.asr.kind === 'local-sherpa-onnx') {
-    return localSherpaRuntimeLabel();
+    return localSherpaRuntimeLabel(resolveLocalSherpaRuntime(settings.providers.asr.runtime, { cpuCores }));
   }
   if (settings.providers.asr.kind === 'funasr-http') {
     return '外部 HTTP 服务';
@@ -4112,6 +4168,32 @@ function asrRuntimeLabel(settings: Settings | null): string {
     return 'Whisper.cpp runtime';
   }
   return '未知后端';
+}
+
+function asrRuntimeDetail(settings: Settings | null, cpuCores?: number): string {
+  if (!settings || settings.providers.asr.kind !== 'local-sherpa-onnx') {
+    return '';
+  }
+  const runtime = resolveLocalSherpaRuntime(settings.providers.asr.runtime, { cpuCores });
+  if (runtime.backendStatus === 'cuda-experimental-unavailable') {
+    return `实验 CUDA 后端不可用：${runtime.unavailableReason}`;
+  }
+  if (runtime.backendStatus === 'cuda-experimental-active') {
+    return '实验 CUDA 后端已启用；请用输出测速确认是否真的更快。';
+  }
+  return settings.providers.asr.runtime.numThreads === 'auto'
+    ? '线程数为自动：按设备核心数保守选择，避免拖垮桌面响应。'
+    : '线程数为手动设置；更高线程数不一定线性更快，请用输出测速确认。';
+}
+
+function asrThreadOptions(): Array<{ label: string; value: Settings['providers']['asr']['runtime']['numThreads'] }> {
+  return [
+    { label: '自动', value: 'auto' },
+    { label: '2', value: 2 },
+    { label: '4', value: 4 },
+    { label: '6', value: 6 },
+    { label: '8', value: 8 }
+  ];
 }
 
 function shortModelName(modelName: string): string {
@@ -4300,6 +4382,22 @@ function appUpdateStatusLabel(state: AppUpdateState): string {
     return '更新检查失败';
   }
   return '自动更新待命';
+}
+
+function windowsUpdateStageLabel(state: AppUpdateState): string {
+  if (state.windowsUpdateStage === 'metadata') {
+    return '获取元数据';
+  }
+  if (state.windowsUpdateStage === 'differential') {
+    return '尝试差分更新';
+  }
+  if (state.windowsUpdateStage === 'full-package') {
+    return '回退完整包 / 下载完整安装包';
+  }
+  if (state.windowsUpdateStage === 'downloaded') {
+    return '更新包已下载';
+  }
+  return '等待更新';
 }
 
 function hotkeyStatusLabel(status?: HotkeyStatus): string {

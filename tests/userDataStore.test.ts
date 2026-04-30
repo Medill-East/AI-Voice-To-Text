@@ -15,6 +15,7 @@ describe('UserDataStore', () => {
     expect(settings.hotkey.accelerator).toBe('CommandOrControl+Shift+Space');
     expect(settings.providers.asr.kind).toBe('local-sherpa-onnx');
     expect(settings.providers.asr.modelId).toBeUndefined();
+    expect(settings.providers.asr.runtime).toEqual({ provider: 'cpu', numThreads: 'auto', cudaExperimental: false });
     expect(settings.sync.kind).toBe('local-folder');
     expect(settings.sync.github.includeHistory).toBe(true);
     expect(settings.sync.github.autoSync).toBe(false);
@@ -35,6 +36,31 @@ describe('UserDataStore', () => {
     });
     expect(settings.providers.llm).not.toHaveProperty('apiKey');
     expect(lexicon.terms).toEqual([]);
+  });
+
+  it('migrates ASR runtime settings to automatic CPU threads by default', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-store-asr-runtime-'));
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        defaultMode: 'natural',
+        providers: {
+          asr: { kind: 'local-sherpa-onnx', language: 'zh' },
+          llm: { enabled: false, kind: 'openai-compatible', baseUrl: '', model: '', apiKeyRef: 'system-keychain:v2t/openai-compatible' }
+        }
+      }),
+      'utf8'
+    );
+
+    const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
+    await expect(store.loadSettings()).resolves.toMatchObject({
+      providers: {
+        asr: {
+          runtime: { provider: 'cpu', numThreads: 'auto', cudaExperimental: false }
+        }
+      }
+    });
   });
 
   it('migrates legacy recording settings to a 10 minute limit', async () => {

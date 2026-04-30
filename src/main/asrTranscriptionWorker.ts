@@ -13,6 +13,7 @@ async function transcribe(request: AsrTranscriptionRunnerRequest): Promise<void>
       modelPath: request.modelPath,
       sherpaModelType: request.sherpaModelType,
       language: request.language,
+      runtime: request.runtime,
       onChunkProgress: (current, total) => {
         send({ type: 'chunk-progress', current, total });
         send({ type: 'heartbeat', at: new Date().toISOString() });

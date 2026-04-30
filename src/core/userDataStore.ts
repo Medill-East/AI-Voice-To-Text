@@ -4,6 +4,7 @@ import { dirname, join, parse } from 'node:path';
 import type { HistoryEntry, InputMode, Lexicon, LexiconTextFiles, LexiconTextKind, PromptFiles, Settings, UsageAggregate, UsageStatistics } from './types';
 import { lexiconPatchFromText, lexiconText, normalizeLexicon } from './lexiconTools';
 import { naturalPrompt, structuredPrompt } from './postProcessor';
+import { DEFAULT_ASR_RUNTIME } from './asrRuntime';
 
 interface StoreOptions {
   deviceId: string;
@@ -42,7 +43,10 @@ const DEFAULT_SETTINGS: Settings = {
   providers: {
     asr: {
       kind: 'local-sherpa-onnx',
-      language: 'zh'
+      language: 'zh',
+      runtime: {
+        ...DEFAULT_ASR_RUNTIME
+      }
     },
     llm: {
       engine: 'off',
@@ -479,7 +483,8 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
         ...DEFAULT_SETTINGS.providers.asr,
         ...rawAsr,
         kind: rawAsr.kind ?? DEFAULT_SETTINGS.providers.asr.kind,
-        language: rawAsr.language ?? DEFAULT_SETTINGS.providers.asr.language
+        language: rawAsr.language ?? DEFAULT_SETTINGS.providers.asr.language,
+        runtime: normalizeAsrRuntime(rawAsr.runtime)
       },
       llm: {
         ...DEFAULT_SETTINGS.providers.llm,
@@ -708,6 +713,17 @@ function normalizeLlmEngine(rawLlm: Partial<Settings['providers']['llm']>): Sett
 
 function normalizeRecordingDuration(value: Settings['recording']['maxDurationMinutes'] | undefined): Settings['recording']['maxDurationMinutes'] {
   return value === 5 || value === 10 || value === 20 || value === null ? value : 10;
+}
+
+function normalizeAsrRuntime(runtime: Partial<Settings['providers']['asr']['runtime']> | undefined): Settings['providers']['asr']['runtime'] {
+  const provider = runtime?.provider === 'cuda' ? 'cuda' : 'cpu';
+  const threadSetting = runtime?.numThreads;
+  const numThreads = threadSetting === 2 || threadSetting === 4 || threadSetting === 6 || threadSetting === 8 ? threadSetting : 'auto';
+  return {
+    provider,
+    numThreads,
+    cudaExperimental: runtime?.cudaExperimental ?? false
+  };
 }
 
 function oppositeMode(mode: InputMode): InputMode {

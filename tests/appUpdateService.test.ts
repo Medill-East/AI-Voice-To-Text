@@ -32,6 +32,33 @@ describe('AppUpdateService', () => {
     expect(states[2]).toMatchObject({ percent: 25, bytesPerSecond: 1024, transferred: 2048, total: 8192 });
   });
 
+  it('labels Windows full-installer fallback when NSIS update download is large', async () => {
+    const updater = new FakeUpdater();
+    const states: AppUpdateState[] = [];
+    const service = new AppUpdateService({
+      currentVersion: '0.1.40',
+      updater,
+      platform: 'win32',
+      updateMetadataUrl: 'https://github.com/Medill-East/AI-Voice-To-Text/releases/latest/download/latest.yml',
+      now: () => new Date('2026-04-30T08:00:00.000Z'),
+      onStatus: (state) => states.push(state)
+    });
+
+    await service.checkForUpdates();
+    updater.emit('update-available', { version: '0.1.41' });
+    updater.emit('download-progress', { percent: 3, transferred: 1_200_000, total: 99 * 1024 * 1024 });
+
+    expect(states.map((state) => state.windowsUpdateStage)).toEqual(['metadata', 'differential', 'full-package']);
+    expect(states.at(-1)).toMatchObject({
+      status: 'downloading',
+      blockmapExpected: true,
+      installerSizeBytes: 99 * 1024 * 1024,
+      differentialFallbackLikely: true,
+      updateMetadataUrl: 'https://github.com/Medill-East/AI-Voice-To-Text/releases/latest/download/latest.yml'
+    });
+    expect(states.at(-1)?.differentialFallbackReason).toContain('完整包');
+  });
+
   it('keeps a readable error when update checks fail', async () => {
     const updater = new FakeUpdater();
     updater.checkForUpdates.mockRejectedValue(new Error('network 404'));

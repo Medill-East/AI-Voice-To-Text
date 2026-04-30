@@ -671,6 +671,28 @@ textarea {
   line-height: 1.45;
 }
 
+.asr-runtime-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--control-gap-y) var(--control-gap-x);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-panel);
+}
+
+.asr-runtime-panel strong,
+.asr-runtime-panel p {
+  margin: 0;
+}
+
+.asr-runtime-panel p {
+  color: var(--color-muted);
+  font-size: var(--font-small);
+}
+
 .comparison-table {
   display: grid;
   gap: 8px;
