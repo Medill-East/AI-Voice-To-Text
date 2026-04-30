@@ -36,6 +36,8 @@
   --control-height: 36px;
   --control-height-compact: 30px;
   --button-font-weight: 650;
+  --control-gap-x: 12px;
+  --control-gap-y: 8px;
   color: var(--color-text);
   background: var(--color-bg);
   font-family:
@@ -125,7 +127,6 @@ button {
   font-weight: var(--button-font-weight);
   line-height: 1;
   cursor: pointer;
-  white-space: nowrap;
   transition:
     background 140ms ease,
     border-color 140ms ease,
@@ -736,7 +737,7 @@ textarea {
 .model-row-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-3);
+  gap: var(--control-gap-y) var(--control-gap-x);
   align-items: center;
 }
 
@@ -1090,13 +1091,14 @@ textarea {
 }
 
 .button-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--control-gap-y) var(--control-gap-x);
   margin-top: 14px;
 }
 
 .button-row.three {
+  display: grid;
   grid-template-columns: repeat(3, 1fr);
 }
 
@@ -1106,8 +1108,9 @@ textarea {
 .danger.compact {
   align-self: end;
   min-height: var(--control-height-compact);
-  min-width: 72px;
-  padding: 0 12px;
+  min-width: 86px;
+  padding: 0 14px;
+  white-space: nowrap;
 }
 
 .full-width {
@@ -1393,9 +1396,9 @@ textarea {
 .llm-installer-card,
 .llm-current {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--control-gap-y);
+  align-items: start;
   padding: 12px 0;
   border-top: 1px solid var(--color-border);
 }
@@ -1438,17 +1441,21 @@ textarea {
 
 .llm-engine-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--control-gap-x);
 }
 
 .engine-card {
   display: grid;
   gap: 5px;
+  justify-content: stretch;
+  min-width: 0;
   min-height: 78px;
   padding: 12px;
   color: var(--color-text);
   text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
   background: var(--color-surface);
   border: 1px solid var(--color-control-border);
   border-radius: 6px;
@@ -1468,16 +1475,10 @@ textarea {
   line-height: 1.2;
 }
 
-.engine-card.active .engine-badge {
-  color: var(--color-bg);
-  background: rgba(255, 255, 255, 0.18);
-  border-color: rgba(255, 255, 255, 0.22);
-}
-
 .engine-card.active {
-  color: var(--color-bg);
-  background: var(--color-text);
-  border-color: var(--color-text);
+  color: var(--color-text);
+  background: var(--color-hover);
+  border-color: var(--color-border-strong);
 }
 
 .engine-card strong {
@@ -1485,14 +1486,23 @@ textarea {
 }
 
 .engine-card span {
+  min-width: 0;
   color: var(--color-muted);
   font-size: 12px;
   line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .engine-card.active span {
-  color: var(--color-bg);
-  opacity: 0.78;
+  color: var(--color-muted);
+  opacity: 1;
+}
+
+.engine-card.active .engine-badge {
+  color: var(--color-surface);
+  background: var(--color-text);
+  border-color: var(--color-text);
 }
 
 .local-llm-suggestions {

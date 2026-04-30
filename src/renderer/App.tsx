@@ -1660,7 +1660,7 @@ export function App() {
                   ) : null}
                   {catalogMessage ? <p className="sync-message">{catalogMessage}</p> : null}
                 </div>
-                <div className="inline-actions">
+                <div className="action-toolbar">
                   <button className="secondary compact" onClick={() => void copyModelCatalogDiagnostics()}>
                     复制榜单诊断
                   </button>
@@ -1932,7 +1932,7 @@ export function App() {
                         onChange={(event) => setLlmApiKeyDraft(event.target.value)}
                       />
                     </label>
-                    <div className="button-row">
+                    <div className="action-toolbar">
                       <button className="secondary" onClick={() => void saveLlmApiKey()} disabled={!llmApiKeyDraft}>
                         保存本地 API Key
                       </button>
@@ -1944,7 +1944,7 @@ export function App() {
                   <section className="advanced-group">
                     <h3>推荐云端模型</h3>
                     <p className="hint">优先推荐适合中文和中英混合口述整理的 OpenAI-compatible 模型。免费模型可能限流或变动；敏感内容建议继续用本地 LLM。</p>
-                    <div className="inline-actions cloud-quick-actions">
+                    <div className="action-toolbar cloud-quick-actions">
                       <button className="secondary compact" onClick={() => void openOpenRouterApiKeys()}>
                         打开 OpenRouter API Key
                       </button>
@@ -2057,7 +2057,7 @@ export function App() {
                         onChange={(event) => setLlmFallbackApiKeyDraft(event.target.value)}
                       />
                     </label>
-                    <div className="button-row">
+                    <div className="action-toolbar">
                       <button className="secondary" onClick={() => void saveFallbackLlmApiKey()} disabled={!llmFallbackApiKeyDraft}>
                         保存云端 API Key
                       </button>

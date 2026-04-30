@@ -211,11 +211,15 @@ describe('settings navigation structure', () => {
     expect(styles).toContain('--radius-control');
     expect(styles).toContain('--space-3');
     expect(styles).toContain('--button-font-weight');
+    expect(styles).toContain('--control-gap-x: 12px');
+    expect(styles).toContain('--control-gap-y: 8px');
     expect(styles).toContain('.primary');
     expect(styles).toContain('.action-toolbar');
     expect(styles).toContain('.save,');
     expect(styles).toContain('.primary {');
     expect(styles).toContain('border: 1px solid var(--color-control-border)');
+    expect(styles).not.toMatch(/(^|\n)button\s*\{[^}]*white-space:\s*nowrap/s);
+    expect(styles).toMatch(/\.secondary\.compact,[^}]*white-space:\s*nowrap/s);
     expect(styles).not.toContain('.setup-callout button,');
     expect(styles).not.toContain('.model-row button,');
     expect(styles).not.toMatch(/\.secondary\s*\{[^}]*border:\s*1px solid var\(--color-text\)/s);
@@ -230,6 +234,9 @@ describe('settings navigation structure', () => {
     expect(styles).toContain('.recording-limit-inline');
     expect(styles).toContain('.natural-asr-recommendation');
     expect(styles).toContain('.asr-model-tags');
+    expect(styles).toContain('repeat(auto-fit, minmax(260px, 1fr))');
+    expect(styles).toMatch(/\.engine-card\s*\{[^}]*white-space:\s*normal/s);
+    expect(styles).toMatch(/\.engine-card\s*\{[^}]*overflow-wrap:\s*anywhere/s);
     expect(styles).toContain('.engine-card.active span');
     expect(styles).toContain('.local-llm-suggestions');
 
@@ -238,5 +245,7 @@ describe('settings navigation structure', () => {
     expect(design).toContain('整表横向滚动');
     expect(design).toContain('primary / secondary / danger');
     expect(design).toContain('action-toolbar');
+    expect(design).toContain('全局 button 不强制 nowrap');
+    expect(design).toContain('说明型按钮卡片必须允许换行');
   });
 });
