@@ -1528,39 +1528,43 @@ export function App() {
             {llmPromptUsageHint(settings)}
           </p>
           {settings ? (
-            <section className="voice-options">
-              <label className="setting-check">
-                <input
-                  type="checkbox"
-                  checked={settings.recording.muteSystemAudio}
-                  onChange={(event) => void updateRecordingMute(event.target.checked)}
-                />
-                录音时临时静音系统输出
-              </label>
-              <button className="secondary compact" onClick={() => void window.v2t.copySystemAudioDiagnostics()}>
-                复制静音诊断
-              </button>
-              <div className="recording-limit-inline">
-                <span>录音上限</span>
-                <div className="segmented-control compact" role="radiogroup" aria-label="录音上限">
-                  {recordingLimitOptions().map((option) => (
-                    <button
-                      key={option.label}
-                      className={settings.recording.maxDurationMinutes === option.value ? 'active' : ''}
-                      onClick={() => void updateRecordingLimit(option.value)}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
+            <section className="voice-options settings-control-stack">
+              <div className="voice-option-row settings-control-row">
+                <label className="setting-check settings-control-strip">
+                  <input
+                    type="checkbox"
+                    checked={settings.recording.muteSystemAudio}
+                    onChange={(event) => void updateRecordingMute(event.target.checked)}
+                  />
+                  录音时临时静音系统输出
+                </label>
+                <div className="recording-limit-inline settings-control-strip">
+                  <span>录音上限</span>
+                  <div className="segmented-control compact" role="radiogroup" aria-label="录音上限">
+                    {recordingLimitOptions().map((option) => (
+                      <button
+                        key={option.label}
+                        className={settings.recording.maxDurationMinutes === option.value ? 'active' : ''}
+                        onClick={() => void updateRecordingLimit(option.value)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
-              <button
-                className="secondary compact"
-                onClick={() => void copyLatestLexiconDiagnostics(history[0])}
-                disabled={!history[0]?.lexiconHits}
-              >
-                复制词库诊断
-              </button>
+              <div className="voice-diagnostics-toolbar settings-diagnostics-toolbar action-toolbar">
+                <button className="secondary compact" onClick={() => void window.v2t.copySystemAudioDiagnostics()}>
+                  复制静音诊断
+                </button>
+                <button
+                  className="secondary compact"
+                  onClick={() => void copyLatestLexiconDiagnostics(history[0])}
+                  disabled={!history[0]?.lexiconHits}
+                >
+                  复制词库诊断
+                </button>
+              </div>
             </section>
           ) : null}
           {voiceMessage ? <p className="sync-message">{voiceMessage}</p> : null}
@@ -2673,45 +2677,53 @@ export function App() {
                 </button>
               ))}
             </div>
-            <label className="setting-check">
-              <input
-                type="checkbox"
-                checked={settings.startup.openAtLogin}
-                onChange={(event) => void updateOpenAtLogin(event.target.checked)}
-              />
-              开机自动启动 V2T
-            </label>
-            <label className="setting-check">
-              <input
-                type="checkbox"
-                checked={settings.startup.silentOpenAtLogin}
-                onChange={(event) => void updateOpenAtLogin(settings.startup.openAtLogin, event.target.checked)}
-              />
-              开机时静默进入菜单栏
-            </label>
-            <label className="setting-check">
-              <input
-                type="checkbox"
-                checked={settings.recording.muteSystemAudio}
-                onChange={(event) => void updateRecordingMute(event.target.checked)}
-              />
-              录音时临时静音系统输出
-            </label>
-            <button className="secondary compact" onClick={() => void window.v2t.copySystemAudioDiagnostics()}>
-              复制静音诊断
-            </button>
-            <div className="recording-limit-setting">
-              <span>录音自动停止</span>
-              <div className="segmented-control compact" role="radiogroup" aria-label="录音自动停止">
-                {recordingLimitOptions().map((option) => (
-                  <button
-                    key={option.label}
-                    className={settings.recording.maxDurationMinutes === option.value ? 'active' : ''}
-                    onClick={() => void updateRecordingLimit(option.value)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+            <div className="settings-control-stack">
+              <div className="settings-control-row">
+                <label className="setting-check settings-control-strip">
+                  <input
+                    type="checkbox"
+                    checked={settings.startup.openAtLogin}
+                    onChange={(event) => void updateOpenAtLogin(event.target.checked)}
+                  />
+                  开机自动启动 V2T
+                </label>
+                <label className="setting-check settings-control-strip">
+                  <input
+                    type="checkbox"
+                    checked={settings.startup.silentOpenAtLogin}
+                    onChange={(event) => void updateOpenAtLogin(settings.startup.openAtLogin, event.target.checked)}
+                  />
+                  开机时静默进入菜单栏
+                </label>
+              </div>
+              <div className="settings-control-row">
+                <label className="setting-check settings-control-strip">
+                  <input
+                    type="checkbox"
+                    checked={settings.recording.muteSystemAudio}
+                    onChange={(event) => void updateRecordingMute(event.target.checked)}
+                  />
+                  录音时临时静音系统输出
+                </label>
+                <div className="recording-limit-setting settings-control-strip">
+                  <span>录音自动停止</span>
+                  <div className="segmented-control compact" role="radiogroup" aria-label="录音自动停止">
+                    {recordingLimitOptions().map((option) => (
+                      <button
+                        key={option.label}
+                        className={settings.recording.maxDurationMinutes === option.value ? 'active' : ''}
+                        onClick={() => void updateRecordingLimit(option.value)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="settings-diagnostics-toolbar action-toolbar">
+                <button className="secondary compact" onClick={() => void window.v2t.copySystemAudioDiagnostics()}>
+                  复制静音诊断
+                </button>
               </div>
             </div>
           </section>

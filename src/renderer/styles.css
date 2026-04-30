@@ -1098,15 +1098,15 @@ textarea {
 }
 
 .button-row.three {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  display: flex;
+  flex-wrap: wrap;
 }
 
 .primary.compact,
 .save.compact,
 .secondary.compact,
 .danger.compact {
-  align-self: end;
+  align-self: center;
   min-height: var(--control-height-compact);
   min-width: 86px;
   padding: 0 14px;
@@ -1170,13 +1170,49 @@ textarea {
 }
 
 .voice-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 14px;
-  align-items: center;
+  display: grid;
+  gap: var(--control-gap-y);
   padding: 10px 0;
   border-top: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
+}
+
+.settings-control-stack {
+  display: grid;
+  gap: var(--control-gap-y);
+}
+
+.settings-control-row,
+.voice-option-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--control-gap-y) var(--control-gap-x);
+  align-items: center;
+}
+
+.settings-control-strip {
+  min-height: var(--control-height);
+  padding: 0 12px;
+  border: 1px solid var(--color-control-border);
+  border-radius: var(--radius-control);
+  background: var(--color-control);
+}
+
+.settings-control-strip.setting-check {
+  width: fit-content;
+  min-width: 0;
+}
+
+.settings-control-strip .segmented-control.compact {
+  flex: 0 1 340px;
+}
+
+.settings-diagnostics-toolbar {
+  padding-top: 2px;
+}
+
+.settings-diagnostics-toolbar .secondary.compact {
+  min-width: 128px;
 }
 
 .lexicon-trial textarea {
@@ -1327,7 +1363,7 @@ textarea {
 
 .segmented-control.compact {
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  width: min(380px, 100%);
+  width: min(340px, 100%);
   min-height: 34px;
 }
 
@@ -1337,12 +1373,15 @@ textarea {
 
 .recording-limit-inline,
 .recording-limit-setting {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .recording-limit-inline > span,
 .recording-limit-setting > span {
+  flex: 0 0 auto;
   color: var(--color-muted);
   font-size: 12px;
 }

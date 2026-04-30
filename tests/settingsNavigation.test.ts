@@ -116,6 +116,10 @@ describe('settings navigation structure', () => {
     expect(app).toContain('muteSystemAudioForRecording');
     expect(app).toContain('restoreSystemAudioAfterRecording');
     expect(app).toContain('copySystemAudioDiagnostics');
+    expect(app).toContain('settings-control-row');
+    expect(app).toContain('settings-control-strip');
+    expect(app).toContain('settings-diagnostics-toolbar');
+    expect(app).toContain('voice-diagnostics-toolbar');
     expect(app).toContain('应用版本');
     expect(app).toContain('构建号');
     expect(app).toContain('Release 标签');
@@ -228,6 +232,11 @@ describe('settings navigation structure', () => {
     expect(styles).not.toContain('min-width: 1120px');
     expect(styles).toContain('.row-check input[type="checkbox"]');
     expect(styles).toContain('.voice-options');
+    expect(styles).toMatch(/\.voice-options\s*\{[^}]*display:\s*grid/s);
+    expect(styles).toContain('.settings-control-row');
+    expect(styles).toContain('.settings-control-strip');
+    expect(styles).toContain('.settings-diagnostics-toolbar');
+    expect(styles).toMatch(/\.settings-control-strip\s*\{[^}]*min-height:\s*var\(--control-height\)/s);
     expect(styles).toContain('.lexicon-trial-result');
     expect(styles).toContain('.lexicon-text-grid');
     expect(styles).toContain('.lexicon-text-editor');
@@ -247,5 +256,6 @@ describe('settings navigation structure', () => {
     expect(design).toContain('action-toolbar');
     expect(design).toContain('全局 button 不强制 nowrap');
     expect(design).toContain('说明型按钮卡片必须允许换行');
+    expect(design).toContain('同一设置区内 checkbox、segmented control 和诊断按钮必须使用统一高度');
   });
 });
