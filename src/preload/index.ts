@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   GitHubSyncStatus,
   AppUpdateState,
+  AsrCudaStatus,
   AsrBenchmarkBatchState,
   AutoSyncState,
   CloudLlmModelCatalogState,
@@ -117,6 +118,11 @@ export interface V2TApi {
   setOpenAtLogin(openAtLogin: boolean, silentOpenAtLogin?: boolean): Promise<{ ok: true; settings: Settings }>;
   openModelDownloadUrl(modelId: string): Promise<{ ok: boolean; error?: string }>;
   copyModelDownloadUrl(modelId: string): Promise<{ ok: boolean; error?: string }>;
+  detectAsrCuda(): Promise<AsrCudaStatus>;
+  enableAsrCuda(): Promise<AsrCudaActionResult>;
+  disableAsrCuda(): Promise<AsrCudaActionResult>;
+  openAsrCudaDocs(): Promise<{ ok: true }>;
+  openNvidiaCudaDownload(): Promise<{ ok: true }>;
   processAudio(payload: { bytes: Uint8Array; mode: InputMode }): Promise<VoiceInputPipelineResult>;
   onRecordingCommand(callback: (command: RecordingCommand) => void): () => void;
   onHotkeyStatus(callback: (status: HotkeyStatus) => void): () => void;
@@ -136,6 +142,7 @@ export interface SetupPayload {
   modelRoot: string;
   catalog: ModelCatalogItem[];
   modelCatalogRefresh: ModelCatalogRefreshState;
+  asrCudaStatus: AsrCudaStatus;
   modelStatuses: Record<string, ModelStatusRecord>;
   recommendations: ModelRecommendation[];
   installedModels: InstalledModelView[];
@@ -190,6 +197,13 @@ interface PathActionResult {
   ok: boolean;
   setup: SetupPayload;
   path?: string;
+  error?: string;
+}
+
+interface AsrCudaActionResult {
+  ok: boolean;
+  status: AsrCudaStatus;
+  setup: SetupPayload;
   error?: string;
 }
 
@@ -279,6 +293,11 @@ const api: V2TApi = {
   setOpenAtLogin: (openAtLogin, silentOpenAtLogin) => ipcRenderer.invoke('v2t:set-open-at-login', openAtLogin, silentOpenAtLogin),
   openModelDownloadUrl: (modelId) => ipcRenderer.invoke('v2t:open-model-download-url', modelId),
   copyModelDownloadUrl: (modelId) => ipcRenderer.invoke('v2t:copy-model-download-url', modelId),
+  detectAsrCuda: () => ipcRenderer.invoke('v2t:detect-asr-cuda'),
+  enableAsrCuda: () => ipcRenderer.invoke('v2t:enable-asr-cuda'),
+  disableAsrCuda: () => ipcRenderer.invoke('v2t:disable-asr-cuda'),
+  openAsrCudaDocs: () => ipcRenderer.invoke('v2t:open-asr-cuda-docs'),
+  openNvidiaCudaDownload: () => ipcRenderer.invoke('v2t:open-nvidia-cuda-download'),
   processAudio: async (payload) => {
     const response = (await ipcRenderer.invoke('v2t:process-audio', payload)) as ProcessAudioResponse;
     if (!response.ok || !response.result) {

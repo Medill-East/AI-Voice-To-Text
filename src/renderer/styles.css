@@ -693,6 +693,65 @@ textarea {
   font-size: var(--font-small);
 }
 
+.asr-cuda-panel {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-panel);
+}
+
+.asr-cuda-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.asr-cuda-summary strong,
+.asr-cuda-summary p {
+  margin: 0;
+}
+
+.asr-cuda-summary p {
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: var(--font-small);
+  line-height: 1.5;
+}
+
+.asr-cuda-grid {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 6px var(--space-4);
+  color: var(--color-muted);
+  font-size: var(--font-small);
+}
+
+.asr-cuda-grid strong {
+  min-width: 0;
+  color: var(--color-text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.status-pill {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.status-pill.cuda-experimental-active,
+.status-pill.cuda-experimental-available {
+  border-color: rgba(91, 180, 112, 0.45);
+  color: var(--color-accent);
+}
+
 .comparison-table {
   display: grid;
   gap: 8px;

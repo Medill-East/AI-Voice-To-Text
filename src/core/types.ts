@@ -384,6 +384,25 @@ export interface ModelBenchmarkResult {
   error?: string;
 }
 
+export interface AsrCudaStatus {
+  platform: NodeJS.Platform;
+  backendStatus: AsrBackendStatus;
+  active: boolean;
+  canEnable: boolean;
+  nvidiaGpuDetected: boolean;
+  nvidiaSmiAvailable: boolean;
+  gpuName?: string;
+  driverVersion?: string;
+  cudaPath?: string;
+  cudaRuntimeDlls: string[];
+  sherpaCudaRuntimeAvailable: boolean;
+  checkedAt: string;
+  diagnostic: string;
+  recommendedAction: string;
+  docsUrl: string;
+  cudaDownloadUrl: string;
+}
+
 export interface OneClickEligibility {
   eligible: boolean;
   reasons: string[];

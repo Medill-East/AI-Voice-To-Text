@@ -9,6 +9,7 @@ import { hotkeyLabelForPlatform } from '../core/hotkeyLabels';
 import { normalizeAccelerator, shortcutFromRecordedKeys } from '../core/hotkeyRecorder';
 import type {
   AppUpdateState,
+  AsrCudaStatus,
   AsrBenchmarkBatchState,
   AutoSyncState,
   CloudLlmModelCatalogState,
@@ -140,6 +141,8 @@ export function App() {
   const [installingModelId, setInstallingModelId] = useState<string | null>(null);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [catalogMessage, setCatalogMessage] = useState<string | null>(null);
+  const [cudaMessage, setCudaMessage] = useState<string | null>(null);
+  const [cudaDetecting, setCudaDetecting] = useState(false);
   const [installProgressById, setInstallProgressById] = useState<Record<string, ModelStatusRecord>>({});
   const [downloadProbeById, setDownloadProbeById] = useState<Record<string, ModelDownloadProbeResult>>({});
   const [probingModelId, setProbingModelId] = useState<string | null>(null);
@@ -695,6 +698,41 @@ export function App() {
     setHotkeyStatus(result.hotkeyStatus);
     const nextSetup = await window.v2t.getSetup();
     applySetup(nextSetup);
+  };
+
+  const refreshAsrCuda = async () => {
+    setCudaDetecting(true);
+    setCudaMessage(null);
+    try {
+      const status = await window.v2t.detectAsrCuda();
+      setSetup((previous) => (previous ? { ...previous, asrCudaStatus: status } : previous));
+      setCudaMessage(status.canEnable ? 'CUDA 检测通过，可以尝试启用后做输出测速。' : status.diagnostic);
+    } finally {
+      setCudaDetecting(false);
+    }
+  };
+
+  const enableAsrCuda = async () => {
+    setCudaDetecting(true);
+    setCudaMessage(null);
+    try {
+      const result = await window.v2t.enableAsrCuda();
+      if (result.ok) {
+        applySetup(result.setup);
+        setCudaMessage('已启用实验 CUDA 后端。请立即做一次输出测速，确认是否比 CPU 更快。');
+      } else {
+        setSetup((previous) => (previous ? { ...previous, asrCudaStatus: result.status } : previous));
+        setCudaMessage(result.error ?? result.status.diagnostic);
+      }
+    } finally {
+      setCudaDetecting(false);
+    }
+  };
+
+  const disableAsrCuda = async () => {
+    const result = await window.v2t.disableAsrCuda();
+    applySetup(result.setup);
+    setCudaMessage('已回退到 CPU stable 后端。');
   };
 
   const updateOpenAtLogin = async (openAtLogin: boolean, silentOpenAtLogin = settings?.startup.silentOpenAtLogin ?? true) => {
@@ -1554,7 +1592,7 @@ export function App() {
             {llmPromptUsageHint(settings)}
           </p>
           <p className="hint">
-            当前 ASR 后端：{asrRuntimeLabel(settings, setup?.hardware.cpuCores)}。macOS 和 Windows 即使用同一模型，速度也会受 CPU 架构、内存带宽、系统调度和安全软件扫描影响；GPU/CUDA 需要单独 runtime 验证后才会显示。
+            当前 ASR 后端：{asrRuntimeLabel(settings, setup?.hardware.cpuCores, setup?.asrCudaStatus)}。macOS 和 Windows 即使用同一模型，速度也会受 CPU 架构、内存带宽、系统调度和安全软件扫描影响；GPU/CUDA 需要单独 runtime 验证后才会显示。
           </p>
           {settings ? (
             <section className="voice-options settings-control-stack">
@@ -1668,25 +1706,66 @@ export function App() {
                  {setup.hardware.cpuName} · {setup.hardware.memoryGb}GB · {tierLabel(setup.hardware.recommendedTier)}
                </p>
                <p className="hint">ASR 负责把语音转成原始文字；FireRed、SenseVoice、Fun-ASR-Nano 都属于语音识别模型，不负责提示词驱动的结构化整理。</p>
-               <p className="hint">当前本地 ASR 后端：{asrRuntimeLabel(settings, setup.hardware.cpuCores)}。当前版本只显示已验证的真实后端；GPU/CUDA 需要单独 runtime 构建和输出测速验证，暂不默认启用。</p>
+               <p className="hint">当前本地 ASR 后端：{asrRuntimeLabel(settings, setup.hardware.cpuCores, setup.asrCudaStatus)}。当前版本只显示已验证的真实后端；GPU/CUDA 需要单独 runtime 构建和输出测速验证，暂不默认启用。</p>
               {settings ? (
-                <section className="asr-runtime-panel">
-                  <div>
-                    <strong>CPU 线程数</strong>
-                    <p>{asrRuntimeDetail(settings, setup.hardware.cpuCores)}</p>
-                  </div>
-                  <div className="choice-group compact" role="radiogroup" aria-label="ASR CPU 线程数">
-                    {asrThreadOptions().map((option) => (
-                      <button
-                        key={option.label}
-                        className={settings.providers.asr.runtime.numThreads === option.value ? 'active' : ''}
-                        onClick={() => void updateAsrThreadSetting(option.value)}
-                      >
-                        {option.label}
+                <>
+                  <section className="asr-runtime-panel">
+                    <div>
+                      <strong>CPU 线程数</strong>
+                      <p>{asrRuntimeDetail(settings, setup.hardware.cpuCores, setup.asrCudaStatus)}</p>
+                    </div>
+                    <div className="choice-group compact" role="radiogroup" aria-label="ASR CPU 线程数">
+                      {asrThreadOptions().map((option) => (
+                        <button
+                          key={option.label}
+                          className={settings.providers.asr.runtime.numThreads === option.value ? 'active' : ''}
+                          onClick={() => void updateAsrThreadSetting(option.value)}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                  <section className="asr-cuda-panel">
+                    <div className="asr-cuda-summary">
+                      <div>
+                        <strong>实验 CUDA 后端</strong>
+                        <p>{asrCudaStatusLabel(setup.asrCudaStatus)}。GPU 可能明显更快，但 ASR 小模型、int8 模型或 decoder 受限时不一定比 CPU 快，最终以输出测速为准。</p>
+                      </div>
+                      <span className={`status-pill ${setup.asrCudaStatus.backendStatus}`}>{asrCudaBadge(setup.asrCudaStatus)}</span>
+                    </div>
+                    <div className="asr-cuda-grid">
+                      <span>NVIDIA GPU</span>
+                      <strong>{setup.asrCudaStatus.nvidiaGpuDetected ? setup.asrCudaStatus.gpuName ?? '已检测到' : '未检测到'}</strong>
+                      <span>CUDA runtime</span>
+                      <strong>{setup.asrCudaStatus.cudaRuntimeDlls.length > 0 ? `${setup.asrCudaStatus.cudaRuntimeDlls.length} 个 DLL` : '未检测到'}</strong>
+                      <span>sherpa CUDA runtime</span>
+                      <strong>{setup.asrCudaStatus.sherpaCudaRuntimeAvailable ? '可用' : '当前包未包含'}</strong>
+                      <span>建议</span>
+                      <strong>{setup.asrCudaStatus.recommendedAction}</strong>
+                    </div>
+                    {cudaMessage ? <p className="sync-message">{cudaMessage}</p> : null}
+                    <div className="action-toolbar">
+                      <button className="secondary compact" onClick={() => void refreshAsrCuda()} disabled={cudaDetecting}>
+                        {cudaDetecting ? '检测中' : '检测 CUDA'}
                       </button>
-                    ))}
-                  </div>
-                </section>
+                      <button className="secondary compact" onClick={() => void window.v2t.openAsrCudaDocs()}>
+                        sherpa CUDA 文档
+                      </button>
+                      <button className="secondary compact" onClick={() => void window.v2t.openNvidiaCudaDownload()}>
+                        NVIDIA CUDA 下载
+                      </button>
+                      <button className="secondary compact" onClick={() => void enableAsrCuda()} disabled={!setup.asrCudaStatus.canEnable || setup.asrCudaStatus.active || cudaDetecting}>
+                        启用实验 CUDA
+                      </button>
+                      {setup.asrCudaStatus.active ? (
+                        <button className="secondary compact" onClick={() => void disableAsrCuda()}>
+                          回退 CPU
+                        </button>
+                      ) : null}
+                    </div>
+                  </section>
+                </>
               ) : null}
                <p className="hint">公开中文指标只显示 CER / WER；V2T 适配分表示这台设备上的安装、运行和资源匹配优先级。WER/CER 越低越好，RTFx 越高越快。</p>
                <p className="hint">导入模型可以使用浏览器或下载器先下载官方压缩包，再从这里导入。当前一键下载主要来自 GitHub/k2-fsa Release，速度受 GitHub CDN、地区网络、代理和安全软件扫描影响。</p>
@@ -4154,12 +4233,19 @@ function currentAsrLabel(settings: Settings | null): string {
   return '本地 sherpa-onnx';
 }
 
-function asrRuntimeLabel(settings: Settings | null, cpuCores?: number): string {
+function asrRuntimeLabel(settings: Settings | null, cpuCores?: number, cudaStatus?: AsrCudaStatus): string {
   if (!settings) {
     return '加载中';
   }
   if (settings.providers.asr.kind === 'local-sherpa-onnx') {
-    return localSherpaRuntimeLabel(resolveLocalSherpaRuntime(settings.providers.asr.runtime, { cpuCores }));
+    return localSherpaRuntimeLabel(
+      resolveLocalSherpaRuntime(settings.providers.asr.runtime, {
+        cpuCores,
+        platform: cudaStatus?.platform,
+        cudaRuntimeAvailable: cudaStatus?.canEnable,
+        cudaUnavailableReason: cudaStatus?.diagnostic
+      })
+    );
   }
   if (settings.providers.asr.kind === 'funasr-http') {
     return '外部 HTTP 服务';
@@ -4170,11 +4256,16 @@ function asrRuntimeLabel(settings: Settings | null, cpuCores?: number): string {
   return '未知后端';
 }
 
-function asrRuntimeDetail(settings: Settings | null, cpuCores?: number): string {
+function asrRuntimeDetail(settings: Settings | null, cpuCores?: number, cudaStatus?: AsrCudaStatus): string {
   if (!settings || settings.providers.asr.kind !== 'local-sherpa-onnx') {
     return '';
   }
-  const runtime = resolveLocalSherpaRuntime(settings.providers.asr.runtime, { cpuCores });
+  const runtime = resolveLocalSherpaRuntime(settings.providers.asr.runtime, {
+    cpuCores,
+    platform: cudaStatus?.platform,
+    cudaRuntimeAvailable: cudaStatus?.canEnable,
+    cudaUnavailableReason: cudaStatus?.diagnostic
+  });
   if (runtime.backendStatus === 'cuda-experimental-unavailable') {
     return `实验 CUDA 后端不可用：${runtime.unavailableReason}`;
   }
@@ -4184,6 +4275,26 @@ function asrRuntimeDetail(settings: Settings | null, cpuCores?: number): string 
   return settings.providers.asr.runtime.numThreads === 'auto'
     ? '线程数为自动：按设备核心数保守选择，避免拖垮桌面响应。'
     : '线程数为手动设置；更高线程数不一定线性更快，请用输出测速确认。';
+}
+
+function asrCudaStatusLabel(status: AsrCudaStatus): string {
+  if (status.backendStatus === 'cuda-experimental-active') {
+    return `已启用 CUDA · ${status.gpuName ?? 'NVIDIA GPU'}`;
+  }
+  if (status.backendStatus === 'cuda-experimental-available') {
+    return `可启用 · ${status.gpuName ?? 'NVIDIA GPU'}`;
+  }
+  return `不可用 · ${status.diagnostic}`;
+}
+
+function asrCudaBadge(status: AsrCudaStatus): string {
+  if (status.backendStatus === 'cuda-experimental-active') {
+    return 'CUDA 已启用';
+  }
+  if (status.backendStatus === 'cuda-experimental-available') {
+    return '可启用';
+  }
+  return '不可用';
 }
 
 function asrThreadOptions(): Array<{ label: string; value: Settings['providers']['asr']['runtime']['numThreads'] }> {

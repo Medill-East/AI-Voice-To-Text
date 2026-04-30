@@ -128,7 +128,14 @@ describe('settings navigation structure', () => {
     expect(app).toContain('GPU/CUDA 需要单独 runtime');
     expect(app).toContain('CPU 线程数');
     expect(app).toContain('ASR CPU 线程数');
+    expect(app).toContain('实验 CUDA 后端');
+    expect(app).toContain('检测 CUDA');
+    expect(app).toContain('启用实验 CUDA');
+    expect(app).toContain('NVIDIA CUDA 下载');
+    expect(app).toContain('sherpa CUDA 文档');
+    expect(app).toContain('disableAsrCuda');
     expect(app).toContain('asrThreadOptions');
+    expect(app).toContain('asrCudaStatusLabel');
     expect(app).toContain('asrRuntimeDetail');
     expect(app).toContain('Windows 更新阶段');
     expect(app).toContain('windowsUpdateStageLabel');
@@ -270,6 +277,9 @@ describe('settings navigation structure', () => {
     expect(styles).not.toMatch(/\.settings-control-strip\s+\.segmented-control\.compact/s);
     expect(styles).toContain('.natural-asr-recommendation');
     expect(styles).toContain('.asr-runtime-panel');
+    expect(styles).toContain('.asr-cuda-panel');
+    expect(styles).toContain('.asr-cuda-grid');
+    expect(styles).toContain('.status-pill.cuda-experimental-active');
     expect(styles).toContain('.asr-model-tags');
     expect(styles).toContain('repeat(auto-fit, minmax(260px, 1fr))');
     expect(styles).toMatch(/\.engine-card\s*\{[^}]*white-space:\s*normal/s);

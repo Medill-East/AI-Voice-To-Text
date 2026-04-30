@@ -25,6 +25,7 @@ import { TextInjectionService } from '../core/textInjection';
 import { UserDataStore } from '../core/userDataStore';
 import type {
   AppUpdateState,
+  AsrCudaStatus,
   AsrBenchmarkBatchState,
   AutoSyncState,
   CloudLlmModelCatalogState,
@@ -41,6 +42,7 @@ import type {
   LexiconTextKind,
   Settings
 } from '../core/types';
+import { detectAsrCudaStatus, NVIDIA_CUDA_DOWNLOAD_URL, SHERPA_WINDOWS_CUDA_DOCS_URL } from './asrCudaDiagnostics';
 import { AsrBenchmarkRunner } from './asrBenchmarkRunner';
 import { AsrTranscriptionRunner, type AsrTranscriptionRunnerRequest } from './asrTranscriptionRunner';
 import { getFocusedAppName } from './focusedApp';
@@ -456,6 +458,17 @@ function registerIpc(): void {
       return { ok: false, error: '这个模型没有可复制的外部来源。' };
     }
     clipboard.writeText(url);
+    return { ok: true };
+  });
+  ipcMain.handle('v2t:detect-asr-cuda', async () => detectCurrentAsrCudaStatus());
+  ipcMain.handle('v2t:enable-asr-cuda', async () => enableAsrCudaRuntime());
+  ipcMain.handle('v2t:disable-asr-cuda', async () => disableAsrCudaRuntime());
+  ipcMain.handle('v2t:open-asr-cuda-docs', async () => {
+    await shell.openExternal(SHERPA_WINDOWS_CUDA_DOCS_URL);
+    return { ok: true };
+  });
+  ipcMain.handle('v2t:open-nvidia-cuda-download', async () => {
+    await shell.openExternal(NVIDIA_CUDA_DOWNLOAD_URL);
     return { ok: true };
   });
   ipcMain.handle('v2t:update-hotkey', async (_event, accelerator: string) => updateHotkey(accelerator));
@@ -1237,6 +1250,7 @@ async function getSetupPayload() {
     modelRoot,
     catalog: modelCatalog,
     modelCatalogRefresh: modelCatalogRefreshState,
+    asrCudaStatus: detectCurrentAsrCudaStatus(),
     modelStatuses: rawStatuses,
     recommendations: recommendModels(modelCatalog, hardware, statusMap),
     installedModels: await manager.listInstalledModelViews(settings),
@@ -1496,12 +1510,64 @@ function normalizeRuntimeSettings(nextSettings: Settings): Settings {
   };
 }
 
+function detectCurrentAsrCudaStatus(): AsrCudaStatus {
+  return detectAsrCudaStatus(settings);
+}
+
+async function enableAsrCudaRuntime() {
+  const cudaStatus = detectCurrentAsrCudaStatus();
+  if (!cudaStatus.canEnable) {
+    return {
+      ok: false,
+      status: cudaStatus,
+      setup: await getSetupPayload(),
+      error: `CUDA 实验后端暂不可启用：${cudaStatus.diagnostic}`
+    };
+  }
+  settings = normalizeRuntimeSettings({
+    ...settings,
+    providers: {
+      ...settings.providers,
+      asr: {
+        ...settings.providers.asr,
+        runtime: {
+          ...settings.providers.asr.runtime,
+          provider: 'cuda',
+          cudaExperimental: true
+        }
+      }
+    }
+  });
+  await store.saveSettings(settings);
+  return { ok: true, status: detectCurrentAsrCudaStatus(), setup: await getSetupPayload() };
+}
+
+async function disableAsrCudaRuntime() {
+  settings = normalizeRuntimeSettings({
+    ...settings,
+    providers: {
+      ...settings.providers,
+      asr: {
+        ...settings.providers.asr,
+        runtime: {
+          ...settings.providers.asr.runtime,
+          provider: 'cpu',
+          cudaExperimental: false
+        }
+      }
+    }
+  });
+  await store.saveSettings(settings);
+  return { ok: true, status: detectCurrentAsrCudaStatus(), setup: await getSetupPayload() };
+}
+
 function resolveCurrentAsrRuntime() {
+  const cudaStatus = detectCurrentAsrCudaStatus();
   return resolveLocalSherpaRuntime(settings.providers.asr.runtime, {
     cpuCores: cpus().length,
     platform: process.platform,
-    cudaRuntimeAvailable: false,
-    cudaUnavailableReason: cudaUnavailableReason()
+    cudaRuntimeAvailable: cudaStatus.canEnable,
+    cudaUnavailableReason: cudaStatus.diagnostic || cudaUnavailableReason()
   });
 }
 
