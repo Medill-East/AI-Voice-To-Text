@@ -102,6 +102,44 @@ describe('RecoverableAsrTranscriber', () => {
     expect(seen).toEqual([2, 3]);
     expect(result.text).toBe('saved-1\nchunk-2\nchunk-3');
   });
+
+  it('treats an empty trailing chunk as completed instead of failing the recording', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-recovery-empty-tail-'));
+    const store = new VoiceInputRecoveryStore(dir);
+    const job = await store.createJob(diagnostic('job-d'), Buffer.from('recording'));
+    const chunkPaths = await createChunks(store.chunksDir(job.id), 3);
+    const allowEmptyFlags: Array<boolean | undefined> = [];
+
+    const transcriber = new RecoverableAsrTranscriber({
+      recoveryStore: store,
+      workerPath: '/tmp/asrTranscriptionWorker.js',
+      splitWav: async () => chunkPaths,
+      runChunk: async (request) => {
+        const current = request.processing.chunkProgress?.current ?? 0;
+        allowEmptyFlags.push(request.allowEmptyResult);
+        return { text: current === 3 ? '' : `chunk-${current}` };
+      }
+    });
+
+    const result = await transcriber.transcribe({
+      ...runnerRequest(job.id, job.audioPath, store.chunksDir(job.id), diagnostic('job-d')),
+      processing: {
+        ...diagnostic('job-d'),
+        recoveryJobId: job.id,
+        audioPath: job.audioPath,
+        partialResultPath: job.partialResultPath
+      }
+    });
+
+    expect(result.text).toBe('chunk-1\nchunk-2');
+    expect(allowEmptyFlags).toEqual([true, true, true]);
+    const partials = await store.readPartialResults(job.id);
+    expect(partials.chunks).toMatchObject([
+      { index: 0, status: 'done', text: 'chunk-1' },
+      { index: 1, status: 'done', text: 'chunk-2' },
+      { index: 2, status: 'done', text: '' }
+    ]);
+  });
 });
 
 function diagnostic(id: string): ProcessingDiagnostic {

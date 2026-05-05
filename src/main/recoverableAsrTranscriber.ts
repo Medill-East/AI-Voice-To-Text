@@ -58,6 +58,7 @@ export class RecoverableAsrTranscriber {
         const result = await this.runChunk({
           ...request,
           audio: new Uint8Array(chunkAudio),
+          allowEmptyResult: true,
           processing: {
             ...request.processing,
             audioBytes: chunkAudio.byteLength,

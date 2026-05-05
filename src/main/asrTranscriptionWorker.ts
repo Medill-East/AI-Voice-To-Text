@@ -14,6 +14,7 @@ async function transcribe(request: AsrTranscriptionRunnerRequest): Promise<void>
       sherpaModelType: request.sherpaModelType,
       language: request.language,
       runtime: request.runtime,
+      allowEmptyResult: request.allowEmptyResult,
       onChunkProgress: (current, total) => {
         send({ type: 'chunk-progress', current, total });
         send({ type: 'heartbeat', at: new Date().toISOString() });

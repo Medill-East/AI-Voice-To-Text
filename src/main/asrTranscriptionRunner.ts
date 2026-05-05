@@ -11,6 +11,7 @@ export interface AsrTranscriptionRunnerRequest {
   language: string;
   runtime?: ResolvedAsrRuntime;
   runtimeEnvPath?: string;
+  allowEmptyResult?: boolean;
   processing: ProcessingDiagnostic & { mode: InputMode };
 }
 
