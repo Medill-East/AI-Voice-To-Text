@@ -118,6 +118,61 @@ describe('PostProcessor', () => {
     expect(result.text).toBe('我想测试一下。');
   });
 
+  it('merges repeated punctuation and removes leading comma fillers', async () => {
+    const processor = new PostProcessor();
+
+    const result = await processor.process('，就是我在检测，，Cuda，它还是提示。，未安装', {
+      mode: 'structured',
+      lexicon
+    });
+
+    expect(result.text).toBe('我在检测Cuda，它还是提示未安装。');
+  });
+
+  it('collapses repeated Chinese words from ASR stutter', async () => {
+    const processor = new PostProcessor();
+
+    const result = await processor.process('我我我我后退之后，只能只能那个什么。是是是个 bug。会会原地打转。', {
+      mode: 'structured',
+      lexicon
+    });
+
+    expect(result.text).toBe('我后退之后，只能那个什么。是个 bug。会原地打转。');
+  });
+
+  it('does not treat repeated then/connective sentences as ordered steps', async () => {
+    const processor = new PostProcessor();
+
+    const result = await processor.process('然后我离开石头之后，镜头没有切回来。然后这里不知道是个 bug。然后石头会打转。', {
+      mode: 'structured',
+      lexicon
+    });
+
+    expect(result.text).not.toContain('1. ');
+    expect(result.text).toBe('然后我离开石头之后，镜头没有切回来。然后这里不知道是个 bug。然后石头会打转。');
+  });
+
+  it('removes embedded pure fillers without deleting meaningful demonstratives', async () => {
+    const processor = new PostProcessor();
+
+    const embedded = await processor.process('这个呃，镜头切换的效果还是比较突兀。', {
+      mode: 'structured',
+      lexicon
+    });
+    const meaningful = await processor.process('这个方案比那个好，就是效率更高。', {
+      mode: 'structured',
+      lexicon
+    });
+    const sentenceParticle = await processor.process('我觉得存在几方面的问题啊，首先镜头切换突兀。', {
+      mode: 'structured',
+      lexicon
+    });
+
+    expect(embedded.text).toBe('这个镜头切换的效果还是比较突兀。');
+    expect(meaningful.text).toBe('这个方案比那个好，就是效率更高。');
+    expect(sentenceParticle.text).toBe('我觉得存在几方面的问题，首先镜头切换突兀。');
+  });
+
   it('keeps one topic in a compact paragraph instead of repeatedly splitting sentences', async () => {
     const processor = new PostProcessor();
 

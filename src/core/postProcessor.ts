@@ -189,11 +189,20 @@ function stripBlockedAndFillers(input: string, lexicon: Lexicon, hits: LexiconHi
     .replace(/\/sil\b/gi, '')
     .replace(/<\|[^>]+?\|>/g, '')
     .replace(/你懂我意思[吧吗]?/g, '')
-    .replace(/(^|[\s，,。.!！?？；;、])(?:嗯+|呃+|额+|啊+|唔+|就是|那个|这个)(?=$|[\s，,。.!！?？；;、])/g, '$1')
+    .replace(/^[\s，,]*(?:就是)\s*/gm, '')
+    .replace(/(?:嗯+|呃+|额+|唔+)[，,]?\s*/g, '')
+    .replace(/[，,]\s*(?:嗯+|呃+|额+|唔+)/g, '')
+    .replace(/啊+(?=[，,。.!！?？；;、\s]|$)/g, '')
+    .replace(/(^|[\s，,。.!！?？；;、])(?:就是|那个|这个)(?=$|[\s，,。.!！?？；;、])/g, '$1')
     .replace(/(^|[\s，,。.!！?？；;、])对(?=$|[\s，,。.!！?？；;、])/g, '$1')
     .replace(/\s+([，,。.!！?？；;])/g, '$1')
     .replace(/([，,。.!！?？；;])\s+/g, '$1')
-    .replace(/[，,。.!！?？；;]\s*$/g, '');
+    .replace(/[，,。.!！?？；;]\s*$/g, '')
+    .replace(/([。.!！?？])[，,]+/g, '')
+    .replace(/[，,]{2,}/g, '')
+    .replace(/^[，,]+/gm, '')
+    .replace(/([一-鿿])\1+/g, '$1')
+    .replace(/([一-鿿]{2,4})\1+/g, '$1');
 }
 
 function toReadableMarkdown(input: string): string {
@@ -225,7 +234,7 @@ function looksLikeOrderedSteps(parts: string[]): boolean {
   if (parts.length < 2) {
     return false;
   }
-  return parts.filter((part) => /^(首先|其次|然后|接着|再|最后|第一|第二|第三|第四|第五|第[一二三四五六七八九十]+步)/.test(part)).length >= 2;
+  return parts.filter((part) => /^(首先|其次|最后|第一|第二|第三|第四|第五|第[一二三四五六七八九十]+步)/.test(part)).length >= 2;
 }
 
 function looksLikeLooseList(parts: string[]): boolean {
