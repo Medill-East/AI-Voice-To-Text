@@ -504,6 +504,27 @@ export interface ProcessingDiagnostic {
     total: number;
   };
   error?: string;
+  recoveryJobId?: string;
+  audioPath?: string;
+  chunkPaths?: string[];
+  partialResultPath?: string;
+  failedChunkIndex?: number;
+}
+
+export interface VoiceInputRecoveryJob {
+  id: string;
+  createdAt: string;
+  mode: InputMode;
+  audioDurationSeconds?: number;
+  modelId?: string;
+  sherpaModelType?: SherpaModelType;
+  status: 'processing' | 'failed';
+  failedChunkIndex?: number;
+  error?: string;
+  audioPath: string;
+  diagnosticPath: string;
+  partialResultPath: string;
+  chunkPaths?: string[];
 }
 
 export interface PromptFiles {

@@ -30,6 +30,7 @@ import type {
   Settings,
   SyncImportStrategy,
   UsageStatistics,
+  VoiceInputRecoveryJob,
   VoiceInputPipelineResult
 } from '../core/types';
 import type { HotkeyStatus, HotkeyTestResult } from '../main/hotkeyService';
@@ -90,6 +91,10 @@ export interface V2TApi {
   listConflictBackups(): Promise<string[]>;
   copyProcessingDiagnostics(): Promise<{ ok: true }>;
   copyAsrDiagnostics(): Promise<{ ok: true }>;
+  getRecoveryJobs(): Promise<VoiceInputRecoveryJob[]>;
+  retryRecoveryJob(jobId: string): Promise<ProcessAudioResponse & { setup?: SetupPayload; jobs?: VoiceInputRecoveryJob[] }>;
+  deleteRecoveryJob(jobId: string): Promise<{ ok: boolean; setup: SetupPayload; jobs: VoiceInputRecoveryJob[]; error?: string }>;
+  copyRecoveryDiagnostic(jobId: string): Promise<{ ok: true }>;
   setRecordingOverlayState(update: RecordingOverlayUpdate): Promise<{ ok: true }>;
   showEditMenu(): void;
   openAccessibilitySettings(): Promise<{ ok: true }>;
@@ -159,6 +164,7 @@ export interface SetupPayload {
     buildCommit: string;
   };
   processingDiagnostic?: ProcessingDiagnostic;
+  recoveryJobs: VoiceInputRecoveryJob[];
 }
 
 interface ProcessAudioResponse {
@@ -275,6 +281,10 @@ const api: V2TApi = {
   listConflictBackups: () => ipcRenderer.invoke('v2t:list-conflict-backups'),
   copyProcessingDiagnostics: () => ipcRenderer.invoke('v2t:copy-processing-diagnostics'),
   copyAsrDiagnostics: () => ipcRenderer.invoke('v2t:copy-asr-diagnostics'),
+  getRecoveryJobs: () => ipcRenderer.invoke('v2t:get-recovery-jobs'),
+  retryRecoveryJob: (jobId) => ipcRenderer.invoke('v2t:retry-recovery-job', jobId),
+  deleteRecoveryJob: (jobId) => ipcRenderer.invoke('v2t:delete-recovery-job', jobId),
+  copyRecoveryDiagnostic: (jobId) => ipcRenderer.invoke('v2t:copy-recovery-diagnostic', jobId),
   setRecordingOverlayState: (update) => ipcRenderer.invoke('v2t:set-recording-overlay-state', update),
   showEditMenu: () => ipcRenderer.send('v2t:show-edit-menu'),
   openAccessibilitySettings: () => ipcRenderer.invoke('v2t:open-accessibility-settings'),

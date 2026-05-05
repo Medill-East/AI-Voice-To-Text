@@ -47,6 +47,8 @@ import { detectAsrCudaStatus, NVIDIA_CUDA_DOWNLOAD_URL, SHERPA_WINDOWS_CUDA_DOCS
 import { AsrCudaRuntimeManager } from './asrCudaRuntimeManager';
 import { AsrBenchmarkRunner } from './asrBenchmarkRunner';
 import { AsrTranscriptionRunner, type AsrTranscriptionRunnerRequest } from './asrTranscriptionRunner';
+import { RecoverableAsrTranscriber } from './recoverableAsrTranscriber';
+import { VoiceInputRecoveryStore } from './voiceInputRecoveryStore';
 import { getFocusedAppName } from './focusedApp';
 import { createCheckingHotkeyStatus } from './hotkeyDiagnostics';
 import { HotkeyDiagnosticLog } from './hotkeyDiagnosticLog';
@@ -109,6 +111,7 @@ let autoSyncState: AutoSyncState = { status: 'idle', updatedAt: new Date().toISO
 let appUpdateService: AppUpdateService;
 let appUpdateState: AppUpdateState;
 let cloudLlmCatalogService: CloudLlmCatalogService;
+let voiceInputRecoveryStore: VoiceInputRecoveryStore;
 let cloudLlmCatalogState: CloudLlmModelCatalogState = {
   status: 'idle',
   sourceUrl: 'https://openrouter.ai/api/v1/models',
@@ -154,7 +157,16 @@ async function bootstrap(): Promise<void> {
   await store.saveSettings(settings);
   asrCudaRuntimeManager = new AsrCudaRuntimeManager({ userDataDir: app.getPath('userData') });
   lastAsrCudaStatus = await detectCurrentAsrCudaStatus();
+  voiceInputRecoveryStore = new VoiceInputRecoveryStore(app.getPath('userData'));
   lastProcessingDiagnostic = await readProcessingMarker();
+  if (lastProcessingDiagnostic?.recoveryJobId && lastProcessingDiagnostic.stage !== 'failed' && lastProcessingDiagnostic.stage !== 'done') {
+    lastProcessingDiagnostic = await voiceInputRecoveryStore.updateDiagnostic(lastProcessingDiagnostic.recoveryJobId, {
+      ...lastProcessingDiagnostic,
+      stage: 'failed',
+      error: '上次处理没有正常完成，录音已保留在本机恢复区。'
+    });
+    await writeProcessingMarker(lastProcessingDiagnostic).catch(() => undefined);
+  }
 
   nativeHelperPath = await setupNativeKeyHelper();
   nativeHelperSignature = nativeHelperPath ? readCodeSignature(nativeHelperPath) : undefined;
@@ -720,41 +732,96 @@ function registerIpc(): void {
       return { ok: false, error: readableError(error), setup: await getSetupPayload() };
     }
   });
-  ipcMain.handle('v2t:process-audio', async (_event, payload: { bytes: Uint8Array; mode: InputMode }) => {
-    const diagnostic = createProcessingDiagnostic(payload);
-    hotkeyService.suppressWindowsModifierTap('processing-started');
-    try {
-      await writeProcessingMarker(diagnostic);
-      const pipeline = await createPipeline(diagnostic);
-      const result = await pipeline.handleAudio(Buffer.from(payload.bytes), {
-        mode: payload.mode,
-        targetApp: await getFocusedAppName(),
-        prompt: await store.readPrompt(payload.mode),
-        audioDurationSeconds: diagnostic.audioDurationSeconds,
-        asrModelId: settings.providers.asr.modelId,
-        asrModelName: activeAsrModelName(),
-        asrProviderKind: settings.providers.asr.kind,
-        llmModel: activeLlmModelLabel()
-      });
-      hotkeyService.suppressWindowsModifierTap('text-injected');
+  ipcMain.handle('v2t:process-audio', async (_event, payload: { bytes: Uint8Array; mode: InputMode }) => processAudioPayload(payload));
+  ipcMain.handle('v2t:get-recovery-jobs', async () => voiceInputRecoveryStore.listJobs());
+  ipcMain.handle('v2t:retry-recovery-job', async (_event, jobId: string) => retryRecoveryJob(jobId));
+  ipcMain.handle('v2t:delete-recovery-job', async (_event, jobId: string) => {
+    await voiceInputRecoveryStore.deleteJob(jobId);
+    const marker = await readProcessingMarker();
+    if (marker?.recoveryJobId === jobId) {
       await clearProcessingMarker();
-      scheduleAutoSync('voice-input');
-      return { ok: true, result };
-    } catch (error) {
-      hotkeyService.suppressWindowsModifierTap('processing-failed');
-      if (isAsrError(error)) {
-        lastAsrDiagnostic = {
-          error: readableError(error),
-          diagnostic: error.diagnostic,
-          processing: diagnostic,
-          at: new Date().toISOString()
-        };
-      }
-      await writeProcessingMarker({ ...diagnostic, stage: 'failed', error: readableError(error) }).catch(() => undefined);
-      await clearProcessingMarker().catch(() => undefined);
-      return { ok: false, error: readableError(error) };
     }
+    return { ok: true, jobs: await voiceInputRecoveryStore.listJobs(), setup: await getSetupPayload() };
   });
+  ipcMain.handle('v2t:copy-recovery-diagnostic', async (_event, jobId: string) => {
+    const diagnostic = await voiceInputRecoveryStore.readDiagnostic(jobId);
+    clipboard.writeText(JSON.stringify(diagnostic ?? { jobId, error: 'recovery diagnostic not found' }, null, 2));
+    return { ok: true };
+  });
+}
+
+async function processAudioPayload(payload: { bytes: Uint8Array; mode: InputMode }, existingJobId?: string) {
+  const diagnostic = createProcessingDiagnostic(payload, existingJobId);
+  hotkeyService.suppressWindowsModifierTap('processing-started');
+  try {
+    const job = existingJobId
+      ? await voiceInputRecoveryStore.updateDiagnostic(existingJobId, {
+          ...diagnostic,
+          stage: 'processing',
+          error: undefined,
+          failedChunkIndex: undefined,
+          recoveryJobId: existingJobId,
+          audioPath: voiceInputRecoveryStore.audioPath(existingJobId),
+          partialResultPath: voiceInputRecoveryStore.partialResultPath(existingJobId)
+        })
+      : await voiceInputRecoveryStore.createJob(diagnostic, Buffer.from(payload.bytes)).then((created) => created);
+    const recoveryDiagnostic =
+      existingJobId
+        ? ((await voiceInputRecoveryStore.readDiagnostic(existingJobId)) ?? diagnostic)
+        : ((await voiceInputRecoveryStore.readDiagnostic(job.id)) ?? diagnostic);
+    await writeProcessingMarker(recoveryDiagnostic);
+    const pipeline = await createPipeline(recoveryDiagnostic);
+    const result = await pipeline.handleAudio(Buffer.from(payload.bytes), {
+      mode: payload.mode,
+      targetApp: await getFocusedAppName(),
+      prompt: await store.readPrompt(payload.mode),
+      audioDurationSeconds: recoveryDiagnostic.audioDurationSeconds,
+      asrModelId: settings.providers.asr.modelId,
+      asrModelName: activeAsrModelName(),
+      asrProviderKind: settings.providers.asr.kind,
+      llmModel: activeLlmModelLabel()
+    });
+    hotkeyService.suppressWindowsModifierTap('text-injected');
+    await voiceInputRecoveryStore.deleteJob(recoveryDiagnostic.recoveryJobId ?? recoveryDiagnostic.id);
+    await clearProcessingMarker();
+    scheduleAutoSync('voice-input');
+    return { ok: true, result, jobs: await voiceInputRecoveryStore.listJobs() };
+  } catch (error) {
+    hotkeyService.suppressWindowsModifierTap('processing-failed');
+    const recoveryJobId = diagnostic.recoveryJobId ?? diagnostic.id;
+    const failedDiagnostic = {
+      ...diagnostic,
+      ...(await voiceInputRecoveryStore.readDiagnostic(recoveryJobId).catch(() => undefined)),
+      stage: 'failed' as const,
+      error: readableError(error),
+      recoveryJobId,
+      audioPath: voiceInputRecoveryStore.audioPath(recoveryJobId),
+      partialResultPath: voiceInputRecoveryStore.partialResultPath(recoveryJobId)
+    };
+    await voiceInputRecoveryStore.updateDiagnostic(recoveryJobId, failedDiagnostic).catch(() => undefined);
+    if (isAsrError(error)) {
+      lastAsrDiagnostic = {
+        error: readableError(error),
+        diagnostic: error.diagnostic,
+        processing: failedDiagnostic,
+        at: new Date().toISOString()
+      };
+    }
+    await writeProcessingMarker(failedDiagnostic).catch(() => undefined);
+    return { ok: false, error: readableError(error), jobs: await voiceInputRecoveryStore.listJobs().catch(() => []) };
+  }
+}
+
+async function retryRecoveryJob(jobId: string) {
+  const job = await voiceInputRecoveryStore.loadJob(jobId);
+  if (!job) {
+    return { ok: false, error: '没有找到这条失败录音。', jobs: await voiceInputRecoveryStore.listJobs(), setup: await getSetupPayload() };
+  }
+  const audio = await voiceInputRecoveryStore.readAudio(jobId);
+  return {
+    ...(await processAudioPayload({ bytes: new Uint8Array(audio), mode: job.mode }, jobId)),
+    setup: await getSetupPayload()
+  };
 }
 
 async function createPipeline(diagnostic: ProcessingDiagnostic) {
@@ -921,16 +988,6 @@ function createAsrProvider(diagnostic: ProcessingDiagnostic) {
 
   return {
     async transcribe(audio: Buffer | Uint8Array) {
-      const runner = new AsrTranscriptionRunner({
-        workerPath: join(__dirname, 'asrTranscriptionWorker.js'),
-        timeoutMs: 180_000,
-        onHeartbeat: (heartbeatAt) => {
-          lastProcessingDiagnostic = { ...diagnostic, heartbeatAt };
-        },
-        onChunkProgress: (chunkProgress) => {
-          lastProcessingDiagnostic = { ...diagnostic, chunkProgress, heartbeatAt: new Date().toISOString() };
-        }
-      });
       const request: AsrTranscriptionRunnerRequest = {
         audio: audio instanceof Uint8Array ? audio : new Uint8Array(audio),
         modelId: settings.providers.asr.modelId,
@@ -944,6 +1001,42 @@ function createAsrProvider(diagnostic: ProcessingDiagnostic) {
             : undefined,
         processing: diagnostic
       };
+      if (diagnostic.recoveryJobId && diagnostic.audioPath && diagnostic.partialResultPath) {
+        const transcriber = new RecoverableAsrTranscriber({
+          recoveryStore: voiceInputRecoveryStore,
+          workerPath: join(__dirname, 'asrTranscriptionWorker.js'),
+          timeoutMs: 180_000,
+          onHeartbeat: (jobId, heartbeatAt) => {
+            lastProcessingDiagnostic = { ...(lastProcessingDiagnostic ?? diagnostic), ...diagnostic, recoveryJobId: jobId, heartbeatAt };
+          },
+          onChunkProgress: (jobId, chunkProgress) => {
+            lastProcessingDiagnostic = {
+              ...(lastProcessingDiagnostic ?? diagnostic),
+              ...diagnostic,
+              recoveryJobId: jobId,
+              chunkProgress,
+              heartbeatAt: new Date().toISOString()
+            };
+          }
+        });
+        return transcriber.transcribe({
+          ...request,
+          jobId: diagnostic.recoveryJobId,
+          audioPath: diagnostic.audioPath,
+          chunksDir: voiceInputRecoveryStore.chunksDir(diagnostic.recoveryJobId)
+        });
+      }
+
+      const runner = new AsrTranscriptionRunner({
+        workerPath: join(__dirname, 'asrTranscriptionWorker.js'),
+        timeoutMs: 180_000,
+        onHeartbeat: (heartbeatAt) => {
+          lastProcessingDiagnostic = { ...diagnostic, heartbeatAt };
+        },
+        onChunkProgress: (chunkProgress) => {
+          lastProcessingDiagnostic = { ...diagnostic, chunkProgress, heartbeatAt: new Date().toISOString() };
+        }
+      });
       return runner.transcribe(request);
     }
   };
@@ -1269,7 +1362,8 @@ async function getSetupPayload() {
     modelStatuses: rawStatuses,
     recommendations: recommendModels(modelCatalog, hardware, statusMap),
     installedModels: await manager.listInstalledModelViews(settings),
-    processingDiagnostic: lastProcessingDiagnostic
+    processingDiagnostic: lastProcessingDiagnostic,
+    recoveryJobs: await voiceInputRecoveryStore.listJobs()
   };
 }
 
@@ -1300,11 +1394,13 @@ async function clearProcessingMarker(): Promise<void> {
   lastProcessingDiagnostic = undefined;
 }
 
-function createProcessingDiagnostic(payload: { bytes: Uint8Array; mode: InputMode }): ProcessingDiagnostic {
+function createProcessingDiagnostic(payload: { bytes: Uint8Array; mode: InputMode }, recoveryJobId?: string): ProcessingDiagnostic {
   const audioDurationSeconds = estimatePcm16WavDurationSeconds(payload.bytes);
   const runtime = resolveCurrentAsrRuntime();
+  const id = recoveryJobId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   return {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id,
+    recoveryJobId: id,
     createdAt: new Date().toISOString(),
     stage: 'processing',
     mode: payload.mode,

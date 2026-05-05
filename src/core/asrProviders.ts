@@ -36,6 +36,11 @@ export interface AsrErrorDiagnostic {
   workerSignal?: string | null;
   workerStderr?: string;
   heartbeatAt?: string;
+  recoveryJobId?: string;
+  audioPath?: string;
+  chunkPaths?: string[];
+  partialResultPath?: string;
+  failedChunkIndex?: number;
   chunkProgress?: {
     current: number;
     total: number;
@@ -44,7 +49,7 @@ export interface AsrErrorDiagnostic {
 
 type SherpaRecognizerFactory = (config: SherpaOfflineRecognizerConfig) => SherpaRecognizer;
 
-const LOCAL_SHERPA_MAX_CHUNK_SECONDS = 20;
+export const LOCAL_SHERPA_MAX_CHUNK_SECONDS = 20;
 
 export interface SherpaOfflineRecognizerConfig {
   featConfig?: Record<string, unknown>;
@@ -537,7 +542,7 @@ export function readWavAsFloat32(audioPath: string): { sampleRate: number; sampl
   return { sampleRate, samples };
 }
 
-async function splitWavForLocalSherpa(audioPath: string, workDir: string, maxChunkSeconds: number): Promise<string[]> {
+export async function splitWavForLocalSherpa(audioPath: string, workDir: string, maxChunkSeconds: number): Promise<string[]> {
   const wave = readWavAsFloat32(audioPath);
   const maxSamples = Math.max(1, Math.floor(wave.sampleRate * maxChunkSeconds));
   if (wave.samples.length <= maxSamples) {

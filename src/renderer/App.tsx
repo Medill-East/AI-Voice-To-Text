@@ -36,6 +36,7 @@ import type {
   SyncImportStrategy,
   UsageAggregate,
   UsageStatistics,
+  VoiceInputRecoveryJob,
   VoiceInputPipelineResult
 } from '../core/types';
 import type { HotkeyStatus } from '../main/hotkeyService';
@@ -135,6 +136,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
   const [history, setHistory] = useState<LocalHistoryItem[]>([]);
+  const [recoveryJobs, setRecoveryJobs] = useState<VoiceInputRecoveryJob[]>([]);
   const [activeRecordingMode, setActiveRecordingMode] = useState<InputMode | null>(null);
   const [hotkeyStatus, setHotkeyStatus] = useState<HotkeyStatus | undefined>();
   const [capturingHotkey, setCapturingHotkey] = useState(false);
@@ -216,6 +218,7 @@ export function App() {
     setAppUpdateState(nextSetup.appUpdateState);
     setSyncRepoUrl(nextSetup.settings.sync.github.repoUrl ?? '');
     setInstallProgressById(nextSetup.modelStatuses);
+    setRecoveryJobs(nextSetup.recoveryJobs ?? []);
   }, []);
 
   useEffect(() => {
@@ -292,6 +295,13 @@ export function App() {
     void window.v2t
       .getHistory(30)
       .then((entries) => setHistory(entries.map(historyEntryToLocalItem)))
+      .catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
+  }, []);
+
+  useEffect(() => {
+    void window.v2t
+      .getRecoveryJobs()
+      .then(setRecoveryJobs)
       .catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
   }, []);
 
@@ -512,6 +522,7 @@ export function App() {
       const result = await window.v2t.processAudio({ bytes, mode: activeMode });
       setHistory((items) => [{ ...result, createdAt: new Date().toISOString(), mode: activeMode }, ...items].slice(0, 30));
       void window.v2t.getUsageStatistics(statisticsDays).then(setUsageStatistics);
+      void window.v2t.getRecoveryJobs().then(setRecoveryJobs);
       recordingStartedAtRef.current = undefined;
       recordingElapsedMsRef.current = undefined;
       setActiveRecordingMode(null);
@@ -526,8 +537,47 @@ export function App() {
       recordingStateRef.current = 'error';
       setState('error');
       setError(caught instanceof Error ? caught.message : String(caught));
+      void window.v2t.getRecoveryJobs().then(setRecoveryJobs);
     }
   }, [resetInputMeter, statisticsDays]);
+
+  const retryRecoveryJob = useCallback(async (job: VoiceInputRecoveryJob) => {
+    recordingStateRef.current = 'processing';
+    setState('processing');
+    setError(null);
+    setVoiceMessage(`正在重新处理 ${Math.round(job.audioDurationSeconds ?? 0)} 秒失败录音`);
+    try {
+      const response = await window.v2t.retryRecoveryJob(job.id);
+      if (!response.ok || !response.result) {
+        throw new Error(response.error ?? '重新处理失败');
+      }
+      const result = response.result;
+      setHistory((items) => [{ ...result, createdAt: new Date().toISOString(), mode: job.mode }, ...items].slice(0, 30));
+      if (response.setup) {
+        applySetup(response.setup);
+      }
+      setRecoveryJobs(response.jobs ?? (await window.v2t.getRecoveryJobs()));
+      void window.v2t.getUsageStatistics(statisticsDays).then(setUsageStatistics);
+      setVoiceMessage('失败录音已重新处理完成');
+      recordingStateRef.current = 'idle';
+      setState('idle');
+    } catch (caught) {
+      recordingStateRef.current = 'error';
+      setState('error');
+      setError(caught instanceof Error ? caught.message : String(caught));
+      void window.v2t.getRecoveryJobs().then(setRecoveryJobs);
+    }
+  }, [applySetup, statisticsDays]);
+
+  const deleteRecoveryJob = useCallback(async (jobId: string) => {
+    const response = await window.v2t.deleteRecoveryJob(jobId);
+    if (!response.ok) {
+      setError(response.error ?? '删除失败录音失败');
+      return;
+    }
+    applySetup(response.setup);
+    setRecoveryJobs(response.jobs);
+  }, [applySetup]);
 
   const windowRecordingMode = settings?.hotkey.singleClickMode ?? 'natural';
 
@@ -1664,6 +1714,40 @@ export function App() {
               <button className="secondary" onClick={() => void window.v2t.copyProcessingDiagnostics()}>
                 复制诊断
               </button>
+            </section>
+          ) : null}
+          {recoveryJobs.length > 0 ? (
+            <section className="recovery-panel">
+              <div className="section-summary">
+                <div>
+                  <span className="eyebrow">恢复区</span>
+                  <h2>有失败录音可重新处理</h2>
+                  <p>录音已保存在本机恢复区，不会同步到 GitHub；重新处理成功后会自动删除。</p>
+                </div>
+              </div>
+              <div className="recovery-list">
+                {recoveryJobs.map((job) => (
+                  <div className="recovery-item" key={job.id}>
+                    <div>
+                      <strong>{modeLabel(job.mode)} · {Math.round(job.audioDurationSeconds ?? 0)} 秒</strong>
+                      <p>
+                        {job.modelId ?? '当前模型'} · {job.failedChunkIndex ? `失败分片 ${job.failedChunkIndex}` : '等待重试'} · {job.error ?? '转写中断'}
+                      </p>
+                    </div>
+                    <div className="action-toolbar">
+                      <button className="secondary compact" onClick={() => void retryRecoveryJob(job)} disabled={state === 'processing'}>
+                        重新处理
+                      </button>
+                      <button className="secondary compact" onClick={() => void window.v2t.copyRecoveryDiagnostic(job.id)}>
+                        复制诊断
+                      </button>
+                      <button className="danger compact" onClick={() => void deleteRecoveryJob(job.id)}>
+                        删除录音
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </section>
           ) : null}
           <p className="hint">
