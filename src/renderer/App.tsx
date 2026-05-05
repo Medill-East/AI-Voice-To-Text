@@ -12,6 +12,7 @@ import type {
   AsrCudaStatus,
   AsrBenchmarkBatchState,
   AutoSyncState,
+  CloudAsrTestResult,
   CloudLlmModelCatalogState,
   CloudLlmModelView,
   CloudLlmSortKey,
@@ -45,7 +46,7 @@ import type { RecordingCommand, SetupPayload } from '../preload';
 type RecordingState = 'idle' | 'starting' | 'recording' | 'processing' | 'error';
 type AppPage = 'voice' | 'asrModels' | 'llmModels' | 'statistics' | 'hotkey' | 'lexicon' | 'prompts' | 'sync' | 'advanced' | 'app';
 type LlmSettingsPage = 'local' | 'cloud';
-type AsrModelsPage = 'installable' | 'reference' | 'guide';
+type AsrModelsPage = 'installable' | 'cloud' | 'reference' | 'guide';
 
 const APP_PAGES: Array<{ id: AppPage; label: string }> = [
   { id: 'voice', label: '语音输入' },
@@ -182,6 +183,10 @@ export function App() {
   const [llmMessage, setLlmMessage] = useState<string | null>(null);
   const [llmApiKeyDraft, setLlmApiKeyDraft] = useState('');
   const [llmFallbackApiKeyDraft, setLlmFallbackApiKeyDraft] = useState('');
+  const [cloudAsrApiKeyDraft, setCloudAsrApiKeyDraft] = useState('');
+  const [cloudAsrMessage, setCloudAsrMessage] = useState<string | null>(null);
+  const [cloudAsrTesting, setCloudAsrTesting] = useState(false);
+  const [cloudAsrTestResult, setCloudAsrTestResult] = useState<CloudAsrTestResult | null>(null);
   const [cloudLlmCatalog, setCloudLlmCatalog] = useState<CloudLlmModelCatalogState | null>(null);
   const [cloudModelSearch, setCloudModelSearch] = useState('');
   const [cloudModelSort, setCloudModelSort] = useState<CloudLlmSortKey>('recommended');
@@ -1453,6 +1458,70 @@ export function App() {
     setLlmMessage('云端兜底 API Key 已保存到系统钥匙串，不会写入同步目录。');
   };
 
+  const saveCloudAsrApiKey = async () => {
+    await window.v2t.setCloudAsrKey(cloudAsrApiKeyDraft);
+    setCloudAsrApiKeyDraft('');
+    setCloudAsrMessage('云端 ASR API Key 已保存到系统钥匙串，不会写入 settings 或 GitHub 同步仓库。');
+  };
+
+  const updateCloudAsrConfig = (patch: Partial<Settings['providers']['asr']['cloud']>) => {
+    if (!settings) {
+      return;
+    }
+    setSettings({
+      ...settings,
+      providers: {
+        ...settings.providers,
+        asr: {
+          ...settings.providers.asr,
+          cloud: {
+            ...settings.providers.asr.cloud,
+            ...patch
+          }
+        }
+      }
+    });
+  };
+
+  const applyCloudAsrPreset = (preset: { provider: Settings['providers']['asr']['cloud']['provider']; baseUrl: string; model: string; customEndpoint?: string }) => {
+    updateCloudAsrConfig(preset);
+    setAsrModelsPage('cloud');
+    setCloudAsrMessage('已填入云端 ASR 配置；保存设置和 API Key 后可以测试或启用。');
+  };
+
+  const enableCloudAsr = async () => {
+    if (!settings) {
+      return;
+    }
+    const next = {
+      ...settings,
+      providers: {
+        ...settings.providers,
+        asr: {
+          ...settings.providers.asr,
+          kind: 'cloud-asr' as const
+        }
+      }
+    };
+    const result = await window.v2t.saveSettings(next);
+    setSettings(result.settings);
+    setHotkeyStatus(result.hotkeyStatus);
+    setCloudAsrMessage('已启用云端 ASR。之后录音音频会上传到当前云端 ASR provider。');
+    applySetup(await window.v2t.getSetup());
+  };
+
+  const testCloudAsr = async () => {
+    setCloudAsrTesting(true);
+    setCloudAsrMessage('正在发送内置测试音频到云端 ASR');
+    try {
+      const result = await window.v2t.testCloudAsr();
+      setCloudAsrTestResult(result);
+      setCloudAsrMessage(result.ok ? `云端 ASR 测试完成：${result.elapsedMs ?? 0}ms，${result.outputChars ?? 0} 字。` : `云端 ASR 测试失败：${result.error ?? '未知错误'}`);
+    } finally {
+      setCloudAsrTesting(false);
+    }
+  };
+
   const updateLlmEngine = (engine: Settings['providers']['llm']['engine']) => {
     if (!settings) {
       return;
@@ -2046,7 +2115,10 @@ export function App() {
               </section>
               <div className="subpage-tabs">
                 <button className={asrModelsPage === 'installable' ? 'active' : ''} onClick={() => setAsrModelsPage('installable')}>
-                  可一键安装
+                  本地 ASR
+                </button>
+                <button className={asrModelsPage === 'cloud' ? 'active' : ''} onClick={() => setAsrModelsPage('cloud')}>
+                  云端 ASR
                 </button>
                 <button className={asrModelsPage === 'reference' ? 'active' : ''} onClick={() => setAsrModelsPage('reference')}>
                   待接入 / 外部服务
@@ -2101,6 +2173,134 @@ export function App() {
                     onCopyDownloadUrl={copyModelDownloadUrl}
                   />
                 </>
+              ) : null}
+              {asrModelsPage === 'cloud' && settings ? (
+                <section className="advanced-group cloud-asr-panel">
+                  <div className="section-summary">
+                    <div className="section-summary-main">
+                      <span className="status-meta">云端 ASR</span>
+                      <strong className="section-summary-title">{cloudAsrLabel(settings)}</strong>
+                      <p className="section-summary-copy">启用后会上传音频，会上传完整录音音频，不只是上传转写后的文字。云端 ASR 成功后仍会继续走词库、Prompt、LLM 整理和历史记录。</p>
+                    </div>
+                    <div className="action-toolbar section-summary-actions">
+                      <button className="secondary compact" onClick={() => void testCloudAsr()} disabled={cloudAsrTesting}>
+                        {cloudAsrTesting ? '测试中' : '测试云端 ASR'}
+                      </button>
+                      <button className="save compact" onClick={() => void enableCloudAsr()}>
+                        启用云端 ASR
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="cloud-asr-presets">
+                    {[
+                      {
+                        title: '速度优先',
+                        detail: 'OpenAI gpt-4o-mini-transcribe，适合低延迟和成本控制。',
+                        provider: 'openai' as const,
+                        baseUrl: 'https://api.openai.com/v1',
+                        model: 'gpt-4o-mini-transcribe'
+                      },
+                      {
+                        title: '质量优先',
+                        detail: 'OpenAI gpt-4o-transcribe，适合更高质量转写。',
+                        provider: 'openai' as const,
+                        baseUrl: 'https://api.openai.com/v1',
+                        model: 'gpt-4o-transcribe'
+                      },
+                      {
+                        title: '自定义服务',
+                        detail: '兼容 multipart WAV 输入、JSON transcript 输出的自建或第三方 ASR。',
+                        provider: 'custom-http' as const,
+                        baseUrl: 'http://127.0.0.1:8080/transcribe',
+                        model: 'custom-asr',
+                        customEndpoint: 'http://127.0.0.1:8080/transcribe'
+                      }
+                    ].map((preset) => (
+                      <button key={preset.title} className="engine-card" onClick={() => applyCloudAsrPreset(preset)}>
+                        <span className="engine-badge">{preset.title}</span>
+                        <strong>{preset.model}</strong>
+                        <span>{preset.detail}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <section className="llm-manual-config">
+                    <h3>云端 ASR 配置</h3>
+                    <p className="hint">OpenAI 路径使用 `/audio/transcriptions` 文件转写接口；豆包/火山第一版建议通过自定义 HTTP 代理接入，流式 WebSocket 后续单独做。</p>
+                    <label>
+                      Provider
+                      <select
+                        value={settings.providers.asr.cloud.provider}
+                        onChange={(event) => updateCloudAsrConfig({ provider: event.target.value as Settings['providers']['asr']['cloud']['provider'] })}
+                      >
+                        <option value="openai">OpenAI Transcription</option>
+                        <option value="custom-http">自定义 HTTP ASR</option>
+                        <option value="doubao">豆包 / 火山代理</option>
+                      </select>
+                    </label>
+                    <label>
+                      Cloud ASR Base URL
+                      <input
+                        className="no-drag"
+                        value={settings.providers.asr.cloud.baseUrl}
+                        placeholder="例如 https://api.openai.com/v1"
+                        onContextMenu={showEditMenu}
+                        onChange={(event) => updateCloudAsrConfig({ baseUrl: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Cloud ASR Model
+                      <input
+                        className="no-drag"
+                        value={settings.providers.asr.cloud.model}
+                        placeholder="例如 gpt-4o-mini-transcribe"
+                        onContextMenu={showEditMenu}
+                        onChange={(event) => updateCloudAsrConfig({ model: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      自定义 Endpoint
+                      <input
+                        className="no-drag"
+                        value={settings.providers.asr.cloud.customEndpoint ?? ''}
+                        placeholder="自定义 HTTP 或豆包代理 endpoint，可留空"
+                        onContextMenu={showEditMenu}
+                        onChange={(event) => updateCloudAsrConfig({ customEndpoint: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Cloud ASR API Key
+                      <input
+                        className="no-drag"
+                        type="password"
+                        value={cloudAsrApiKeyDraft}
+                        placeholder="只保存到系统钥匙串，不写入同步目录"
+                        onContextMenu={showEditMenu}
+                        onChange={(event) => setCloudAsrApiKeyDraft(event.target.value)}
+                      />
+                    </label>
+                    <div className="action-toolbar">
+                      <button className="secondary compact" onClick={() => void saveCloudAsrApiKey()} disabled={!cloudAsrApiKeyDraft}>
+                        保存云端 ASR API Key
+                      </button>
+                      <button className="secondary compact" onClick={() => void saveSettings()}>
+                        保存云端 ASR 设置
+                      </button>
+                      <button className="secondary compact" onClick={() => void testCloudAsr()} disabled={cloudAsrTesting}>
+                        测试云端 ASR
+                      </button>
+                    </div>
+                    {cloudAsrTestResult ? (
+                      <p className={cloudAsrTestResult.ok ? 'sync-message' : 'error-text'}>
+                        {cloudAsrTestResult.ok
+                          ? `测试成功：${cloudAsrTestResult.elapsedMs ?? 0}ms · ${cloudAsrTestResult.outputChars ?? 0} 字 · ${cloudAsrTestResult.outputText ?? ''}`
+                          : `测试失败：${cloudAsrTestResult.error ?? '未知错误'}`}
+                      </p>
+                    ) : null}
+                    {cloudAsrMessage ? <p className="sync-message">{cloudAsrMessage}</p> : null}
+                  </section>
+                </section>
               ) : null}
               {asrModelsPage === 'reference' ? (
                 <>
@@ -2980,6 +3180,7 @@ export function App() {
                     }
                   >
                     <option value="local-sherpa-onnx">本地 sherpa-onnx</option>
+                    <option value="cloud-asr">云端 ASR</option>
                     <option value="funasr-http">FunASR HTTP</option>
                     <option value="whisper-cpp">Whisper.cpp</option>
                   </select>
@@ -4452,6 +4653,9 @@ function currentAsrLabel(settings: Settings | null): string {
   if (!settings) {
     return '加载中';
   }
+  if (settings.providers.asr.kind === 'cloud-asr') {
+    return cloudAsrLabel(settings);
+  }
   if (settings.providers.asr.modelId) {
     return settings.providers.asr.modelId;
   }
@@ -4464,9 +4668,18 @@ function currentAsrLabel(settings: Settings | null): string {
   return '本地 sherpa-onnx';
 }
 
+function cloudAsrLabel(settings: Settings): string {
+  const provider = settings.providers.asr.cloud.provider;
+  const providerLabel = provider === 'openai' ? 'OpenAI' : provider === 'doubao' ? '豆包/火山' : '自定义 HTTP';
+  return `云端 ASR · ${providerLabel} ${settings.providers.asr.cloud.model || '未选择模型'}`;
+}
+
 function asrRuntimeLabel(settings: Settings | null, cpuCores?: number, cudaStatus?: AsrCudaStatus): string {
   if (!settings) {
     return '加载中';
+  }
+  if (settings.providers.asr.kind === 'cloud-asr') {
+    return `云端上传 · ${settings.providers.asr.cloud.provider === 'openai' ? 'OpenAI Transcription' : settings.providers.asr.cloud.provider === 'doubao' ? '豆包/火山代理' : '自定义 HTTP ASR'}`;
   }
   if (settings.providers.asr.kind === 'local-sherpa-onnx') {
     return localSherpaRuntimeLabel(

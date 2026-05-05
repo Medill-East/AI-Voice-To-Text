@@ -1,5 +1,6 @@
 export type InputMode = 'natural' | 'structured';
-export type AsrProviderKind = 'local-sherpa-onnx' | 'funasr-http' | 'whisper-cpp';
+export type AsrProviderKind = 'local-sherpa-onnx' | 'funasr-http' | 'whisper-cpp' | 'cloud-asr';
+export type CloudAsrProviderKind = 'openai' | 'custom-http' | 'doubao';
 export type ModelRuntime = 'sherpa-onnx' | 'whisper-cpp' | 'external';
 export type ModelAvailability = 'installable' | 'manual' | 'reference';
 export type SherpaModelType = 'senseVoice' | 'funasrNano' | 'fireRedAsr' | 'fireRedAsrCtc' | 'paraformer' | 'zipformerCtc' | 'qwen3Asr';
@@ -109,6 +110,7 @@ export interface Settings {
         cudaRuntimeId?: string;
         cudaRuntimePath?: string;
       };
+      cloud: CloudAsrSettings;
     };
     llm: {
       engine: LlmEngineMode;
@@ -146,6 +148,21 @@ export interface Settings {
     autoDownload: boolean;
     lastCheckAt?: string;
     lastError?: string;
+  };
+}
+
+export interface CloudAsrSettings {
+  provider: CloudAsrProviderKind;
+  baseUrl: string;
+  model: string;
+  apiKeyRef: string;
+  timeoutMs: number;
+  prompt?: string;
+  customEndpoint?: string;
+  doubao?: {
+    appId?: string;
+    cluster?: string;
+    endpoint?: string;
   };
 }
 
@@ -594,6 +611,16 @@ export interface AsrTranscription {
   text: string;
   language?: string;
   durationMs?: number;
+}
+
+export interface CloudAsrTestResult {
+  ok: boolean;
+  provider: CloudAsrProviderKind;
+  model: string;
+  elapsedMs?: number;
+  outputText?: string;
+  outputChars?: number;
+  error?: string;
 }
 
 export interface AsrProvider {

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  CloudAsrProvider,
   createSherpaOfflineRecognizerConfig,
   FunAsrHttpProvider,
   joinAsrChunkTexts,
@@ -14,6 +15,65 @@ import {
 import { resolveAsrNumThreads, resolveLocalSherpaRuntime, localSherpaRuntimeLabel } from '../src/core/asrRuntime';
 
 describe('ASR providers', () => {
+  it('sends OpenAI-compatible transcription requests as multipart WAV uploads', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ text: '云端转写结果' })
+    });
+    const provider = new CloudAsrProvider({
+      provider: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o-mini-transcribe',
+      apiKey: 'secret-key',
+      fetchImpl
+    });
+
+    await expect(provider.transcribe(Buffer.from('wav-audio'), { language: 'zh' })).resolves.toMatchObject({
+      text: '云端转写结果'
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.openai.com/v1/audio/transcriptions',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ Authorization: 'Bearer secret-key' }),
+        body: expect.any(FormData)
+      })
+    );
+    const body = fetchImpl.mock.calls[0][1].body as FormData;
+    expect(body.get('model')).toBe('gpt-4o-mini-transcribe');
+    expect(body.get('language')).toBe('zh');
+    expect(body.get('file')).toBeInstanceOf(Blob);
+  });
+
+  it('turns cloud ASR failures into user-facing errors without leaking API keys', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized',
+      text: () => Promise.resolve('bad key sk-test-secret')
+    });
+    const provider = new CloudAsrProvider({
+      provider: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o-mini-transcribe',
+      apiKey: 'sk-test-secret',
+      fetchImpl
+    });
+
+    await expect(provider.transcribe(Buffer.from('audio'))).rejects.toMatchObject({
+      name: 'UserFacingAsrError',
+      code: 'asr-cloud-http-error',
+      diagnostic: expect.objectContaining({
+        reason: 'runtime-error',
+        cloudProvider: 'openai',
+        cloudModel: 'gpt-4o-mini-transcribe',
+        uploadedBytes: 5
+      })
+    });
+    await expect(provider.transcribe(Buffer.from('audio'))).rejects.not.toThrow('sk-test-secret');
+  });
+
   it('turns HTTP fetch failures into a user-facing configuration error', async () => {
     const provider = new FunAsrHttpProvider({
       endpoint: 'http://127.0.0.1:10095/transcribe',

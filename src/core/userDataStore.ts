@@ -46,6 +46,13 @@ const DEFAULT_SETTINGS: Settings = {
       language: 'zh',
       runtime: {
         ...DEFAULT_ASR_RUNTIME
+      },
+      cloud: {
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o-mini-transcribe',
+        apiKeyRef: 'system-keychain:v2t/cloud-asr',
+        timeoutMs: 60000
       }
     },
     llm: {
@@ -484,7 +491,8 @@ function normalizeSettings(raw: Partial<Settings>): Settings {
         ...rawAsr,
         kind: rawAsr.kind ?? DEFAULT_SETTINGS.providers.asr.kind,
         language: rawAsr.language ?? DEFAULT_SETTINGS.providers.asr.language,
-        runtime: normalizeAsrRuntime(rawAsr.runtime)
+        runtime: normalizeAsrRuntime(rawAsr.runtime),
+        cloud: normalizeCloudAsr(rawAsr.cloud)
       },
       llm: {
         ...DEFAULT_SETTINGS.providers.llm,
@@ -731,6 +739,27 @@ function normalizeAsrRuntime(runtime: Partial<Settings['providers']['asr']['runt
     normalized.cudaRuntimePath = runtime.cudaRuntimePath;
   }
   return normalized;
+}
+
+function normalizeCloudAsr(cloud: Partial<Settings['providers']['asr']['cloud']> | undefined): Settings['providers']['asr']['cloud'] {
+  const defaults = DEFAULT_SETTINGS.providers.asr.cloud;
+  const provider =
+    cloud?.provider === 'custom-http' || cloud?.provider === 'doubao' || cloud?.provider === 'openai'
+      ? cloud.provider
+      : defaults.provider;
+  return {
+    ...defaults,
+    ...(cloud ?? {}),
+    provider,
+    baseUrl: typeof cloud?.baseUrl === 'string' && cloud.baseUrl.trim() ? cloud.baseUrl.trim() : defaults.baseUrl,
+    model: typeof cloud?.model === 'string' && cloud.model.trim() ? cloud.model.trim() : defaults.model,
+    apiKeyRef: defaults.apiKeyRef,
+    timeoutMs: typeof cloud?.timeoutMs === 'number' && cloud.timeoutMs > 0 ? cloud.timeoutMs : defaults.timeoutMs,
+    doubao: {
+      ...(defaults.doubao ?? {}),
+      ...(cloud?.doubao ?? {})
+    }
+  };
 }
 
 function oppositeMode(mode: InputMode): InputMode {

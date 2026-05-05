@@ -1,4 +1,4 @@
-import type { AsrProvider, AsrTranscription, SherpaModelType } from './types';
+import type { AsrProvider, AsrTranscription, CloudAsrProviderKind, SherpaModelType } from './types';
 import { resolveLocalSherpaRuntime, type ResolvedAsrRuntime } from './asrRuntime';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
@@ -8,6 +8,23 @@ import { dirname, join } from 'node:path';
 interface FunAsrProviderOptions {
   endpoint: string;
   language?: string;
+  fetchImpl?: typeof fetch;
+}
+
+interface CloudAsrProviderOptions {
+  provider: CloudAsrProviderKind;
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+  language?: string;
+  prompt?: string;
+  timeoutMs?: number;
+  customEndpoint?: string;
+  doubao?: {
+    appId?: string;
+    cluster?: string;
+    endpoint?: string;
+  };
   fetchImpl?: typeof fetch;
 }
 
@@ -28,6 +45,12 @@ export interface AsrErrorDiagnostic {
   modelId?: string;
   modelPath?: string;
   sherpaModelType?: SherpaModelType;
+  cloudProvider?: CloudAsrProviderKind;
+  cloudModel?: string;
+  cloudEndpoint?: string;
+  uploadedBytes?: number;
+  elapsedMs?: number;
+  transcriptChars?: number;
   missingFiles?: string[];
   chunkIndex?: number;
   chunkCount?: number;
@@ -103,6 +126,149 @@ export class FunAsrHttpProvider implements AsrProvider {
     }
 
     return { text };
+  }
+}
+
+export class CloudAsrProvider implements AsrProvider {
+  private readonly provider: CloudAsrProviderKind;
+  private readonly baseUrl: string;
+  private readonly model: string;
+  private readonly apiKey?: string;
+  private readonly language?: string;
+  private readonly prompt?: string;
+  private readonly timeoutMs: number;
+  private readonly customEndpoint?: string;
+  private readonly doubao?: CloudAsrProviderOptions['doubao'];
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(options: CloudAsrProviderOptions) {
+    this.provider = options.provider;
+    this.baseUrl = options.baseUrl;
+    this.model = options.model;
+    this.apiKey = options.apiKey;
+    this.language = options.language;
+    this.prompt = options.prompt;
+    this.timeoutMs = options.timeoutMs ?? 60000;
+    this.customEndpoint = options.customEndpoint;
+    this.doubao = options.doubao;
+    this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+
+  async transcribe(audio: Buffer | Uint8Array, options: { language?: string } = {}): Promise<AsrTranscription> {
+    const startedAt = Date.now();
+    const endpoint = this.transcriptionEndpoint();
+    const bytes = audio instanceof Uint8Array ? audio : new Uint8Array(audio);
+    const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    const form = new FormData();
+    form.set('file', new Blob([arrayBuffer], { type: 'audio/wav' }), 'recording.wav');
+    form.set('model', this.model);
+    const language = options.language ?? this.language;
+    if (language && language !== 'auto') {
+      form.set('language', language);
+    }
+    if (this.prompt) {
+      form.set('prompt', this.prompt);
+    }
+    if (this.provider === 'doubao') {
+      if (this.doubao?.appId) {
+        form.set('appid', this.doubao.appId);
+      }
+      if (this.doubao?.cluster) {
+        form.set('cluster', this.doubao.cluster);
+      }
+    }
+
+    const headers: Record<string, string> = {};
+    if (this.apiKey) {
+      headers.Authorization = `Bearer ${this.apiKey}`;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let response: Response;
+    try {
+      response = await this.fetchImpl(endpoint, {
+        method: 'POST',
+        headers,
+        body: form,
+        signal: controller.signal
+      });
+    } catch (error) {
+      throw new UserFacingAsrError(
+        `云端 ASR 请求失败：${sanitizeCloudAsrError(readableError(error), this.apiKey)}`,
+        'asr-cloud-request-failed',
+        error,
+        this.createDiagnostic(endpoint, bytes.byteLength, startedAt, {
+          runtimeError: sanitizeCloudAsrError(readableError(error), this.apiKey)
+        })
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!response.ok) {
+      const responseText = await safeResponseText(response);
+      const safeText = sanitizeCloudAsrError(responseText, this.apiKey);
+      throw new UserFacingAsrError(
+        `云端 ASR 返回错误：${response.status} ${response.statusText}`,
+        'asr-cloud-http-error',
+        undefined,
+        this.createDiagnostic(endpoint, bytes.byteLength, startedAt, {
+          runtimeError: safeText ? `${response.status} ${response.statusText}: ${safeText}` : `${response.status} ${response.statusText}`
+        })
+      );
+    }
+
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw new UserFacingAsrError(
+        '云端 ASR 返回内容不是有效 JSON。',
+        'asr-cloud-invalid-response',
+        error,
+        this.createDiagnostic(endpoint, bytes.byteLength, startedAt, { runtimeError: readableError(error) })
+      );
+    }
+    const text = extractText(payload);
+    if (!text) {
+      throw new UserFacingAsrError(
+        '云端 ASR 返回结果没有可用转写文本。',
+        'asr-cloud-empty-response',
+        undefined,
+        this.createDiagnostic(endpoint, bytes.byteLength, startedAt, { runtimeError: 'empty transcript' })
+      );
+    }
+
+    const durationMs = Date.now() - startedAt;
+    return { text, language, durationMs };
+  }
+
+  private transcriptionEndpoint(): string {
+    if (this.provider === 'openai') {
+      return `${trimTrailingSlash(this.baseUrl)}/audio/transcriptions`;
+    }
+    if (this.provider === 'doubao' && this.doubao?.endpoint) {
+      return this.doubao.endpoint;
+    }
+    return this.customEndpoint || this.baseUrl;
+  }
+
+  private createDiagnostic(
+    endpoint: string,
+    uploadedBytes: number,
+    startedAt: number,
+    details: Partial<AsrErrorDiagnostic> = {}
+  ): AsrErrorDiagnostic {
+    return {
+      reason: 'runtime-error',
+      cloudProvider: this.provider,
+      cloudModel: this.model,
+      cloudEndpoint: endpoint,
+      uploadedBytes,
+      elapsedMs: Date.now() - startedAt,
+      ...details
+    };
   }
 }
 
@@ -651,6 +817,26 @@ function readableError(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+async function safeResponseText(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch {
+    return '';
+  }
+}
+
+function sanitizeCloudAsrError(message: string, apiKey?: string): string {
+  let output = message;
+  if (apiKey) {
+    output = output.split(apiKey).join('[redacted-api-key]');
+  }
+  return output.replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-[redacted]');
 }
 
 function extractText(payload: unknown): string | null {

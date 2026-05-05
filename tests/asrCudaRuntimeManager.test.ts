@@ -25,7 +25,14 @@ function baseSettings(): Settings {
       asr: {
         kind: 'local-sherpa-onnx',
         language: 'zh',
-        runtime: { provider: 'cpu', numThreads: 'auto', cudaExperimental: false }
+        runtime: { provider: 'cpu', numThreads: 'auto', cudaExperimental: false },
+        cloud: {
+          provider: 'openai',
+          baseUrl: 'https://api.openai.com/v1',
+          model: 'gpt-4o-mini-transcribe',
+          apiKeyRef: 'system-keychain:v2t/cloud-asr',
+          timeoutMs: 60000
+        }
       },
       llm: {
         engine: 'off',

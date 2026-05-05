@@ -16,6 +16,13 @@ describe('UserDataStore', () => {
     expect(settings.providers.asr.kind).toBe('local-sherpa-onnx');
     expect(settings.providers.asr.modelId).toBeUndefined();
     expect(settings.providers.asr.runtime).toEqual({ provider: 'cpu', numThreads: 'auto', cudaExperimental: false });
+    expect(settings.providers.asr.cloud).toMatchObject({
+      provider: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o-mini-transcribe',
+      apiKeyRef: 'system-keychain:v2t/cloud-asr'
+    });
+    expect(settings.providers.asr.cloud).not.toHaveProperty('apiKey');
     expect(settings.sync.kind).toBe('local-folder');
     expect(settings.sync.github.includeHistory).toBe(true);
     expect(settings.sync.github.autoSync).toBe(false);

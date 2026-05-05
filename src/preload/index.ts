@@ -7,6 +7,7 @@ import type {
   AsrCudaStatus,
   AsrBenchmarkBatchState,
   AutoSyncState,
+  CloudAsrTestResult,
   CloudLlmModelCatalogState,
   HardwareProfile,
   InputMode,
@@ -107,6 +108,8 @@ export interface V2TApi {
   quitApp(): Promise<{ ok: true }>;
   setOpenAIKey(value: string): Promise<{ ok: true }>;
   setFallbackOpenAIKey(value: string): Promise<{ ok: true }>;
+  setCloudAsrKey(value: string): Promise<{ ok: true }>;
+  testCloudAsr(): Promise<CloudAsrTestResult>;
   chooseModelRootPath(): Promise<PathActionResult>;
   chooseDataDir(): Promise<PathActionResult>;
   openPath(path: string): Promise<{ ok: boolean; error?: string }>;
@@ -297,6 +300,8 @@ const api: V2TApi = {
   quitApp: () => ipcRenderer.invoke('v2t:quit-app'),
   setOpenAIKey: (value) => ipcRenderer.invoke('v2t:set-openai-key', value),
   setFallbackOpenAIKey: (value) => ipcRenderer.invoke('v2t:set-fallback-openai-key', value),
+  setCloudAsrKey: (value) => ipcRenderer.invoke('v2t:set-cloud-asr-key', value),
+  testCloudAsr: () => ipcRenderer.invoke('v2t:test-cloud-asr'),
   chooseModelRootPath: () => ipcRenderer.invoke('v2t:choose-model-root-path'),
   chooseDataDir: () => ipcRenderer.invoke('v2t:choose-data-dir'),
   openPath: (path) => ipcRenderer.invoke('v2t:open-path', path),

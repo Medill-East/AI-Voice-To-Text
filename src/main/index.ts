@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { autoUpdater } from 'electron-updater';
-import { FunAsrHttpProvider, LocalSherpaAsrProvider, UserFacingAsrError, WhisperCppAsrProvider, type AsrErrorDiagnostic } from '../core/asrProviders';
+import { CloudAsrProvider, FunAsrHttpProvider, LocalSherpaAsrProvider, UserFacingAsrError, WhisperCppAsrProvider, type AsrErrorDiagnostic } from '../core/asrProviders';
 import { AppUpdateService } from '../core/appUpdateService';
 import { AutoSyncService } from '../core/autoSyncService';
 import { CloudLlmCatalogService } from '../core/cloudLlmCatalog';
@@ -30,6 +30,7 @@ import type {
   AsrBenchmarkBatchState,
   AutoSyncState,
   CloudLlmModelCatalogState,
+  CloudAsrTestResult,
   InputMode,
   ModelCatalogItem,
   ModelCatalogRefreshState,
@@ -424,6 +425,11 @@ function registerIpc(): void {
     await new SecretStore('v2t-llm-fallback').setOpenAICompatibleKey(value);
     return { ok: true };
   });
+  ipcMain.handle('v2t:set-cloud-asr-key', async (_event, value: string) => {
+    await new SecretStore('v2t-cloud-asr').setOpenAICompatibleKey(value);
+    return { ok: true };
+  });
+  ipcMain.handle('v2t:test-cloud-asr', async () => testCloudAsrConnection());
   ipcMain.handle('v2t:choose-model-root-path', async () => chooseModelRootPath());
   ipcMain.handle('v2t:choose-data-dir', async () => chooseDataDir());
   ipcMain.handle('v2t:open-path', async (_event, targetPath: string) => {
@@ -776,7 +782,7 @@ async function processAudioPayload(payload: { bytes: Uint8Array; mode: InputMode
       targetApp: await getFocusedAppName(),
       prompt: await store.readPrompt(payload.mode),
       audioDurationSeconds: recoveryDiagnostic.audioDurationSeconds,
-      asrModelId: settings.providers.asr.modelId,
+      asrModelId: activeAsrModelId(),
       asrModelName: activeAsrModelName(),
       asrProviderKind: settings.providers.asr.kind,
       llmModel: activeLlmModelLabel()
@@ -862,7 +868,7 @@ async function createPipeline(diagnostic: ProcessingDiagnostic) {
 
   return createVoiceInputPipeline({
     store,
-    asr: createAsrProvider(diagnostic),
+    asr: await createAsrProvider(diagnostic),
     injector: new TextInjectionService({
       clipboard,
       keySender: new OsPasteKeySender()
@@ -974,7 +980,44 @@ async function testCloudLlmConnection(options?: { baseUrl?: string; model?: stri
   });
 }
 
-function createAsrProvider(diagnostic: ProcessingDiagnostic) {
+async function testCloudAsrConnection(): Promise<CloudAsrTestResult> {
+  const cloud = settings.providers.asr.cloud;
+  const startedAt = Date.now();
+  try {
+    const provider = new CloudAsrProvider({
+      ...cloud,
+      language: settings.providers.asr.language,
+      apiKey: await new SecretStore('v2t-cloud-asr').getOpenAICompatibleKey()
+    });
+    const result = await provider.transcribe(createCloudAsrTestWav(), { language: settings.providers.asr.language });
+    return {
+      ok: true,
+      provider: cloud.provider,
+      model: cloud.model,
+      elapsedMs: result.durationMs ?? Date.now() - startedAt,
+      outputText: result.text,
+      outputChars: result.text.length
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      provider: cloud.provider,
+      model: cloud.model,
+      elapsedMs: Date.now() - startedAt,
+      error: readableError(error)
+    };
+  }
+}
+
+async function createAsrProvider(diagnostic: ProcessingDiagnostic) {
+  if (settings.providers.asr.kind === 'cloud-asr') {
+    return new CloudAsrProvider({
+      ...settings.providers.asr.cloud,
+      language: settings.providers.asr.language,
+      apiKey: await new SecretStore('v2t-cloud-asr').getOpenAICompatibleKey()
+    });
+  }
+
   if (settings.providers.asr.kind === 'funasr-http') {
     return new FunAsrHttpProvider({
       endpoint: settings.providers.asr.endpoint ?? 'http://127.0.0.1:10095/transcribe',
@@ -1404,7 +1447,7 @@ function createProcessingDiagnostic(payload: { bytes: Uint8Array; mode: InputMod
     createdAt: new Date().toISOString(),
     stage: 'processing',
     mode: payload.mode,
-    modelId: settings.providers.asr.modelId,
+    modelId: activeAsrModelId(),
     modelKind: settings.providers.asr.kind,
     sherpaModelType: settings.providers.asr.sherpaModelType,
     asrRuntimeProvider: runtime.provider,
@@ -1433,6 +1476,33 @@ function estimatePcm16WavDurationSeconds(bytes: Uint8Array): number | undefined 
   } catch {
     return undefined;
   }
+}
+
+function createCloudAsrTestWav(): Buffer {
+  const sampleRate = 16000;
+  const seconds = 6;
+  const sampleCount = sampleRate * seconds;
+  const dataSize = sampleCount * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write('RIFF', 0, 'ascii');
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8, 'ascii');
+  buffer.write('fmt ', 12, 'ascii');
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36, 'ascii');
+  buffer.writeUInt32LE(dataSize, 40);
+  for (let index = 0; index < sampleCount; index += 1) {
+    const envelope = index < sampleRate * 0.5 || index > sampleCount - sampleRate * 0.5 ? 0.04 : 0.12;
+    const sample = Math.sin((2 * Math.PI * 440 * index) / sampleRate) * envelope;
+    buffer.writeInt16LE(Math.round(sample * 32767), 44 + index * 2);
+  }
+  return buffer;
 }
 
 function createModelManager(): ModelManager {
@@ -1480,11 +1550,31 @@ function enrichUsageStatistics<T extends { asrModels: Array<{ key: string; label
 }
 
 function activeAsrModelName(): string | undefined {
+  if (settings.providers.asr.kind === 'cloud-asr') {
+    return `云端 ASR · ${cloudAsrProviderLabel(settings.providers.asr.cloud.provider)} ${settings.providers.asr.cloud.model}`;
+  }
   const modelId = settings.providers.asr.modelId;
   if (!modelId) {
     return undefined;
   }
   return modelCatalog.find((model) => model.id === modelId)?.name ?? modelId;
+}
+
+function activeAsrModelId(): string | undefined {
+  if (settings.providers.asr.kind === 'cloud-asr') {
+    return `cloud-asr:${settings.providers.asr.cloud.provider}:${settings.providers.asr.cloud.model}`;
+  }
+  return settings.providers.asr.modelId;
+}
+
+function cloudAsrProviderLabel(provider: Settings['providers']['asr']['cloud']['provider']): string {
+  if (provider === 'openai') {
+    return 'OpenAI';
+  }
+  if (provider === 'doubao') {
+    return '豆包/火山';
+  }
+  return '自定义 HTTP';
 }
 
 async function chooseModelRootPath() {
