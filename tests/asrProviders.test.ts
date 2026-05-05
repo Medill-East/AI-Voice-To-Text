@@ -5,8 +5,10 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   createSherpaOfflineRecognizerConfig,
   FunAsrHttpProvider,
+  joinAsrChunkTexts,
   LocalSherpaAsrProvider,
   readWavAsFloat32,
+  splitWavForLocalSherpa,
   UserFacingAsrError
 } from '../src/core/asrProviders';
 import { resolveAsrNumThreads, resolveLocalSherpaRuntime, localSherpaRuntimeLabel } from '../src/core/asrRuntime';
@@ -185,7 +187,7 @@ describe('ASR providers', () => {
 
     const result = await provider.transcribe(audio);
 
-    expect(result.text).toBe('片段1\n片段2\n片段3');
+    expect(result.text).toBe('片段1片段2片段3');
     expect(durations).toHaveLength(3);
     expect(durations.every((duration) => duration <= 20.1)).toBe(true);
   });
@@ -211,9 +213,42 @@ describe('ASR providers', () => {
 
     const result = await provider.transcribe(audio);
 
-    expect(result.text).toBe('片段1\n片段2\n片段3\n片段4\n片段5');
+    expect(result.text).toBe('片段1片段2片段3片段4片段5');
     expect(durations).toHaveLength(5);
     expect(durations.every((duration) => duration <= 20.1)).toBe(true);
+  });
+
+  it('prefers quiet boundaries when splitting long local sherpa wavs', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'v2t-vad-split-'));
+    const audioPath = join(dir, 'recording.wav');
+    const sampleRate = 16000;
+    await writeFile(
+      audioPath,
+      createPcm16Wav(
+        [
+          ...new Array(sampleRate * 18).fill(1000),
+          ...new Array(sampleRate * 2).fill(0),
+          ...new Array(sampleRate * 22).fill(1000)
+        ],
+        sampleRate
+      )
+    );
+
+    const paths = await splitWavForLocalSherpa(audioPath, dir, 20);
+    const durations = paths.map((path) => {
+      const wave = readWavAsFloat32(path);
+      return wave.samples.length / wave.sampleRate;
+    });
+
+    expect(paths.length).toBeGreaterThan(1);
+    expect(durations[0]).toBeLessThan(20);
+    expect(durations[0]).toBeGreaterThan(17.5);
+    expect(durations.every((duration) => duration <= 20.1)).toBe(true);
+  });
+
+  it('joins ASR chunk text without adding fake paragraph breaks', () => {
+    expect(joinAsrChunkTexts(['模型下载', '速度很慢', '', 'OpenAI', 'compatible'])).toBe('模型下载速度很慢OpenAI compatible');
+    expect(joinAsrChunkTexts(['hello', 'world'])).toBe('hello world');
   });
 
   it('decodes PCM16 mono WAV into regular Float32 samples', async () => {

@@ -19,7 +19,7 @@ import type {
   SherpaModelType
 } from './types';
 import type { UserDataStore } from './userDataStore';
-import { LocalSherpaAsrProvider } from './asrProviders';
+import { joinAsrChunkTexts, LocalSherpaAsrProvider } from './asrProviders';
 import { resolveLocalSherpaRuntime, type ResolvedAsrRuntime } from './asrRuntime';
 
 const DOWNLOAD_STALL_TIMEOUT_MS = 30_000;
@@ -411,7 +411,7 @@ export class ModelManager {
         texts.push(await this.benchmarkTranscriber(model, modelPath, audio, runtime));
       }
       const processMs = Math.max(1, this.nowMs() - startedAt);
-      const text = texts.join('\n').trim();
+      const text = joinAsrChunkTexts(texts);
       const chars = [...text.trim()].length;
       const benchmark: ModelBenchmarkResult = {
         modelId,

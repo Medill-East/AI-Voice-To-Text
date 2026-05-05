@@ -100,7 +100,7 @@ describe('RecoverableAsrTranscriber', () => {
     });
 
     expect(seen).toEqual([2, 3]);
-    expect(result.text).toBe('saved-1\nchunk-2\nchunk-3');
+    expect(result.text).toBe('saved-1 chunk-2 chunk-3');
   });
 
   it('treats an empty trailing chunk as completed instead of failing the recording', async () => {
@@ -131,7 +131,7 @@ describe('RecoverableAsrTranscriber', () => {
       }
     });
 
-    expect(result.text).toBe('chunk-1\nchunk-2');
+    expect(result.text).toBe('chunk-1 chunk-2');
     expect(allowEmptyFlags).toEqual([true, true, true]);
     const partials = await store.readPartialResults(job.id);
     expect(partials.chunks).toMatchObject([

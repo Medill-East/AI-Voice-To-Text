@@ -457,7 +457,7 @@ describe('UserDataStore', () => {
 
     await store.resetPrompt('structured');
     await expect(store.readPrompt('structured')).resolves.toContain('结构化整理器');
-    await expect(store.readPrompt('structured')).resolves.toContain('/sil');
+    await expect(store.readPrompt('structured')).resolves.toContain('口头噪声已预处理');
   });
 
   it('keeps natural and structured prompts independent when saving one file', async () => {

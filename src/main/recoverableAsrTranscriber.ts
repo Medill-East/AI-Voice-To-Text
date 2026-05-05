@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { LOCAL_SHERPA_MAX_CHUNK_SECONDS, splitWavForLocalSherpa, UserFacingAsrError, type AsrErrorDiagnostic } from '../core/asrProviders';
+import { joinAsrChunkTexts, LOCAL_SHERPA_MAX_CHUNK_SECONDS, splitWavForLocalSherpa, UserFacingAsrError, type AsrErrorDiagnostic } from '../core/asrProviders';
 import type { AsrTranscription } from '../core/types';
 import { AsrTranscriptionRunner, type AsrTranscriptionRunnerRequest } from './asrTranscriptionRunner';
 import { VoiceInputRecoveryStore, type RecoveryPartialResults } from './voiceInputRecoveryStore';
@@ -135,7 +135,7 @@ function joinPartialText(partials: RecoveryPartialResults, chunkCount: number): 
       texts.push(text);
     }
   }
-  return texts.join('\n').trim();
+  return joinAsrChunkTexts(texts);
 }
 
 function asrDiagnostic(

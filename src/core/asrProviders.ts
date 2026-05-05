@@ -187,7 +187,7 @@ export class LocalSherpaAsrProvider implements AsrProvider {
         }
       }
 
-      const normalizedText = texts.filter(Boolean).join('\n').trim();
+      const normalizedText = joinAsrChunkTexts(texts);
       if (!normalizedText && this.allowEmptyResult) {
         return { text: '' };
       }
@@ -550,13 +550,72 @@ export async function splitWavForLocalSherpa(audioPath: string, workDir: string,
   }
 
   const paths: string[] = [];
-  for (let offset = 0; offset < wave.samples.length; offset += maxSamples) {
-    const chunk = wave.samples.slice(offset, Math.min(wave.samples.length, offset + maxSamples));
+  let offset = 0;
+  while (offset < wave.samples.length) {
+    const hardEnd = Math.min(wave.samples.length, offset + maxSamples);
+    const cut = hardEnd === wave.samples.length ? hardEnd : findQuietCut(wave.samples, offset, hardEnd, wave.sampleRate, maxChunkSeconds) ?? hardEnd;
+    const safeCut = cut > offset ? cut : hardEnd;
+    const chunk = wave.samples.slice(offset, safeCut);
     const chunkPath = join(workDir, `recording-${paths.length + 1}.wav`);
     await writeFile(chunkPath, encodePcm16Wav(chunk, wave.sampleRate));
     paths.push(chunkPath);
+    offset = safeCut;
   }
   return paths;
+}
+
+function findQuietCut(samples: Float32Array, start: number, hardEnd: number, sampleRate: number, maxChunkSeconds: number): number | undefined {
+  const frameSamples = Math.max(1, Math.floor(sampleRate * 0.05));
+  const minChunkSamples = Math.max(frameSamples, Math.floor(sampleRate * Math.min(5, maxChunkSeconds / 2)));
+  const searchWindowSamples = Math.max(frameSamples, Math.floor(sampleRate * Math.min(4, maxChunkSeconds / 4)));
+  const searchStart = Math.max(start + minChunkSamples, hardEnd - searchWindowSamples);
+  const quietThreshold = 0.01;
+  let quietRunStart: number | undefined;
+  let quietRunEnd: number | undefined;
+
+  for (let frameStart = searchStart; frameStart + frameSamples <= hardEnd; frameStart += frameSamples) {
+    if (rms(samples, frameStart, frameStart + frameSamples) <= quietThreshold) {
+      quietRunStart ??= frameStart;
+      quietRunEnd = frameStart + frameSamples;
+      continue;
+    }
+
+    if (quietRunStart !== undefined && quietRunEnd !== undefined) {
+      break;
+    }
+  }
+
+  if (quietRunStart === undefined || quietRunEnd === undefined) {
+    return undefined;
+  }
+
+  return Math.max(start + 1, Math.min(hardEnd, Math.floor((quietRunStart + quietRunEnd) / 2)));
+}
+
+function rms(samples: Float32Array, start: number, end: number): number {
+  let sum = 0;
+  const safeEnd = Math.min(samples.length, end);
+  for (let index = start; index < safeEnd; index += 1) {
+    sum += (samples[index] ?? 0) ** 2;
+  }
+  return Math.sqrt(sum / Math.max(1, safeEnd - start));
+}
+
+export function joinAsrChunkTexts(texts: string[]): string {
+  const parts = texts.map((text) => text.trim()).filter(Boolean);
+  let output = '';
+  for (const part of parts) {
+    if (!output) {
+      output = part;
+      continue;
+    }
+    output += shouldInsertAsciiSpace(output, part) ? ` ${part}` : part;
+  }
+  return output.trim();
+}
+
+function shouldInsertAsciiSpace(previous: string, next: string): boolean {
+  return /[A-Za-z0-9]$/.test(previous) && /^[A-Za-z0-9]/.test(next);
 }
 
 function encodePcm16Wav(samples: Float32Array, sampleRate: number): Buffer {

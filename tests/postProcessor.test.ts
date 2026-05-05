@@ -92,9 +92,30 @@ describe('PostProcessor', () => {
     expect(result.text).not.toContain('/sil');
     expect(result.text).not.toContain('<|nospeech|>');
     expect(result.text).not.toContain('呃');
-    expect(result.text).not.toContain('就是');
     expect(result.text).not.toContain('你懂我意思吧');
-    expect(result.text).toBe('我觉得模型下载速度很慢。');
+    expect(result.text).toBe('我觉得这个就是模型下载速度很慢。');
+  });
+
+  it('does not delete meaningful demonstratives and copula-like filler inside phrases', async () => {
+    const processor = new PostProcessor();
+
+    const result = await processor.process('这个方案比那个好。就是这个问题。', {
+      mode: 'structured',
+      lexicon
+    });
+
+    expect(result.text).toBe('这个方案比那个好。就是这个问题。');
+  });
+
+  it('removes standalone demonstrative fillers only at phrase boundaries', async () => {
+    const processor = new PostProcessor();
+
+    const result = await processor.process('嗯 这个 那个 就是 我想测试一下。', {
+      mode: 'structured',
+      lexicon
+    });
+
+    expect(result.text).toBe('我想测试一下。');
   });
 
   it('keeps one topic in a compact paragraph instead of repeatedly splitting sentences', async () => {
@@ -109,10 +130,10 @@ describe('PostProcessor', () => {
   });
 
   it('instructs LLM structured mode not to force every sentence into a list', () => {
-    expect(structuredPrompt()).toContain('不要默认把每一句都变成列表');
-    expect(structuredPrompt()).toContain('/sil');
-    expect(structuredPrompt()).toContain('同一主题内不要因为停顿');
-    expect(structuredPrompt()).toContain('不要输出 Thinking Process');
+    expect(structuredPrompt()).toContain('不默认把每一句都变成列表');
+    expect(structuredPrompt()).toContain('口头噪声已预处理');
+    expect(structuredPrompt()).toContain('同一主题合并');
+    expect(structuredPrompt()).not.toContain('Thinking Process');
     expect(structuredPrompt()).toContain('只输出整理后的正文');
   });
 
@@ -133,7 +154,7 @@ describe('PostProcessor', () => {
     expect(llm.complete).toHaveBeenCalledWith(
       expect.objectContaining({
         mode: 'structured',
-        input: '把内容整理一下',
+        input: '把这个内容整理一下',
         systemPrompt: expect.stringContaining('专有名词和固定替换约束')
       })
     );
@@ -191,7 +212,7 @@ describe('PostProcessor', () => {
 
     expect(result.usedLlm).toBe(false);
     expect(result.engine).toBe('local-rules');
-    expect(result.text).toBe('我想整理一下模型下载太慢问题。');
+    expect(result.text).toBe('我想整理一下模型下载太慢这个问题。');
     expect(result.llmError).toContain('本地超时');
     expect(result.llmError).toContain('云端兜底失败');
   });

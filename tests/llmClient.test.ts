@@ -30,12 +30,12 @@ describe('OpenAICompatibleClient', () => {
     expect(body).toMatchObject({
       model: 'qwen/qwen3.5-9b',
       temperature: 0.2,
-      max_tokens: 512,
+      max_tokens: 1024,
       stream: false,
       enable_thinking: false,
       reasoning_effort: 'none'
     });
-    expect(body.messages[0].content).toContain('不要输出 Thinking Process');
+    expect(body.messages[0].content).toBe('只输出正文');
 
     vi.unstubAllGlobals();
   });

@@ -39,7 +39,7 @@ export class OpenAICompatibleClient implements LlmClient {
         body: JSON.stringify({
           model: this.model,
           temperature: request.mode === 'natural' ? 0.1 : 0.2,
-          max_tokens: request.mode === 'natural' ? 256 : 512,
+          max_tokens: request.mode === 'natural' ? 256 : 1024,
           stream: false,
           ...(this.fastMode
             ? {
@@ -49,7 +49,7 @@ export class OpenAICompatibleClient implements LlmClient {
               }
             : {}),
           messages: [
-            { role: 'system', content: fastModePrompt(request.systemPrompt, this.fastMode) },
+            { role: 'system', content: request.systemPrompt },
             { role: 'user', content: request.input }
           ]
         })
@@ -99,11 +99,4 @@ export class LlmCompletionError extends Error {
     this.name = 'LlmCompletionError';
     this.code = code;
   }
-}
-
-function fastModePrompt(systemPrompt: string, fastMode: boolean): string {
-  if (!fastMode) {
-    return systemPrompt;
-  }
-  return `${systemPrompt}\n\n速度约束：不要进行长篇推理，不要输出 Thinking Process、reasoning、分析步骤或解释；如果需要整理，直接给最终正文。`;
 }
