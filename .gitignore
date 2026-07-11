@@ -8,6 +8,8 @@ models/
 local/
 coverage/
 release/
+.superpowers/
+.worktrees/
 
 # Environment and secret files
 .env
