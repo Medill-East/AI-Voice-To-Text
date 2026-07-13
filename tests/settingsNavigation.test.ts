@@ -149,6 +149,7 @@ describe('settings navigation structure', () => {
     expect(app).toContain('会上传音频');
     expect(app).toContain('保存云端 ASR API Key');
     expect(app).toContain('Cloud ASR Base URL');
+    expect(app).toContain('Groq 免费层');
     expect(app).toContain('CUDA 后端下载信息');
     expect(app).toContain('下载源');
     expect(app).toContain('下载文件');

@@ -1,6 +1,6 @@
 export type InputMode = 'natural' | 'structured';
 export type AsrProviderKind = 'local-sherpa-onnx' | 'funasr-http' | 'whisper-cpp' | 'cloud-asr';
-export type CloudAsrProviderKind = 'openai' | 'custom-http' | 'doubao';
+export type CloudAsrProviderKind = 'openai' | 'groq' | 'custom-http' | 'doubao';
 export type ModelRuntime = 'sherpa-onnx' | 'whisper-cpp' | 'external';
 export type ModelAvailability = 'installable' | 'manual' | 'reference';
 export type SherpaModelType = 'senseVoice' | 'funasrNano' | 'fireRedAsr' | 'fireRedAsrCtc' | 'paraformer' | 'zipformerCtc' | 'qwen3Asr';

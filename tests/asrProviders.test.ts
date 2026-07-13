@@ -46,6 +46,35 @@ describe('ASR providers', () => {
     expect(body.get('file')).toBeInstanceOf(Blob);
   });
 
+  it('sends Groq free-tier Whisper requests to its OpenAI-compatible transcription endpoint', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ text: 'Groq 转写结果' })
+    });
+    const provider = new CloudAsrProvider({
+      provider: 'groq',
+      baseUrl: 'https://api.groq.com/openai/v1',
+      model: 'whisper-large-v3-turbo',
+      apiKey: 'groq-test-key',
+      fetchImpl
+    });
+
+    await expect(provider.transcribe(Buffer.from('wav-audio'), { language: 'zh' })).resolves.toMatchObject({
+      text: 'Groq 转写结果'
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.groq.com/openai/v1/audio/transcriptions',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ Authorization: 'Bearer groq-test-key' })
+      })
+    );
+    const body = fetchImpl.mock.calls[0][1].body as FormData;
+    expect(body.get('model')).toBe('whisper-large-v3-turbo');
+    expect(body.get('language')).toBe('zh');
+  });
+
   it('turns cloud ASR failures into user-facing errors without leaking API keys', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: false,

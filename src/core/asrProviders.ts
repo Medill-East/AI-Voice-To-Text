@@ -245,7 +245,7 @@ export class CloudAsrProvider implements AsrProvider {
   }
 
   private transcriptionEndpoint(): string {
-    if (this.provider === 'openai') {
+    if (this.provider === 'openai' || this.provider === 'groq') {
       return `${trimTrailingSlash(this.baseUrl)}/audio/transcriptions`;
     }
     if (this.provider === 'doubao' && this.doubao?.endpoint) {

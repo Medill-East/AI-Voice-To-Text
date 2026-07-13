@@ -2245,6 +2245,13 @@ export function App() {
                         model: 'gpt-4o-transcribe'
                       },
                       {
+                        title: 'Groq 免费层',
+                        detail: 'Whisper Large V3 Turbo，免费层有请求和音频时长限制；适合先测试速度。',
+                        provider: 'groq' as const,
+                        baseUrl: 'https://api.groq.com/openai/v1',
+                        model: 'whisper-large-v3-turbo'
+                      },
+                      {
                         title: '自定义服务',
                         detail: '兼容 multipart WAV 输入、JSON transcript 输出的自建或第三方 ASR。',
                         provider: 'custom-http' as const,
@@ -2263,7 +2270,7 @@ export function App() {
 
                   <section className="llm-manual-config">
                     <h3>云端 ASR 配置</h3>
-                    <p className="hint">OpenAI 路径使用 `/audio/transcriptions` 文件转写接口；豆包/火山第一版建议通过自定义 HTTP 代理接入，流式 WebSocket 后续单独做。</p>
+                    <p className="hint">Groq 免费层与 OpenAI 都使用 `/audio/transcriptions` 文件转写接口。Groq 免费层受请求和音频时长限制；豆包/火山第一版建议通过自定义 HTTP 代理接入，流式 WebSocket 后续单独做。</p>
                     <label>
                       Provider
                       <select
@@ -2271,6 +2278,7 @@ export function App() {
                         onChange={(event) => updateCloudAsrConfig({ provider: event.target.value as Settings['providers']['asr']['cloud']['provider'] })}
                       >
                         <option value="openai">OpenAI Transcription</option>
+                        <option value="groq">Groq 免费层 / Whisper</option>
                         <option value="custom-http">自定义 HTTP ASR</option>
                         <option value="doubao">豆包 / 火山代理</option>
                       </select>
@@ -4737,7 +4745,7 @@ function currentAsrLabel(settings: Settings | null): string {
 
 function cloudAsrLabel(settings: Settings): string {
   const provider = settings.providers.asr.cloud.provider;
-  const providerLabel = provider === 'openai' ? 'OpenAI' : provider === 'doubao' ? '豆包/火山' : '自定义 HTTP';
+  const providerLabel = provider === 'openai' ? 'OpenAI' : provider === 'groq' ? 'Groq 免费层' : provider === 'doubao' ? '豆包/火山' : '自定义 HTTP';
   return `云端 ASR · ${providerLabel} ${settings.providers.asr.cloud.model || '未选择模型'}`;
 }
 
@@ -4746,7 +4754,7 @@ function asrRuntimeLabel(settings: Settings | null, cpuCores?: number, cudaStatu
     return '加载中';
   }
   if (settings.providers.asr.kind === 'cloud-asr') {
-    return `云端上传 · ${settings.providers.asr.cloud.provider === 'openai' ? 'OpenAI Transcription' : settings.providers.asr.cloud.provider === 'doubao' ? '豆包/火山代理' : '自定义 HTTP ASR'}`;
+    return `云端上传 · ${settings.providers.asr.cloud.provider === 'openai' ? 'OpenAI Transcription' : settings.providers.asr.cloud.provider === 'groq' ? 'Groq Whisper 免费层' : settings.providers.asr.cloud.provider === 'doubao' ? '豆包/火山代理' : '自定义 HTTP ASR'}`;
   }
   if (settings.providers.asr.kind === 'local-sherpa-onnx') {
     return localSherpaRuntimeLabel(
