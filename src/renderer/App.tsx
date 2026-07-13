@@ -244,6 +244,11 @@ export function App() {
     setRecoveryJobs(nextSetup.recoveryJobs ?? []);
   }, []);
 
+  const refreshHistory = useCallback(async () => {
+    const entries = await window.v2t.getHistory(30);
+    setHistory(entries.map(historyEntryToLocalItem));
+  }, []);
+
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
@@ -315,11 +320,8 @@ export function App() {
   }, [applySetup]);
 
   useEffect(() => {
-    void window.v2t
-      .getHistory(30)
-      .then((entries) => setHistory(entries.map(historyEntryToLocalItem)))
-      .catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
-  }, []);
+    void refreshHistory().catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
+  }, [refreshHistory]);
 
   useEffect(() => {
     void window.v2t
@@ -542,8 +544,8 @@ export function App() {
     recordingStateRef.current = 'processing';
     setState('processing');
     try {
-      const result = await window.v2t.processAudio({ bytes, mode: activeMode });
-      setHistory((items) => [{ ...result, createdAt: new Date().toISOString(), mode: activeMode }, ...items].slice(0, 30));
+      await window.v2t.processAudio({ bytes, mode: activeMode });
+      await refreshHistory();
       void window.v2t.getUsageStatistics(statisticsDays).then(setUsageStatistics);
       void window.v2t.getRecoveryJobs().then(setRecoveryJobs);
       recordingStartedAtRef.current = undefined;
@@ -562,7 +564,7 @@ export function App() {
       setError(caught instanceof Error ? caught.message : String(caught));
       void window.v2t.getRecoveryJobs().then(setRecoveryJobs);
     }
-  }, [resetInputMeter, statisticsDays]);
+  }, [refreshHistory, resetInputMeter, statisticsDays]);
 
   const retryRecoveryJob = useCallback(async (job: VoiceInputRecoveryJob) => {
     recordingStateRef.current = 'processing';
@@ -574,8 +576,7 @@ export function App() {
       if (!response.ok || !response.result) {
         throw new Error(response.error ?? '重新处理失败');
       }
-      const result = response.result;
-      setHistory((items) => [{ ...result, createdAt: new Date().toISOString(), mode: job.mode }, ...items].slice(0, 30));
+      await refreshHistory();
       if (response.setup) {
         applySetup(response.setup);
       }
@@ -590,7 +591,7 @@ export function App() {
       setError(caught instanceof Error ? caught.message : String(caught));
       void window.v2t.getRecoveryJobs().then(setRecoveryJobs);
     }
-  }, [applySetup, statisticsDays]);
+  }, [applySetup, refreshHistory, statisticsDays]);
 
   const deleteRecoveryJob = useCallback(async (jobId: string) => {
     const response = await window.v2t.deleteRecoveryJob(jobId);
@@ -1954,6 +1955,10 @@ export function App() {
                       <span>整理 {formatMs(item.metrics?.postProcessDurationMs)}</span>
                       <span>注入 {formatMs(item.metrics?.injectionDurationMs)}</span>
                       <span>总计 {formatMs(item.metrics?.totalDurationMs)}</span>
+                    </div>
+                    <div className="history-models" aria-label="处理模型">
+                      <span>ASR 模型 · {item.metrics?.asrModelName ?? item.metrics?.asrModelId ?? '旧记录：未记录模型'}</span>
+                      <span>整理模型 · {item.metrics?.llmModel ?? postProcessorEngineLabel(item.postProcessorEngine)}</span>
                     </div>
                     <pre className="history-text">{item.outputText}</pre>
                   </li>

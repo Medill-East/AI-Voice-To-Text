@@ -740,11 +740,7 @@ function registerIpc(): void {
     }
   });
   ipcMain.handle('v2t:process-audio', async (_event, payload: { bytes: Uint8Array; mode: InputMode }) => {
-    const response = await processAudioPayload(payload);
-    if (!response.ok || !response.result) {
-      throw new Error(response.error ?? '语音处理失败');
-    }
-    return response.result;
+    return processAudioPayload(payload);
   });
   ipcMain.handle('v2t:get-recovery-jobs', async () => voiceInputRecoveryStore.listJobs());
   ipcMain.handle('v2t:retry-recovery-job', async (_event, jobId: string) => retryRecoveryJob(jobId));

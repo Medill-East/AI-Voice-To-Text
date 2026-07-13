@@ -491,6 +491,16 @@ li {
   color: var(--color-muted-2);
 }
 
+.history-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
+  margin-top: var(--space-1);
+  color: var(--color-muted);
+  font-size: var(--font-meta);
+  line-height: 1.45;
+}
+
 pre {
   overflow: auto;
   margin: 0;
