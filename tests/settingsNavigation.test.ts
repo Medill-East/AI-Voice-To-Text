@@ -145,11 +145,12 @@ describe('settings navigation structure', () => {
     expect(app).toContain('检测 CUDA');
     expect(app).toContain('安装 CUDA 后端');
     expect(app).toContain('云端 ASR');
-    expect(app).toContain('测试云端 ASR');
+    expect(app).toContain('连通性预检');
     expect(app).toContain('会上传音频');
     expect(app).toContain('保存云端 ASR API Key');
     expect(app).toContain('Cloud ASR Base URL');
     expect(app).toContain('Groq 免费层');
+    expect(app).toContain('连通性预检，不会写入历史或统计，也不代表识别准确率。');
     expect(app).toContain('CUDA 后端下载信息');
     expect(app).toContain('下载源');
     expect(app).toContain('下载文件');

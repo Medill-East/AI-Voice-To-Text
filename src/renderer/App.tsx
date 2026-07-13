@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { cloudLlmTags, sortCloudLlmModels } from '../core/cloudLlmCatalogShared';
+import { cloudAsrProviderLabel, cloudAsrUsageLabel } from '../core/cloudAsr';
 import type { CloudLlmSortDirection } from '../core/cloudLlmCatalogShared';
 import { cloudBatchRetryDelayMs, selectBestCloudLlmCandidate } from '../core/cloudLlmEvaluation';
 import { localSherpaRuntimeLabel, resolveLocalSherpaRuntime } from '../core/asrRuntime';
@@ -2220,7 +2221,7 @@ export function App() {
                     </div>
                     <div className="action-toolbar section-summary-actions">
                       <button className="secondary compact" onClick={() => void testCloudAsr()} disabled={cloudAsrTesting}>
-                        {cloudAsrTesting ? '测试中' : '测试云端 ASR'}
+                        {cloudAsrTesting ? '预检中' : '连通性预检'}
                       </button>
                       <button className="save compact" onClick={() => void enableCloudAsr()}>
                         启用云端 ASR
@@ -2271,6 +2272,7 @@ export function App() {
                   <section className="llm-manual-config">
                     <h3>云端 ASR 配置</h3>
                     <p className="hint">Groq 免费层与 OpenAI 都使用 `/audio/transcriptions` 文件转写接口。Groq 免费层受请求和音频时长限制；豆包/火山第一版建议通过自定义 HTTP 代理接入，流式 WebSocket 后续单独做。</p>
+                    <p className="hint">连通性预检，不会写入历史或统计，也不代表识别准确率。启用云端 ASR 后用正常录音，才会记录实际 ASR 耗时、模型和转写结果。</p>
                     <label>
                       Provider
                       <select
@@ -2332,7 +2334,7 @@ export function App() {
                         保存云端 ASR 设置
                       </button>
                       <button className="secondary compact" onClick={() => void testCloudAsr()} disabled={cloudAsrTesting}>
-                        测试云端 ASR
+                        连通性预检
                       </button>
                     </div>
                     {cloudAsrTestResult ? (
@@ -4744,9 +4746,7 @@ function currentAsrLabel(settings: Settings | null): string {
 }
 
 function cloudAsrLabel(settings: Settings): string {
-  const provider = settings.providers.asr.cloud.provider;
-  const providerLabel = provider === 'openai' ? 'OpenAI' : provider === 'groq' ? 'Groq 免费层' : provider === 'doubao' ? '豆包/火山' : '自定义 HTTP';
-  return `云端 ASR · ${providerLabel} ${settings.providers.asr.cloud.model || '未选择模型'}`;
+  return cloudAsrUsageLabel(settings.providers.asr.cloud);
 }
 
 function asrRuntimeLabel(settings: Settings | null, cpuCores?: number, cudaStatus?: AsrCudaStatus): string {
@@ -4754,7 +4754,7 @@ function asrRuntimeLabel(settings: Settings | null, cpuCores?: number, cudaStatu
     return '加载中';
   }
   if (settings.providers.asr.kind === 'cloud-asr') {
-    return `云端上传 · ${settings.providers.asr.cloud.provider === 'openai' ? 'OpenAI Transcription' : settings.providers.asr.cloud.provider === 'groq' ? 'Groq Whisper 免费层' : settings.providers.asr.cloud.provider === 'doubao' ? '豆包/火山代理' : '自定义 HTTP ASR'}`;
+    return `云端上传 · ${cloudAsrProviderLabel(settings.providers.asr.cloud.provider)} ${settings.providers.asr.cloud.model}`;
   }
   if (settings.providers.asr.kind === 'local-sherpa-onnx') {
     return localSherpaRuntimeLabel(

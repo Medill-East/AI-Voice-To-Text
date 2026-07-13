@@ -6,6 +6,7 @@ import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { autoUpdater } from 'electron-updater';
 import { CloudAsrProvider, FunAsrHttpProvider, LocalSherpaAsrProvider, UserFacingAsrError, WhisperCppAsrProvider, type AsrErrorDiagnostic } from '../core/asrProviders';
+import { cloudAsrProviderLabel, cloudAsrUsageLabel } from '../core/cloudAsr';
 import { AppUpdateService } from '../core/appUpdateService';
 import { AutoSyncService } from '../core/autoSyncService';
 import { CloudLlmCatalogService } from '../core/cloudLlmCatalog';
@@ -1561,7 +1562,7 @@ function enrichUsageStatistics<T extends { asrModels: Array<{ key: string; label
 
 function activeAsrModelName(): string | undefined {
   if (settings.providers.asr.kind === 'cloud-asr') {
-    return `云端 ASR · ${cloudAsrProviderLabel(settings.providers.asr.cloud.provider)} ${settings.providers.asr.cloud.model}`;
+    return cloudAsrUsageLabel(settings.providers.asr.cloud);
   }
   const modelId = settings.providers.asr.modelId;
   if (!modelId) {
@@ -1575,16 +1576,6 @@ function activeAsrModelId(): string | undefined {
     return `cloud-asr:${settings.providers.asr.cloud.provider}:${settings.providers.asr.cloud.model}`;
   }
   return settings.providers.asr.modelId;
-}
-
-function cloudAsrProviderLabel(provider: Settings['providers']['asr']['cloud']['provider']): string {
-  if (provider === 'openai') {
-    return 'OpenAI';
-  }
-  if (provider === 'doubao') {
-    return '豆包/火山';
-  }
-  return '自定义 HTTP';
 }
 
 async function chooseModelRootPath() {
