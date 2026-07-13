@@ -102,7 +102,7 @@ describe('settings navigation structure', () => {
     expect(app).toContain('质量验收');
     expect(app).toContain('cloudBatchRetryDelayMs');
     expect(app).toContain('Qwen 3.6 Plus 是付费稳定主力');
-    expect(app).toContain('Ling-2.6-flash free 是免费快速候选');
+    expect(app).not.toContain('Ling-2.6-flash free');
     expect(app).toContain('已隐藏');
     expect(app).toContain('显示全部推荐');
     expect(app).toContain('测试已选模型');

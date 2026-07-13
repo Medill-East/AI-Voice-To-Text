@@ -3818,12 +3818,12 @@ function CloudModelTable({
       </p>
       {hiddenPaidRecommendedCount > 0 ? (
         <div className="cloud-paid-hidden-notice">
-          <span>已隐藏 {hiddenPaidRecommendedCount} 个付费推荐模型，包括 Qwen 3.6 Plus。免费候选仍保留 Ling-2.6-flash free；免费不等于更推荐，可能限流或波动。</span>
+          <span>已隐藏 {hiddenPaidRecommendedCount} 个付费推荐模型，包括 Qwen 3.6 Plus。免费模型可能限流或随时调整，不等于更推荐。</span>
           <button className="secondary compact" onClick={() => onOnlyFree(false)}>显示全部推荐</button>
         </div>
       ) : null}
       <p className="progress-meta">
-        Qwen 3.6 Plus 是付费稳定主力，适合中文/中英混合和较长整理；Ling-2.6-flash free 是免费快速候选，适合短文本试用。
+        Qwen 3.6 Plus 是付费稳定主力，适合中文/中英混合和较长整理；免费候选应以刷新后的可用列表和实际测试为准。
       </p>
       {filtered.length === 0 ? (
         <div className="cloud-empty-state">

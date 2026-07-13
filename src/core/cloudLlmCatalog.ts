@@ -5,6 +5,7 @@ import type { CloudLlmModelCatalogState, CloudLlmModelView } from './types';
 export { sortCloudLlmModels } from './cloudLlmCatalogShared';
 
 const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
+const RETIRED_CLOUD_LLM_IDS = new Set(['inclusionai/ling-2.6-flash:free']);
 
 type FetchLike = typeof fetch;
 
@@ -50,7 +51,7 @@ export class CloudLlmCatalogService {
       sourceUrl: OPENROUTER_MODELS_URL,
       updatedAt: cached?.updatedAt,
       cacheUsed: Boolean(cached),
-      models: cached?.models ?? builtinCloudLlmModels()
+      models: withoutRetiredCloudLlmModels(cached?.models ?? builtinCloudLlmModels())
     };
   }
 
@@ -126,19 +127,6 @@ export function builtinCloudLlmModels(): CloudLlmModelView[] {
       note: '中文和中英混合整理优先候选。'
     },
     {
-      id: 'inclusionai/ling-2.6-flash:free',
-      name: 'Ling-2.6-flash Free',
-      isFree: true,
-      recommended: true,
-      recommendationScore: 88,
-      performanceScore: 84,
-      promptPrice: 0,
-      completionPrice: 0,
-      contextLength: 262144,
-      modelUrl: 'https://openrouter.ai/models/inclusionai/ling-2.6-flash:free',
-      note: '免费快速候选，适合先测试短文本整理；免费端点可能限流或下线。'
-    },
-    {
       id: 'google/gemma-4-31b-it:free',
       name: 'Gemma 4 31B Free',
       isFree: true,
@@ -154,12 +142,16 @@ export function builtinCloudLlmModels(): CloudLlmModelView[] {
 }
 
 function mergeWithBuiltinRecommendations(models: CloudLlmModelView[]): CloudLlmModelView[] {
-  const byId = new Map(models.map((model) => [model.id, model]));
+  const byId = new Map(withoutRetiredCloudLlmModels(models).map((model) => [model.id, model]));
   for (const builtin of builtinCloudLlmModels()) {
     const remote = byId.get(builtin.id);
     byId.set(builtin.id, remote ? { ...builtin, ...remote, recommended: true, recommendationScore: Math.max(remote.recommendationScore, builtin.recommendationScore) } : builtin);
   }
-  return [...byId.values()];
+  return withoutRetiredCloudLlmModels([...byId.values()]);
+}
+
+function withoutRetiredCloudLlmModels(models: CloudLlmModelView[]): CloudLlmModelView[] {
+  return models.filter((model) => !RETIRED_CLOUD_LLM_IDS.has(model.id));
 }
 
 function toCloudLlmModelView(model: OpenRouterModel): CloudLlmModelView | undefined {

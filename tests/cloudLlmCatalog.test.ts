@@ -36,10 +36,31 @@ describe('CloudLlmCatalogService', () => {
       isFree: true,
       contextLength: 131072
     });
-    expect(state.models.map((model) => model.id)).toEqual(
-      expect.arrayContaining(['openrouter/free', 'inclusionai/ling-2.6-flash:free', 'google/gemma-4-31b-it:free'])
-    );
+    expect(state.models.map((model) => model.id)).toEqual(expect.arrayContaining(['openrouter/free', 'google/gemma-4-31b-it:free']));
+    expect(state.models.map((model) => model.id)).not.toContain('inclusionai/ling-2.6-flash:free');
     expect(await readFile(cachePath, 'utf8')).toContain('qwen/qwen3.6-plus');
+  });
+
+  it('does not display a retired model returned by the OpenRouter catalog', async () => {
+    const cachePath = join(await mkdtemp(join(tmpdir(), 'v2t-cloud-llm-')), 'models.json');
+    const service = new CloudLlmCatalogService({
+      cachePath,
+      fetchImpl: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: [
+            { id: 'inclusionai/ling-2.6-flash:free', name: 'Ling-2.6-flash Free', pricing: { prompt: '0', completion: '0' } },
+            { id: 'openrouter/free', name: 'Free Router', pricing: { prompt: '0', completion: '0' } }
+          ]
+        })
+      })) as never
+    });
+
+    const state = await service.refresh();
+
+    expect(state.models.map((model) => model.id)).not.toContain('inclusionai/ling-2.6-flash:free');
+    expect(state.models.map((model) => model.id)).toContain('openrouter/free');
   });
 
   it('falls back to cached models when refresh fails', async () => {
