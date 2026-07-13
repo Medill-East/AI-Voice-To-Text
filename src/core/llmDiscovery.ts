@@ -1,6 +1,7 @@
 import type { LlmProviderDetection, LlmProviderKind, LlmTestResult } from './types';
 import { OpenAICompatibleClient } from './llmClient';
 import { structuredPrompt } from './postProcessor';
+import { evaluateCloudLlmOutput } from './cloudLlmEvaluation';
 
 export interface LlmEndpoint {
   kind: LlmProviderKind;
@@ -82,6 +83,7 @@ export async function testLlmClient(options: {
   apiKey?: string;
   timeoutMs?: number;
   fastMode?: boolean;
+  systemPrompt?: string;
 }): Promise<LlmTestResult> {
   const startedAt = Date.now();
   try {
@@ -95,15 +97,18 @@ export async function testLlmClient(options: {
     const output = await client.complete({
       mode: 'structured',
       input: '嗯我想测试一下结构化整理，比如第一个问题是模型下载太慢，第二个问题是结构化输出不够自然，第三个问题是 GitHub 同步要避免覆盖本地提示词。',
-      systemPrompt: structuredPrompt()
+      systemPrompt: options.systemPrompt ?? structuredPrompt()
     });
+    const evaluation = evaluateCloudLlmOutput(output);
     return {
       ok: true,
       provider: options.kind,
       model: options.model,
       elapsedMs: Date.now() - startedAt,
       engine: 'llm-local',
-      output
+      output,
+      qualityScore: evaluation.score,
+      qualityPassed: evaluation.passed
     };
   } catch (error) {
     return {

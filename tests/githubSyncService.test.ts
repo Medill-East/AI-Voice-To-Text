@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { GitHubSyncService, syncFileAllowlist } from '../src/core/githubSyncService';
 import { UserDataStore } from '../src/core/userDataStore';
 
@@ -108,6 +108,9 @@ describe('GitHubSyncService', () => {
   });
 
   it('exports aggregate usage stats and text history by default', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-01T00:00:00.000Z'));
+    try {
     const root = await mkdtemp(join(tmpdir(), 'v2t-sync-stats-'));
     const dataDir = join(root, 'data');
     const repoDir = join(root, 'repo');
@@ -131,6 +134,9 @@ describe('GitHubSyncService', () => {
     expect(summary.totalCount).toBe(1);
     expect(summary.asrModels[0].label).toBe('Qwen3 ASR');
     expect(summary.postProcessors[0].key).toBe('llm-cloud');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('can exclude text-only history in the sync archive when the user disables it', async () => {

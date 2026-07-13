@@ -738,7 +738,13 @@ function registerIpc(): void {
       return { ok: false, error: readableError(error), setup: await getSetupPayload() };
     }
   });
-  ipcMain.handle('v2t:process-audio', async (_event, payload: { bytes: Uint8Array; mode: InputMode }) => processAudioPayload(payload));
+  ipcMain.handle('v2t:process-audio', async (_event, payload: { bytes: Uint8Array; mode: InputMode }) => {
+    const response = await processAudioPayload(payload);
+    if (!response.ok || !response.result) {
+      throw new Error(response.error ?? '语音处理失败');
+    }
+    return response.result;
+  });
   ipcMain.handle('v2t:get-recovery-jobs', async () => voiceInputRecoveryStore.listJobs());
   ipcMain.handle('v2t:retry-recovery-job', async (_event, jobId: string) => retryRecoveryJob(jobId));
   ipcMain.handle('v2t:delete-recovery-job', async (_event, jobId: string) => {
@@ -939,6 +945,7 @@ async function openLlmInstaller(kind: LlmProviderKind, target: 'download' | 'doc
 }
 
 async function testCurrentLlmConnection() {
+  const structuredTestPrompt = await store.readPrompt('structured');
   if (settings.providers.llm.engine === 'off') {
     return {
       ok: false,
@@ -955,7 +962,8 @@ async function testCurrentLlmConnection() {
       model: settings.providers.llm.fallback.model,
       apiKey: await new SecretStore('v2t-llm-fallback').getOpenAICompatibleKey(),
       timeoutMs: settings.providers.llm.fallback.timeoutMs,
-      fastMode: true
+      fastMode: true,
+      systemPrompt: structuredTestPrompt
     });
   }
 
@@ -965,7 +973,8 @@ async function testCurrentLlmConnection() {
     model: settings.providers.llm.model,
     apiKey: await new SecretStore().getOpenAICompatibleKey(),
     timeoutMs: settings.providers.llm.timeoutMs,
-    fastMode: settings.providers.llm.fastMode
+    fastMode: settings.providers.llm.fastMode,
+    systemPrompt: structuredTestPrompt
   });
 }
 
@@ -976,7 +985,8 @@ async function testCloudLlmConnection(options?: { baseUrl?: string; model?: stri
     model: options?.model ?? settings.providers.llm.fallback.model,
     apiKey: await new SecretStore('v2t-llm-fallback').getOpenAICompatibleKey(),
     timeoutMs: settings.providers.llm.fallback.timeoutMs,
-    fastMode: true
+    fastMode: true,
+    systemPrompt: await store.readPrompt('structured')
   });
 }
 

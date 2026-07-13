@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { UserDataStore } from '../src/core/userDataStore';
 
 describe('UserDataStore', () => {
@@ -361,6 +361,9 @@ describe('UserDataStore', () => {
   });
 
   it('does not double count synced summary when detailed history for the same device exists', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-01T00:00:00.000Z'));
+    try {
     const dir = await mkdtemp(join(tmpdir(), 'v2t-store-remote-dedupe-'));
     const store = await UserDataStore.create(dir, { deviceId: 'device-a' });
     await mkdir(join(dir, 'history', 'device-b'), { recursive: true });
@@ -390,6 +393,9 @@ describe('UserDataStore', () => {
     expect(stats.totalCount).toBe(1);
     expect(stats.remoteSummaryIncluded).toBe(false);
     expect(stats.sourceDeviceIds).toEqual(['device-b']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('loads recent history from every synced device in reverse chronological order', async () => {

@@ -742,6 +742,8 @@ export interface LlmTestResult {
   engine?: PostProcessorEngine;
   finishReason?: string;
   reasoningOnly?: boolean;
+  qualityScore?: number;
+  qualityPassed?: boolean;
   error?: string;
 }
 

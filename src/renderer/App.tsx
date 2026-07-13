@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { cloudLlmTags, sortCloudLlmModels } from '../core/cloudLlmCatalogShared';
 import type { CloudLlmSortDirection } from '../core/cloudLlmCatalogShared';
+import { cloudBatchRetryDelayMs, selectBestCloudLlmCandidate } from '../core/cloudLlmEvaluation';
 import { localSherpaRuntimeLabel, resolveLocalSherpaRuntime } from '../core/asrRuntime';
 import { analyzeLexicon } from '../core/postProcessor';
 import { oneClickEligibility, oneClickInstallableModels, publicChineseMetrics, referenceModels, scoreModel } from '../core/modelCatalog';
@@ -121,6 +122,8 @@ interface CloudLlmTestResultView {
   latencyMs?: number;
   outputChars: number;
   finishReason?: string;
+  qualityScore?: number;
+  qualityPassed?: boolean;
   preview?: string;
   error?: string;
   testedAt: string;
@@ -213,6 +216,20 @@ export function App() {
   const recordingLimitTimerRef = useRef<number | undefined>(undefined);
   const lexiconSaveTimerRef = useRef<number | undefined>(undefined);
   const capturedHotkeyKeysRef = useRef<Set<string>>(new Set());
+
+  const bestCloudCandidate = useMemo(() => {
+    const recommendationById = new Map((cloudLlmCatalog?.models ?? []).map((model) => [model.id, model.recommendationScore]));
+    return selectBestCloudLlmCandidate(
+      Object.values(cloudTestResultsById).map((result) => ({
+        modelId: result.modelId,
+        modelName: result.modelName,
+        ok: result.ok,
+        latencyMs: result.latencyMs,
+        qualityScore: result.qualityScore,
+        recommendationScore: recommendationById.get(result.modelId)
+      }))
+    );
+  }, [cloudLlmCatalog?.models, cloudTestResultsById]);
 
   const applySetup = useCallback((nextSetup: SetupPayload) => {
     setSetup(nextSetup);
@@ -1392,6 +1409,8 @@ export function App() {
       latencyMs: result.elapsedMs,
       outputChars: result.output ? [...result.output.replace(/\s+/g, '')].length : 0,
       finishReason: result.finishReason,
+      qualityScore: result.qualityScore,
+      qualityPassed: result.qualityPassed,
       preview: result.output,
       error: result.error,
       testedAt: new Date().toISOString()
@@ -1415,12 +1434,22 @@ export function App() {
     setCloudBatchTesting(true);
     try {
       for (const model of models) {
-        const result = await testCloudLlmConnection(model);
-        if (!result.ok && /429|rate|limit|限流/i.test(result.error ?? '')) {
-          setLlmMessage(`遇到限流，已停止后续测试：${result.error}`);
+        let result: CloudLlmTestResultView | undefined;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          result = await testCloudLlmConnection(model);
+          const rateLimited = !result.ok && /429|rate|limit|限流/i.test(result.error ?? '');
+          if (!rateLimited || attempt === 2) {
+            break;
+          }
+          const retryDelayMs = cloudBatchRetryDelayMs(attempt);
+          setLlmMessage(`${model.name} 遇到限流，${Math.round(retryDelayMs / 1000)} 秒后重试（${attempt + 1}/2）。`);
+          await delay(retryDelayMs);
+        }
+        if (result && !result.ok && /429|rate|limit|限流/i.test(result.error ?? '')) {
+          setLlmMessage(`连续限流，已暂停后续测试。已完成结果会保留，可稍后继续：${result.error}`);
           break;
         }
-        await delay(800);
+        await delay(2_000);
       }
     } finally {
       setCloudBatchTesting(false);
@@ -1917,6 +1946,13 @@ export function App() {
                       <span>{new Date(item.createdAt).toLocaleTimeString()}</span>
                       {item.sourceDeviceId ? <span>{item.sourceDeviceId}</span> : null}
                       <span>{item.injection.method === 'cursor' ? '已输入' : '剪贴板'}</span>
+                    </div>
+                    <div className="history-timings" aria-label="处理分解">
+                      <span>处理分解</span>
+                      <span>ASR {formatMs(item.metrics?.asrDurationMs)}</span>
+                      <span>整理 {formatMs(item.metrics?.postProcessDurationMs)}</span>
+                      <span>注入 {formatMs(item.metrics?.injectionDurationMs)}</span>
+                      <span>总计 {formatMs(item.metrics?.totalDurationMs)}</span>
                     </div>
                     <pre className="history-text">{item.outputText}</pre>
                   </li>
@@ -2519,7 +2555,10 @@ export function App() {
                       </button>
                     </div>
                     <div className="cloud-model-workspace">
-                      <CloudTestResultPanel result={latestCloudTestResultId ? cloudTestResultsById[latestCloudTestResultId] : latestCloudResult(cloudTestResultsById)} />
+                      <CloudTestResultPanel
+                        result={latestCloudTestResultId ? cloudTestResultsById[latestCloudTestResultId] : latestCloudResult(cloudTestResultsById)}
+                        bestCandidate={bestCloudCandidate}
+                      />
                       <CloudModelTable
                         state={cloudLlmCatalog}
                         search={cloudModelSearch}
@@ -3837,7 +3876,13 @@ function CloudModelTable({
   );
 }
 
-function CloudTestResultPanel({ result }: { result?: CloudLlmTestResultView }) {
+function CloudTestResultPanel({
+  result,
+  bestCandidate
+}: {
+  result?: CloudLlmTestResultView;
+  bestCandidate?: { modelName: string; latencyMs?: number; qualityScore?: number };
+}) {
   return (
     <section className="cloud-test-summary">
       <div className="cloud-test-summary-head">
@@ -3851,6 +3896,7 @@ function CloudTestResultPanel({ result }: { result?: CloudLlmTestResultView }) {
             <span>{result.ok ? '可用' : '失败'}</span>
             <span>{result.latencyMs ? `${Math.round(result.latencyMs / 100) / 10}s` : '-'}</span>
             <span>{result.outputChars} 字</span>
+            <span>质量验收 {result.qualityScore ?? '-'}{result.qualityPassed === false ? '（未通过）' : ''}</span>
             <span>{result.finishReason ?? '-'}</span>
           </div>
           <details>
@@ -3860,6 +3906,13 @@ function CloudTestResultPanel({ result }: { result?: CloudLlmTestResultView }) {
         </>
       ) : (
         <p className="empty">还没有测试结果。选择模型后点击“测试”或“测试已选模型”。</p>
+      )}
+      {bestCandidate ? (
+        <p className="cloud-best-candidate">
+          最快合格候选：<strong>{bestCandidate.modelName}</strong> · {formatMs(bestCandidate.latencyMs)} · 质量验收 {bestCandidate.qualityScore}
+        </p>
+      ) : (
+        <p className="cloud-best-candidate">完成至少一项质量验收通过的测试后，才会给出最快合格候选。</p>
       )}
     </section>
   );
@@ -4482,7 +4535,21 @@ function historyEntryToLocalItem(entry: HistoryEntry): LocalHistoryItem {
       entry.postProcessorEngine === 'llm-local' ||
       entry.postProcessorEngine === 'llm-cloud' ||
       entry.postProcessorEngine === 'llm-fallback',
-    postProcessorEngine: entry.postProcessorEngine ?? 'local-rules'
+    postProcessorEngine: entry.postProcessorEngine ?? 'local-rules',
+    metrics: {
+      audioDurationSeconds: entry.audioDurationSeconds,
+      audioBytes: entry.audioBytes,
+      rawCharCount: entry.rawCharCount ?? 0,
+      outputCharCount: entry.outputCharCount ?? 0,
+      asrModelId: entry.asrModelId,
+      asrModelName: entry.asrModelName,
+      asrProviderKind: entry.asrProviderKind,
+      asrDurationMs: entry.asrDurationMs ?? 0,
+      postProcessDurationMs: entry.postProcessDurationMs ?? 0,
+      injectionDurationMs: entry.injectionDurationMs ?? 0,
+      totalDurationMs: entry.totalDurationMs ?? 0,
+      llmModel: entry.llmModel
+    }
   };
 }
 
@@ -5155,7 +5222,7 @@ function cloudTestInlineLabel(result: CloudLlmTestResultView): string {
     return '测试失败';
   }
   const elapsed = result.latencyMs ? `${Math.round(result.latencyMs / 100) / 10}s` : '未知耗时';
-  return `${elapsed} · ${result.outputChars} 字`;
+  return `${elapsed} · 验收 ${result.qualityScore ?? '-'} · ${result.outputChars} 字`;
 }
 
 function delay(ms: number): Promise<void> {

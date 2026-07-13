@@ -95,6 +95,12 @@ describe('settings navigation structure', () => {
     expect(app).toContain('只看推荐');
     expect(app).toContain('CloudModelTable');
     expect(app).toContain('CloudTestResultPanel');
+    expect(app).toContain('处理分解');
+    expect(app).toContain('ASR ');
+    expect(app).toContain('整理 ');
+    expect(app).toContain('最快合格候选');
+    expect(app).toContain('质量验收');
+    expect(app).toContain('cloudBatchRetryDelayMs');
     expect(app).toContain('Qwen 3.6 Plus 是付费稳定主力');
     expect(app).toContain('Ling-2.6-flash free 是免费快速候选');
     expect(app).toContain('已隐藏');
